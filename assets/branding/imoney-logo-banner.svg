@@ -31,12 +31,12 @@
 
     <!-- Technical Subtitle -->
     <text x="0" y="152" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-weight="400" font-size="18" fill="#9ca3af">
-      5-second block time &bull; GHOSTDAG consensus &bull; Memory-hard ASIC-resistant PoW
+      5-second block time &#8226; GHOSTDAG consensus &#8226; Memory-hard ASIC-resistant PoW
     </text>
 
     <!-- Specs row -->
     <text x="0" y="188" font-family="'Courier New', Courier, monospace" font-size="13" fill="#6b7280">
-      0 premine &bull; 0 dev tax &bull; 5 IM/block 4-year halving &bull; 0.3125 IM permanent floor
+      0 premine &#8226; 0 dev tax &#8226; 5 IM/block 4-year halving &#8226; 0.3125 IM permanent floor
     </text>
   </g>
 </svg>

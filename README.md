@@ -1,11 +1,12 @@
 <p align="center">
-  <img src="assets/branding/imoney-logo-banner.svg" alt="Internet Money Logo Banner" width="800">
+  <img src="https://raw.githubusercontent.com/Internet-Money-Network/imoney/main/assets/branding/imoney-logo-banner.png" alt="Internet Money Logo Banner" width="800">
 </p>
 
 <p align="center">
   <b>A fast, ASIC-resistant BlockDAG Layer-1 cryptocurrency for peer-to-peer commerce.</b><br>
   <sub>Zero Premine &bull; Zero Dev Fee &bull; 5-Second Settlement &bull; Pure-Rust redb Storage &bull; Native Merchant SDK</sub>
 </p>
+
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg" alt="License"></a>
