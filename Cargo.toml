@@ -13,7 +13,7 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Internet Money Developers"]
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/thekillsquad007/imoney"
+repository = "https://github.com/Internet-Money-Network/imoney"
 
 [workspace.dependencies]
 imoney-core = { path = "crates/imoney-core" }

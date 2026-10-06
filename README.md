@@ -66,7 +66,7 @@ The codebase is organized as a modular Rust workspace:
 
 ### Build
 ```bash
-git clone https://github.com/thekillsquad007/imoney.git
+git clone https://github.com/Internet-Money-Network/imoney.git
 cd imoney
 cargo build --release
 ```
