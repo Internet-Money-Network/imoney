@@ -1,0 +1,27 @@
+[package]
+name = "imoney-node"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "imoney-node"
+path = "src/main.rs"
+
+[dependencies]
+imoney-core = { path = "../imoney-core" }
+imoney-pow = { path = "../imoney-pow" }
+imoney-emission = { path = "../imoney-emission" }
+imoney-consensus = { path = "../imoney-consensus" }
+blake3.workspace = true
+tokio.workspace = true
+axum.workspace = true
+tower-http.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+clap.workspace = true
+thiserror.workspace = true
+chrono.workspace = true
+hex.workspace = true
+rand.workspace = true
