@@ -137,6 +137,32 @@ impl Storage {
         Ok(())
     }
 
+    /// Returns a specific UTXO if it exists.
+    pub fn get_utxo(&self, outpoint: &Outpoint) -> Result<Option<TxOutput>, StorageError> {
+        let read_tx = self.db.begin_read()?;
+        let utxo_table = read_tx.open_table(UTXO_TABLE)?;
+        let key_bytes = serde_json::to_vec(outpoint)?;
+        if let Some(val) = utxo_table.get(key_bytes.as_slice())? {
+            let output: TxOutput = serde_json::from_slice(val.value())?;
+            Ok(Some(output))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Removes a spent UTXO from the database.
+    pub fn remove_utxo(&self, outpoint: &Outpoint) -> Result<bool, StorageError> {
+        let write_tx = self.db.begin_write()?;
+        let removed = {
+            let mut utxo_table = write_tx.open_table(UTXO_TABLE)?;
+            let key_bytes = serde_json::to_vec(outpoint)?;
+            let maybe_guard = utxo_table.remove(key_bytes.as_slice())?;
+            maybe_guard.is_some()
+        };
+        write_tx.commit()?;
+        Ok(removed)
+    }
+
     /// Queries spendable balance for an address (summing atomic units).
     pub fn get_balance(&self, address: &Address) -> Result<u64, StorageError> {
         let read_tx = self.db.begin_read()?;
@@ -173,3 +199,4 @@ impl Storage {
         Ok(results)
     }
 }
+

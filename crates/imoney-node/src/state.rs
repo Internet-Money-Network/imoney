@@ -2,7 +2,7 @@ use crate::genesis::create_testnet_genesis;
 use crate::storage::{NodeMeta, Storage, StorageError};
 use imoney_consensus::ghostdag::{order_ghostdag_parents, GhostdagParams};
 use imoney_core::constants::{MAX_BLOCK_PARENTS, SOMPI_PER_IM, TARGET_TIME_PER_BLOCK_MS};
-use imoney_core::{Address, BlockHeader, Hash, Outpoint, TxOutput};
+use imoney_core::{Address, BlockHeader, Hash, Outpoint, Transaction, TxOutput};
 use imoney_emission::{block_subsidy_atoms, block_subsidy_im};
 use imoney_pow::{compact_to_u256, is_valid_pow, MoneyPrinterPow};
 use serde::{Deserialize, Serialize};
@@ -28,6 +28,8 @@ pub enum StateError {
     Header(String),
     #[error("Storage error: {0}")]
     Storage(#[from] StorageError),
+    #[error("Transaction error: {0}")]
+    Transaction(String),
 }
 
 /// JSON-serializable node status report.
@@ -43,6 +45,7 @@ pub struct NodeInfo {
     pub current_block_reward_im: f64,
     pub target_block_interval_sec: u64,
     pub mining_address: Option<String>,
+    pub mempool_size: usize,
 }
 
 /// Candidate block mining template.
@@ -57,6 +60,7 @@ pub struct MiningTemplate {
     pub blue_score: u64,
     pub pre_pow_hash: Hash,
     pub reward_im: f64,
+    pub transactions: Vec<Transaction>,
 }
 
 /// BlockDAG Ledger for Internet Money backed by ACID on-disk storage.
@@ -70,8 +74,10 @@ pub struct DagLedger {
     pub virtual_daa_score: u64,
     pub difficulty_bits: u32,
     pub mining_address: Option<Address>,
+    pub mempool: HashMap<Hash, Transaction>,
     ghostdag_params: GhostdagParams,
 }
+
 
 impl DagLedger {
     /// Opens the persistent ledger from disk or creates it if new.
@@ -111,6 +117,7 @@ impl DagLedger {
                 virtual_daa_score: 0,
                 difficulty_bits: genesis.bits,
                 mining_address,
+                mempool: HashMap::new(),
                 ghostdag_params: GhostdagParams::default(),
             })
         } else {
@@ -136,10 +143,12 @@ impl DagLedger {
                 virtual_daa_score: meta.virtual_daa_score,
                 difficulty_bits: meta.difficulty_bits,
                 mining_address,
+                mempool: HashMap::new(),
                 ghostdag_params: GhostdagParams::default(),
             })
         }
     }
+
 
     /// Validates and inserts a newly mined block header into the BlockDAG and persistent storage.
     pub fn add_block(
@@ -222,8 +231,75 @@ impl DagLedger {
             self.storage.add_utxo(&outpoint, &output)?;
         }
 
+        // Apply transactions from mempool that are confirmed in this block
+        let pending_tx_ids: Vec<Hash> = self.mempool.keys().copied().collect();
+        for tx_id in pending_tx_ids {
+            if let Some(tx) = self.mempool.remove(&tx_id) {
+                // Remove spent inputs from UTXO set
+                for input in &tx.inputs {
+                    let _ = self.storage.remove_utxo(&input.previous_outpoint);
+                }
+                // Add new outputs to UTXO set
+                for (idx, output) in tx.outputs.iter().enumerate() {
+                    let outpoint = Outpoint {
+                        transaction_id: tx_id,
+                        index: idx as u32,
+                    };
+                    let _ = self.storage.add_utxo(&outpoint, output);
+                }
+            }
+        }
+
         Ok(block_hash)
     }
+
+    /// Validates and admits a signed transaction into the mempool.
+    pub fn broadcast_transaction(&mut self, tx: Transaction) -> Result<Hash, StateError> {
+        let tx_id = tx.id();
+        if self.mempool.contains_key(&tx_id) {
+            return Ok(tx_id);
+        }
+
+        if tx.inputs.is_empty() {
+            return Err(StateError::Transaction("Transaction has no inputs".to_string()));
+        }
+        if tx.outputs.is_empty() {
+            return Err(StateError::Transaction("Transaction has no outputs".to_string()));
+        }
+
+        let mut total_input_atoms: u64 = 0;
+        let mut spent_outpoints = HashSet::new();
+
+        // Validate each input against UTXO set
+        for (i, input) in tx.inputs.iter().enumerate() {
+            if !spent_outpoints.insert(&input.previous_outpoint) {
+                return Err(StateError::Transaction("Duplicate input in transaction".to_string()));
+            }
+
+            let utxo = self
+                .storage
+                .get_utxo(&input.previous_outpoint)?
+                .ok_or_else(|| StateError::Transaction(format!("UTXO not found: {:?}", input.previous_outpoint)))?;
+
+            // Verify signature against public key and address hash
+            tx.verify_input(i, &utxo.script_public_key)
+                .map_err(|e| StateError::Transaction(format!("Signature check failed on input {}: {}", i, e)))?;
+
+            total_input_atoms += utxo.value_atoms;
+        }
+
+        let total_output_atoms: u64 = tx.outputs.iter().map(|o| o.value_atoms).sum();
+        if total_input_atoms < total_output_atoms {
+            return Err(StateError::Transaction(format!(
+                "Inputs {} atoms < outputs {} atoms",
+                total_input_atoms, total_output_atoms
+            )));
+        }
+
+        self.mempool.insert(tx_id, tx);
+        Ok(tx_id)
+    }
+
 
     /// Generates candidate block template for miners.
     pub fn get_mining_template(&self) -> MiningTemplate {
@@ -265,6 +341,7 @@ impl DagLedger {
             blue_score,
             pre_pow_hash,
             reward_im: block_subsidy_im(daa_score),
+            transactions: self.mempool.values().cloned().collect(),
         }
     }
 
@@ -293,8 +370,10 @@ impl DagLedger {
             current_block_reward_im: block_subsidy_im(self.virtual_daa_score),
             target_block_interval_sec: TARGET_TIME_PER_BLOCK_MS / 1000,
             mining_address: self.mining_address.as_ref().map(|a| a.to_string()),
+            mempool_size: self.mempool.len(),
         }
     }
 }
+
 
 pub type SharedLedger = Arc<RwLock<DagLedger>>;

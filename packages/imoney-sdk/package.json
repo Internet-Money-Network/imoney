@@ -1,0 +1,26 @@
+{
+  "name": "@imoney/sdk",
+  "version": "0.1.0",
+  "description": "Developer SDK and Embeddable Checkout Widget for Internet Money (IMN) BlockDAG",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "imoney",
+    "imn",
+    "cryptocurrency",
+    "payment-gateway",
+    "blockdag",
+    "sdk",
+    "checkout"
+  ],
+  "author": "Internet Money Developers",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Internet-Money-Network/imoney.git"
+  }
+}

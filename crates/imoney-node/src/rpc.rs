@@ -1,13 +1,15 @@
 use crate::state::SharedLedger;
+use axum::extract::ws::{Message as WsMessage, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Json};
 use axum::routing::{get, post};
 use axum::Router;
-use imoney_core::{Address, BlockHeader};
+use imoney_core::{Address, BlockHeader, Transaction};
 use imoney_pow::MoneyPrinterPow;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use std::time::Duration;
 use tower_http::cors::{Any, CorsLayer};
 
 pub struct AppState {
@@ -24,6 +26,18 @@ pub struct SubmitBlockRequest {
 pub struct SubmitBlockResponse {
     pub success: bool,
     pub block_hash: Option<String>,
+    pub error: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct BroadcastTxRequest {
+    pub transaction: Transaction,
+}
+
+#[derive(Serialize)]
+pub struct BroadcastTxResponse {
+    pub success: bool,
+    pub tx_id: Option<String>,
     pub error: Option<String>,
 }
 
@@ -56,11 +70,14 @@ pub fn create_router(ledger: SharedLedger, pow: Arc<MoneyPrinterPow>) -> Router 
         .route("/api/v1/tips", get(tips_handler))
         .route("/api/v1/mining/template", get(template_handler))
         .route("/api/v1/mining/submit", post(submit_handler))
+        .route("/api/v1/tx/broadcast", post(broadcast_handler))
         .route("/api/v1/address/:addr/balance", get(balance_handler))
         .route("/api/v1/address/:addr/utxos", get(utxos_handler))
+        .route("/api/v1/ws/address/:addr", get(ws_address_handler))
         .layer(cors)
         .with_state(state)
 }
+
 
 async fn dashboard_handler(State(state): State<Arc<AppState>>) -> Html<String> {
     let info = state.ledger.read().await.get_info();
@@ -194,3 +211,92 @@ async fn utxos_handler(
 
     Ok(Json(response))
 }
+
+async fn broadcast_handler(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<BroadcastTxRequest>,
+) -> (StatusCode, Json<BroadcastTxResponse>) {
+    let mut ledger = state.ledger.write().await;
+    match ledger.broadcast_transaction(payload.transaction) {
+        Ok(tx_id) => (
+            StatusCode::OK,
+            Json(BroadcastTxResponse {
+                success: true,
+                tx_id: Some(tx_id.to_hex()),
+                error: None,
+            }),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(BroadcastTxResponse {
+                success: false,
+                tx_id: None,
+                error: Some(e.to_string()),
+            }),
+        ),
+    }
+}
+
+async fn ws_address_handler(
+    ws: WebSocketUpgrade,
+    Path(addr_str): Path<String>,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    ws.on_upgrade(move |socket| handle_address_socket(socket, addr_str, state))
+}
+
+async fn handle_address_socket(mut socket: WebSocket, addr_str: String, state: Arc<AppState>) {
+    let address = match Address::decode(&addr_str) {
+        Ok(a) => a,
+        Err(_) => {
+            let _ = socket
+                .send(WsMessage::Text(r#"{"error":"Invalid address"}"#.to_string()))
+                .await;
+            return;
+        }
+    };
+
+    let mut last_balance: u64 = {
+        let ledger = state.ledger.read().await;
+        ledger.get_balance(&address).map(|(atoms, _)| atoms).unwrap_or(0)
+    };
+
+    // Send initial balance
+    let init_msg = serde_json::json!({
+        "event": "connected",
+        "address": addr_str,
+        "balance_atoms": last_balance,
+        "balance_im": (last_balance as f64) / (imoney_core::constants::SOMPI_PER_IM as f64)
+    });
+    let _ = socket.send(WsMessage::Text(init_msg.to_string())).await;
+
+    // Polling loop every 1 second pushing updates when balance changes
+    let mut ticker = tokio::time::interval(Duration::from_millis(1000));
+    loop {
+        ticker.tick().await;
+
+        let current_balance = {
+            let ledger = state.ledger.read().await;
+            ledger.get_balance(&address).map(|(atoms, _)| atoms).unwrap_or(0)
+        };
+
+        if current_balance != last_balance {
+            let change_atoms = current_balance as i64 - last_balance as i64;
+            last_balance = current_balance;
+
+            let payment_msg = serde_json::json!({
+                "event": "payment_received",
+                "address": addr_str,
+                "change_atoms": change_atoms,
+                "balance_atoms": current_balance,
+                "balance_im": (current_balance as f64) / (imoney_core::constants::SOMPI_PER_IM as f64),
+                "timestamp_ms": chrono::Utc::now().timestamp_millis()
+            });
+
+            if socket.send(WsMessage::Text(payment_msg.to_string())).await.is_err() {
+                break;
+            }
+        }
+    }
+}
+
