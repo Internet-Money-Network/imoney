@@ -70,8 +70,12 @@ This roadmap defines the step-by-step engineering plan to build Internet Money i
 
 ---
 
-## 🚀 Execution Order
-1. **Step 1:** Build Phase 1 (Address System & Persistent Node Storage).
-2. **Step 2:** Build Phase 2 (Payment Indexer & WebSocket API).
-3. **Step 3:** Build Phase 3 (The Universal Developer SDK & Drop-in Modal).
-4. **Step 4:** Build Phase 4 (The 1-Click WooCommerce Plugin).
+## 🚀 Execution Order & Status
+- [x] **Step 1: Core Protocol Hardening** (Bech32 address format, Ed25519 Schnorr signing, pure-Rust `redb` ACID storage engine, UTXO ledger).
+- [x] **Step 2: Payment Indexer & Real-Time Push Engine** (Balance/UTXO lookups, `POST /api/v1/tx/broadcast`, `GET /api/v1/tx/:txid`, WebSocket `/api/v1/ws/address/:addr`).
+- [x] **Step 3: Developer SDK & Checkout Modal** (`@imoney/sdk` for Node.js + browser CDN bundle `imoney.js`, reactive payment modal with QR code and live confirmation).
+- [x] **Step 4: WordPress / WooCommerce 1-Click Gateway** (`plugins/imoney-payments-for-woocommerce.zip` packaged with non-custodial payout address configuration).
+- [x] **Step 5: End-to-End Payment Demo** (`examples/e2e-payment-demo/index.html` illustrating 2-line code web store checkout).
+- [ ] **Step 6: P2P Peer Gossip Networking** (TCP / libp2p discovery between remote nodes).
+- [ ] **Step 7: Seed Node Deployment & Testnet Public Launch** (Deploying local network to cloud seed nodes under `internetmoneynetwork.org`).
+
