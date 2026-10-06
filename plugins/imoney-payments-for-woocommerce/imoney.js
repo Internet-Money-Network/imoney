@@ -36,6 +36,12 @@
     return res.json();
   };
 
+  IMoneyClient.prototype.getTxStatus = async function(txId) {
+    var res = await fetch(this.nodeUrl + '/api/v1/tx/' + encodeURIComponent(txId));
+    if (!res.ok) throw new Error('Failed to get transaction status: ' + res.statusText);
+    return res.json();
+  };
+
   IMoneyClient.prototype.subscribeAddressPayments = function(address, onPayment) {
     var wsUrl = this.nodeUrl.replace(/^http/, 'ws') + '/api/v1/ws/address/' + encodeURIComponent(address);
     var ws = new WebSocket(wsUrl);

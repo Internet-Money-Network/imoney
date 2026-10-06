@@ -32,6 +32,17 @@ export interface UtxoItem {
   value_im: number;
 }
 
+export interface TxStatus {
+  tx_id: string;
+  status: 'pending' | 'confirmed' | 'not_found';
+  block_hash?: string;
+  daa_score?: number;
+  inputs_count: number;
+  outputs_count: number;
+  total_output_atoms: number;
+  total_output_im: number;
+}
+
 export interface PaymentInvoiceOptions {
   merchantAddress: string;
   amountIm: number;
@@ -50,9 +61,11 @@ export class IMoneyClient {
   getInfo(): Promise<NodeInfo>;
   getBalance(address: string): Promise<AddressBalance>;
   getUtxos(address: string): Promise<UtxoItem[]>;
+  getTxStatus(txId: string): Promise<TxStatus>;
   subscribeAddressPayments(
     address: string,
     onPayment: (data: { change_atoms: number; balance_atoms: number; balance_im: number }) => void
   ): () => void;
   openCheckoutModal(options: PaymentInvoiceOptions): void;
 }
+

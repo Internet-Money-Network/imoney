@@ -247,11 +247,20 @@ impl DagLedger {
                     };
                     let _ = self.storage.add_utxo(&outpoint, output);
                 }
+                // Persist transaction record for historical lookup and receipts
+                let record = crate::storage::StoredTxRecord {
+                    tx,
+                    block_hash,
+                    daa_score: header.daa_score,
+                    timestamp_ms: header.timestamp_ms,
+                };
+                let _ = self.storage.save_transaction(&record);
             }
         }
 
         Ok(block_hash)
     }
+
 
     /// Validates and admits a signed transaction into the mempool.
     pub fn broadcast_transaction(&mut self, tx: Transaction) -> Result<Hash, StateError> {
@@ -357,6 +366,17 @@ impl DagLedger {
         self.storage.get_utxos(address)
     }
 
+    /// Queries a transaction record by hash, checking pending mempool first, then persistent storage.
+    pub fn get_transaction(&self, tx_id: &Hash) -> Result<Option<(Transaction, Option<Hash>, Option<u64>)>, StorageError> {
+        if let Some(tx) = self.mempool.get(tx_id) {
+            return Ok(Some((tx.clone(), None, None)));
+        }
+        if let Some(record) = self.storage.get_transaction(tx_id)? {
+            return Ok(Some((record.tx, Some(record.block_hash), Some(record.daa_score))));
+        }
+        Ok(None)
+    }
+
     /// Node diagnostic overview.
     pub fn get_info(&self) -> NodeInfo {
         NodeInfo {
@@ -374,6 +394,7 @@ impl DagLedger {
         }
     }
 }
+
 
 
 pub type SharedLedger = Arc<RwLock<DagLedger>>;

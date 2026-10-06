@@ -25,6 +25,7 @@ const HEADERS_TABLE: TableDefinition<&[u8; 32], &[u8]> = TableDefinition::new("h
 const BLUE_SCORES_TABLE: TableDefinition<&[u8; 32], u64> = TableDefinition::new("blue_scores");
 const METADATA_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("metadata");
 const UTXO_TABLE: TableDefinition<&[u8], &[u8]> = TableDefinition::new("utxos");
+const TRANSACTIONS_TABLE: TableDefinition<&[u8; 32], &[u8]> = TableDefinition::new("transactions");
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct NodeMeta {
@@ -32,6 +33,14 @@ pub struct NodeMeta {
     pub virtual_blue_score: u64,
     pub virtual_daa_score: u64,
     pub difficulty_bits: u32,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct StoredTxRecord {
+    pub tx: imoney_core::Transaction,
+    pub block_hash: Hash,
+    pub daa_score: u64,
+    pub timestamp_ms: u64,
 }
 
 /// Persistent embedded ACID database for Internet Money.
@@ -51,11 +60,13 @@ impl Storage {
             let _ = write_tx.open_table(BLUE_SCORES_TABLE)?;
             let _ = write_tx.open_table(METADATA_TABLE)?;
             let _ = write_tx.open_table(UTXO_TABLE)?;
+            let _ = write_tx.open_table(TRANSACTIONS_TABLE)?;
         }
         write_tx.commit()?;
 
         Ok(Self { db: Arc::new(db) })
     }
+
 
     /// Stores a block header and its GHOSTDAG blue score atomically.
     pub fn save_block(
@@ -198,5 +209,31 @@ impl Storage {
 
         Ok(results)
     }
+
+    /// Persists a confirmed transaction record associated with a block.
+    pub fn save_transaction(&self, record: &StoredTxRecord) -> Result<(), StorageError> {
+        let write_tx = self.db.begin_write()?;
+        {
+            let mut tx_table = write_tx.open_table(TRANSACTIONS_TABLE)?;
+            let tx_id = record.tx.id();
+            let val_bytes = serde_json::to_vec(record)?;
+            tx_table.insert(&tx_id.0, val_bytes.as_slice())?;
+        }
+        write_tx.commit()?;
+        Ok(())
+    }
+
+    /// Queries a confirmed transaction record by its transaction ID.
+    pub fn get_transaction(&self, tx_id: &Hash) -> Result<Option<StoredTxRecord>, StorageError> {
+        let read_tx = self.db.begin_read()?;
+        let tx_table = read_tx.open_table(TRANSACTIONS_TABLE)?;
+        if let Some(val) = tx_table.get(&tx_id.0)? {
+            let record: StoredTxRecord = serde_json::from_slice(val.value())?;
+            Ok(Some(record))
+        } else {
+            Ok(None)
+        }
+    }
 }
+
 

@@ -5,7 +5,7 @@ use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Json};
 use axum::routing::{get, post};
 use axum::Router;
-use imoney_core::{Address, BlockHeader, Transaction};
+use imoney_core::{Address, BlockHeader, Hash, Transaction};
 use imoney_pow::MoneyPrinterPow;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -56,6 +56,18 @@ pub struct UtxoItemResponse {
     pub value_im: f64,
 }
 
+#[derive(Serialize)]
+pub struct TxStatusResponse {
+    pub tx_id: String,
+    pub status: String, // "pending", "confirmed", "not_found"
+    pub block_hash: Option<String>,
+    pub daa_score: Option<u64>,
+    pub inputs_count: usize,
+    pub outputs_count: usize,
+    pub total_output_atoms: u64,
+    pub total_output_im: f64,
+}
+
 pub fn create_router(ledger: SharedLedger, pow: Arc<MoneyPrinterPow>) -> Router {
     let cors = CorsLayer::new()
         .allow_origin(Any)
@@ -71,12 +83,14 @@ pub fn create_router(ledger: SharedLedger, pow: Arc<MoneyPrinterPow>) -> Router 
         .route("/api/v1/mining/template", get(template_handler))
         .route("/api/v1/mining/submit", post(submit_handler))
         .route("/api/v1/tx/broadcast", post(broadcast_handler))
+        .route("/api/v1/tx/:txid", get(tx_status_handler))
         .route("/api/v1/address/:addr/balance", get(balance_handler))
         .route("/api/v1/address/:addr/utxos", get(utxos_handler))
         .route("/api/v1/ws/address/:addr", get(ws_address_handler))
         .layer(cors)
         .with_state(state)
 }
+
 
 
 async fn dashboard_handler(State(state): State<Arc<AppState>>) -> Html<String> {
@@ -236,6 +250,45 @@ async fn broadcast_handler(
         ),
     }
 }
+
+async fn tx_status_handler(
+    State(state): State<Arc<AppState>>,
+    Path(txid_hex): Path<String>,
+) -> Result<Json<TxStatusResponse>, StatusCode> {
+    let tx_hash = Hash::from_hex(&txid_hex).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let ledger = state.ledger.read().await;
+
+    match ledger.get_transaction(&tx_hash) {
+        Ok(Some((tx, maybe_block, maybe_daa))) => {
+            let total_out_atoms: u64 = tx.outputs.iter().map(|o| o.value_atoms).sum();
+            let total_out_im = (total_out_atoms as f64) / (imoney_core::constants::SOMPI_PER_IM as f64);
+            let status = if maybe_block.is_some() { "confirmed" } else { "pending" };
+
+            Ok(Json(TxStatusResponse {
+                tx_id: txid_hex,
+                status: status.to_string(),
+                block_hash: maybe_block.map(|b| b.to_hex()),
+                daa_score: maybe_daa,
+                inputs_count: tx.inputs.len(),
+                outputs_count: tx.outputs.len(),
+                total_output_atoms: total_out_atoms,
+                total_output_im: total_out_im,
+            }))
+        }
+        Ok(None) => Ok(Json(TxStatusResponse {
+            tx_id: txid_hex,
+            status: "not_found".to_string(),
+            block_hash: None,
+            daa_score: None,
+            inputs_count: 0,
+            outputs_count: 0,
+            total_output_atoms: 0,
+            total_output_im: 0.0,
+        })),
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
 
 async fn ws_address_handler(
     ws: WebSocketUpgrade,
