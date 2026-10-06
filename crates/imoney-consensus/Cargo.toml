@@ -1,0 +1,13 @@
+[package]
+name = "imoney-consensus"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+imoney-core = { path = "../imoney-core" }
+imoney-pow = { path = "../imoney-pow" }
+imoney-emission = { path = "../imoney-emission" }
+thiserror.workspace = true
+serde.workspace = true

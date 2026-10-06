@@ -1,0 +1,16 @@
+[package]
+name = "imoney-pow"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+imoney-core = { path = "../imoney-core" }
+blake3.workspace = true
+sha3.workspace = true
+byteorder.workspace = true
+thiserror.workspace = true
+rand.workspace = true
+rayon.workspace = true
+serde.workspace = true

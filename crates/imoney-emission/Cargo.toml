@@ -1,0 +1,11 @@
+[package]
+name = "imoney-emission"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+imoney-core = { path = "../imoney-core" }
+serde.workspace = true
+thiserror.workspace = true

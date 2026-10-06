@@ -1,0 +1,19 @@
+[package]
+name = "imoney-miner"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "imoney-miner"
+path = "src/main.rs"
+
+[dependencies]
+imoney-core = { path = "../imoney-core" }
+imoney-pow = { path = "../imoney-pow" }
+imoney-emission = { path = "../imoney-emission" }
+clap.workspace = true
+rayon.workspace = true
+rand.workspace = true
+chrono.workspace = true

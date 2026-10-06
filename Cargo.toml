@@ -1,0 +1,35 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/imoney-core",
+    "crates/imoney-pow",
+    "crates/imoney-emission",
+    "crates/imoney-consensus",
+    "crates/imoney-miner",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Internet Money Developers"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/thekillsquad007/imoney"
+
+[workspace.dependencies]
+imoney-core = { path = "crates/imoney-core" }
+imoney-pow = { path = "crates/imoney-pow" }
+imoney-emission = { path = "crates/imoney-emission" }
+imoney-consensus = { path = "crates/imoney-consensus" }
+
+# Shared external dependencies
+blake3 = "1.5"
+sha3 = "0.10"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "1.0"
+byteorder = "1.5"
+rayon = "1.10"
+clap = { version = "4.5", features = ["derive"] }
+hex = "0.4"
+rand = "0.8"
+chrono = "0.4"
