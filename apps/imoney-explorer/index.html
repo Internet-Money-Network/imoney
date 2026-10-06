@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Internet Money (IMN) - BlockDAG Explorer</title>
+  <style>
+    :root {
+      --bg: #090d13;
+      --card-bg: #161b22;
+      --border: #30363d;
+      --text: #c9d1d9;
+      --text-bright: #f0f6fc;
+      --accent-green: #39d353;
+      --accent-blue: #58a6ff;
+      --accent-purple: #bc8cff;
+      --badge-bg: #238636;
+      --error-red: #f85149;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      margin: 0;
+      padding: 0;
+      line-height: 1.5;
+    }
+    header {
+      background: var(--card-bg);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 28px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .brand svg {
+      width: 36px;
+      height: 36px;
+    }
+    .brand h1 {
+      font-size: 20px;
+      margin: 0;
+      color: var(--text-bright);
+      letter-spacing: 0.5px;
+    }
+    .badge {
+      background: var(--badge-bg);
+      color: white;
+      font-size: 11px;
+      font-weight: bold;
+      padding: 3px 8px;
+      border-radius: 4px;
+      margin-left: 8px;
+    }
+    .search-box {
+      display: flex;
+      gap: 8px;
+      flex: 1;
+      max-width: 650px;
+    }
+    .search-input {
+      flex: 1;
+      background: #0d1117;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px 14px;
+      color: var(--text-bright);
+      font-family: monospace;
+      font-size: 13px;
+    }
+    .search-input:focus {
+      outline: none;
+      border-color: var(--accent-blue);
+    }
+    .search-btn {
+      background: #21262d;
+      border: 1px solid var(--border);
+      color: var(--text-bright);
+      padding: 0 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    .search-btn:hover {
+      background: #30363d;
+    }
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .stat-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+    }
+    .stat-label {
+      font-size: 12px;
+      color: #8b949e;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+    .stat-val {
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--text-bright);
+      font-family: monospace;
+    }
+    .main-grid {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 24px;
+    }
+    @media (max-width: 900px) {
+      .main-grid { grid-template-columns: 1fr; }
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 24px;
+    }
+    .card-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text-bright);
+      margin-top: 0;
+      margin-bottom: 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    /* GHOSTDAG Canvas Visualizer */
+    #dag-canvas {
+      width: 100%;
+      height: 280px;
+      background: #070a0f;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      display: block;
+    }
+    .table-container {
+      overflow-x: auto;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    th {
+      text-align: left;
+      padding: 10px;
+      color: #8b949e;
+      border-bottom: 1px solid var(--border);
+      font-weight: 600;
+    }
+    td {
+      padding: 12px 10px;
+      border-bottom: 1px solid #21262d;
+    }
+    .hash {
+      font-family: monospace;
+      color: var(--accent-blue);
+      cursor: pointer;
+    }
+    .hash:hover {
+      text-decoration: underline;
+    }
+    /* Search Results Modal / Section */
+    #search-results-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.8);
+      z-index: 10000;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .modal-box {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      max-width: 700px;
+      width: 100%;
+      padding: 24px;
+      position: relative;
+    }
+    .close-btn {
+      position: absolute;
+      top: 14px;
+      right: 16px;
+      background: none;
+      border: none;
+      color: #8b949e;
+      font-size: 20px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="brand">
+      <!-- Embedded Mini IMN Logo Icon -->
+      <svg viewBox="0 0 512 512">
+        <circle cx="256" cy="256" r="248" fill="#161e2e" stroke="#238636" stroke-width="8"/>
+        <path d="M 148 135 L 196 135 L 196 377 L 148 377 Z" fill="#39d353"/>
+        <path d="M 196 135 L 256 260 L 256 315 L 196 195 Z" fill="#58a6ff"/>
+        <path d="M 316 135 L 256 260 L 256 315 L 316 195 Z" fill="#58a6ff"/>
+        <path d="M 316 135 L 364 135 L 364 377 L 316 377 Z" fill="#39d353"/>
+        <circle cx="256" cy="122" r="14" fill="#39d353"/>
+      </svg>
+      <h1>Internet Money <span class="badge">TESTNET-1</span></h1>
+    </div>
+
+    <div class="search-box">
+      <input type="text" id="search-input" class="search-input" placeholder="Search by Block Hash, TxID, or Address (imntest:q...)" />
+      <button class="search-btn" id="search-btn">Search</button>
+    </div>
+  </header>
+
+  <div class="container">
+    <!-- Network KPI Metrics Banner -->
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">Virtual Blue Score</div>
+        <div class="stat-val" id="kpi-blue-score" style="color: var(--accent-green);">-</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">DAA Score (Height)</div>
+        <div class="stat-val" id="kpi-daa-score">-</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Block Reward</div>
+        <div class="stat-val" id="kpi-reward" style="color: #e3b341;">- IM</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Difficulty Bits</div>
+        <div class="stat-val" id="kpi-bits">-</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Connected Peers</div>
+        <div class="stat-val" id="kpi-peers" style="color: var(--accent-blue);">-</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Mempool Pending</div>
+        <div class="stat-val" id="kpi-mempool">-</div>
+      </div>
+    </div>
+
+    <!-- Main Content Layout -->
+    <div class="main-grid">
+      <div>
+        <!-- GHOSTDAG Parallel Block Visualizer -->
+        <div class="card">
+          <div class="card-title">
+            <span>⚡ Live GHOSTDAG Topology (k=8, 0.2 BPS)</span>
+            <span style="font-size: 11px; color: #8b949e;">Auto-Refresh: 2s</span>
+          </div>
+          <canvas id="dag-canvas" width="800" height="280"></canvas>
+          <div style="display: flex; gap: 16px; margin-top: 10px; font-size: 12px; color: #8b949e;">
+            <span style="display: flex; align-items: center; gap: 6px;">
+              <span style="width: 10px; height: 10px; background: #39d353; border-radius: 50%; display: inline-block;"></span> Consensus Selected Blue Block
+            </span>
+            <span style="display: flex; align-items: center; gap: 6px;">
+              <span style="width: 10px; height: 10px; background: #58a6ff; border-radius: 50%; display: inline-block;"></span> Active BlockDAG Tip
+            </span>
+          </div>
+        </div>
+
+        <!-- Latest Blocks Table -->
+        <div class="card">
+          <div class="card-title">📦 Recent Mined Blocks</div>
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>Blue Score</th>
+                  <th>Block Hash</th>
+                  <th>Parents</th>
+                  <th>Age</th>
+                </tr>
+              </thead>
+              <tbody id="blocks-tbody">
+                <tr><td colspan="4" style="text-align: center; color: #8b949e;">Connecting to local node...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Column: Protocol Information & Mining Target -->
+      <div>
+        <div class="card">
+          <div class="card-title">ℹ️ Protocol Rules</div>
+          <div style="font-size: 13px; line-height: 1.8;">
+            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #21262d; padding: 6px 0;">
+              <span style="color: #8b949e;">Consensus:</span>
+              <b>PHANTOM / GHOSTDAG</b>
+            </div>
+            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #21262d; padding: 6px 0;">
+              <span style="color: #8b949e;">Target Block Time:</span>
+              <b>5.0 Seconds (0.2 BPS)</b>
+            </div>
+            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #21262d; padding: 6px 0;">
+              <span style="color: #8b949e;">GHOSTDAG k-factor:</span>
+              <b>k = 8</b>
+            </div>
+            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #21262d; padding: 6px 0;">
+              <span style="color: #8b949e;">PoW Algorithm:</span>
+              <b>Money Printer (GPU)</b>
+            </div>
+            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #21262d; padding: 6px 0;">
+              <span style="color: #8b949e;">Storage Engine:</span>
+              <b>Pure-Rust redb (ACID)</b>
+            </div>
+            <div style="display: flex; justify-content: space-between; padding: 6px 0;">
+              <span style="color: #8b949e;">Permanent Emission Floor:</span>
+              <b>0.3125 IM / block</b>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">🌐 Node & P2P Status</div>
+          <div style="font-size: 13px; line-height: 1.8;">
+            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #21262d; padding: 6px 0;">
+              <span style="color: #8b949e;">Node URL:</span>
+              <span class="hash" id="node-url-label">http://127.0.0.1:18556</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #21262d; padding: 6px 0;">
+              <span style="color: #8b949e;">P2P Port:</span>
+              <b>18555 (TCP)</b>
+            </div>
+            <div style="display: flex; justify-content: space-between; padding: 6px 0;">
+              <span style="color: #8b949e;">DAG Tip Count:</span>
+              <b id="tips-count" style="color: var(--accent-blue);">-</b>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Search Modal Overlay -->
+  <div id="search-results-overlay">
+    <div class="modal-box">
+      <button class="close-btn" id="modal-close">&times;</button>
+      <h3 style="margin-top: 0; color: var(--accent-blue);" id="modal-title">Search Result</h3>
+      <div id="modal-content" style="font-size: 13px; line-height: 1.7; word-break: break-all;"></div>
+    </div>
+  </div>
+
+  <script>
+    const NODE_URL = 'http://127.0.0.1:18556';
+    let dagNodes = [];
+
+    async function fetchNodeData() {
+      try {
+        const [infoRes, tipsRes, peersRes] = await Promise.all([
+          fetch(`${NODE_URL}/api/v1/info`),
+          fetch(`${NODE_URL}/api/v1/tips`),
+          fetch(`${NODE_URL}/api/v1/peers`).catch(() => ({ json: () => ({ total_connected: 0 }) }))
+        ]);
+
+        if (infoRes.ok) {
+          const info = await infoRes.json();
+          document.getElementById('kpi-blue-score').innerText = info.virtual_blue_score;
+          document.getElementById('kpi-daa-score').innerText = '#' + info.virtual_daa_score;
+          document.getElementById('kpi-reward').innerText = info.current_block_reward_im.toFixed(4) + ' IM';
+          document.getElementById('kpi-bits').innerText = info.current_bits;
+          document.getElementById('kpi-mempool').innerText = info.mempool_size;
+
+          const tips = await tipsRes.json();
+          document.getElementById('tips-count').innerText = tips.length;
+
+          // Update DAG nodes simulation list for visualizer
+          updateDagVisual(info, tips);
+        }
+
+        if (peersRes.ok) {
+          const peers = await peersRes.json();
+          document.getElementById('kpi-peers').innerText = peers.total_connected || 0;
+        }
+      } catch (err) {
+        console.warn('Node fetch warning (is node running?):', err);
+      }
+    }
+
+    // Render Canvas BlockDAG
+    function updateDagVisual(info, tips) {
+      const canvas = document.getElementById('dag-canvas');
+      const ctx = canvas.getContext('2d');
+      const w = canvas.width;
+      const h = canvas.height;
+
+      ctx.clearRect(0, 0, w, h);
+
+      // Draw horizontal time tracks
+      ctx.strokeStyle = '#1b2330';
+      ctx.lineWidth = 1;
+      for (let y = 40; y < h; y += 50) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+        ctx.stroke();
+      }
+
+      // Populate nodes based on blue score progression
+      const blueScore = info.virtual_blue_score;
+      const nodesCount = 12;
+      const spacing = w / (nodesCount + 1);
+
+      const currentNodes = [];
+      for (let i = 0; i < nodesCount; i++) {
+        const score = Math.max(0, blueScore - (nodesCount - 1 - i));
+        const x = (i + 1) * spacing;
+        const y = 80 + (i % 3) * 50;
+        currentNodes.push({ score, x, y, isTip: i === nodesCount - 1 });
+      }
+
+      // Draw DAG Edges
+      ctx.strokeStyle = '#238636';
+      ctx.lineWidth = 2;
+      for (let i = 1; i < currentNodes.length; i++) {
+        const prev = currentNodes[i - 1];
+        const curr = currentNodes[i];
+        ctx.beginPath();
+        ctx.moveTo(prev.x, prev.y);
+        ctx.lineTo(curr.x, curr.y);
+        ctx.stroke();
+
+        // Cross edge for k-cluster
+        if (i > 1 && i % 2 === 0) {
+          const prev2 = currentNodes[i - 2];
+          ctx.beginPath();
+          ctx.strokeStyle = 'rgba(88, 166, 255, 0.4)';
+          ctx.moveTo(prev2.x, prev2.y);
+          ctx.lineTo(curr.x, curr.y);
+          ctx.stroke();
+          ctx.strokeStyle = '#238636';
+        }
+      }
+
+      // Draw Nodes
+      currentNodes.forEach((n) => {
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, n.isTip ? 8 : 6, 0, Math.PI * 2);
+        ctx.fillStyle = n.isTip ? '#58a6ff' : '#39d353';
+        ctx.fill();
+
+        ctx.fillStyle = '#8b949e';
+        ctx.font = '10px monospace';
+        ctx.fillText('#' + n.score, n.x - 12, n.y - 12);
+      });
+
+      // Update recent blocks table
+      const tbody = document.getElementById('blocks-tbody');
+      tbody.innerHTML = `
+        <tr>
+          <td><b style="color: #39d353;">${info.virtual_blue_score}</b></td>
+          <td><span class="hash">${info.virtual_selected_parent}</span></td>
+          <td>${tips.length} tips</td>
+          <td>Just now</td>
+        </tr>
+      `;
+    }
+
+    // Search functionality
+    document.getElementById('search-btn').addEventListener('click', async () => {
+      const q = document.getElementById('search-input').value.trim();
+      if (!q) return;
+
+      const overlay = document.getElementById('search-results-overlay');
+      const title = document.getElementById('modal-title');
+      const content = document.getElementById('modal-content');
+
+      overlay.style.display = 'flex';
+      content.innerHTML = 'Querying BlockDAG...';
+
+      // 1. Check if Address
+      if (q.startsWith('imn:') || q.startsWith('imntest:')) {
+        title.innerText = '👤 Address Details';
+        try {
+          const res = await fetch(`${NODE_URL}/api/v1/address/${encodeURIComponent(q)}/balance`);
+          if (res.ok) {
+            const data = await res.json();
+            content.innerHTML = `
+              <div style="margin-bottom: 8px;"><b>Address:</b> <code>${data.address}</code></div>
+              <div style="margin-bottom: 8px;"><b>Balance:</b> <span style="color: #39d353; font-weight: bold; font-size: 18px;">${data.balance_im} IMN</span> (${data.balance_atoms} atoms)</div>
+              <div><b>Network:</b> Testnet-1</div>
+            `;
+          } else {
+            content.innerHTML = `<span style="color: #f85149;">Address not found or has 0 balance.</span>`;
+          }
+        } catch {
+          content.innerHTML = `<span style="color: #f85149;">Failed to reach node API.</span>`;
+        }
+        return;
+      }
+
+      // 2. Check if Transaction Hash
+      title.innerText = '🧾 Transaction Lookup';
+      try {
+        const res = await fetch(`${NODE_URL}/api/v1/tx/${encodeURIComponent(q)}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.status !== 'not_found') {
+            content.innerHTML = `
+              <div style="margin-bottom: 8px;"><b>TxID:</b> <code>${data.tx_id}</code></div>
+              <div style="margin-bottom: 8px;"><b>Status:</b> <span style="color: #39d353; font-weight: bold;">${data.status.toUpperCase()}</span></div>
+              <div style="margin-bottom: 8px;"><b>Confirming Block:</b> <code>${data.block_hash || 'Pending in Mempool'}</code></div>
+              <div style="margin-bottom: 8px;"><b>DAA Height:</b> ${data.daa_score || '-'}</div>
+              <div><b>Total Output:</b> ${data.total_output_im} IMN</div>
+            `;
+            return;
+          }
+        }
+      } catch {}
+
+      content.innerHTML = `<span style="color: #f85149;">No block, transaction, or address found matching "${q}".</span>`;
+    });
+
+    document.getElementById('modal-close').addEventListener('click', () => {
+      document.getElementById('search-results-overlay').style.display = 'none';
+    });
+
+    // Initial load + interval
+    fetchNodeData();
+    setInterval(fetchNodeData, 2000);
+  </script>
+</body>
+</html>

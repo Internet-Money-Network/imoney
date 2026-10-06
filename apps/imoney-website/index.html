@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Internet Money (IMN) - The 5-Second ASIC-Resistant BlockDAG Currency</title>
+  <meta name="description" content="Internet Money (IMN) is a next-generation Layer-1 proof-of-work cryptocurrency combining Kaspa GHOSTDAG BlockDAG consensus with the custom ASIC-resistant Money Printer algorithm.">
+  <style>
+    :root {
+      --bg: #090d13;
+      --card: #161b22;
+      --border: #30363d;
+      --text: #c9d1d9;
+      --text-bright: #f0f6fc;
+      --green: #39d353;
+      --blue: #58a6ff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      margin: 0;
+      padding: 0;
+      line-height: 1.6;
+    }
+    .nav {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 24px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      color: var(--text-bright);
+      font-weight: 800;
+      font-size: 20px;
+    }
+    .brand svg { width: 36px; height: 36px; }
+    .nav-links {
+      display: flex;
+      gap: 24px;
+      align-items: center;
+    }
+    .nav-links a {
+      color: var(--text);
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 600;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover { color: var(--green); }
+    .hero {
+      max-width: 1100px;
+      margin: 60px auto 40px;
+      padding: 0 20px;
+      text-align: center;
+    }
+    .hero-badge {
+      display: inline-block;
+      background: rgba(57, 211, 83, 0.1);
+      border: 1px solid rgba(57, 211, 83, 0.4);
+      color: var(--green);
+      font-size: 13px;
+      font-weight: 700;
+      padding: 6px 14px;
+      border-radius: 20px;
+      margin-bottom: 20px;
+    }
+    h1 {
+      font-size: 56px;
+      font-weight: 900;
+      color: var(--text-bright);
+      line-height: 1.15;
+      margin: 0 0 20px;
+      letter-spacing: -1px;
+    }
+    h1 span {
+      background: linear-gradient(135deg, #58f187, #58a6ff);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .hero p {
+      font-size: 20px;
+      color: #8b949e;
+      max-width: 760px;
+      margin: 0 auto 36px;
+    }
+    .cta-row {
+      display: flex;
+      justify-content: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .btn-primary {
+      background: #238636;
+      color: white;
+      text-decoration: none;
+      font-weight: 700;
+      padding: 14px 28px;
+      border-radius: 8px;
+      font-size: 16px;
+      transition: background 0.2s;
+    }
+    .btn-primary:hover { background: #2ea043; }
+    .btn-secondary {
+      background: #21262d;
+      border: 1px solid var(--border);
+      color: var(--text-bright);
+      text-decoration: none;
+      font-weight: 700;
+      padding: 14px 28px;
+      border-radius: 8px;
+      font-size: 16px;
+      transition: background 0.2s;
+    }
+    .btn-secondary:hover { background: #30363d; }
+    .grid {
+      max-width: 1200px;
+      margin: 80px auto;
+      padding: 0 20px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 24px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 32px;
+    }
+    .card-icon {
+      font-size: 32px;
+      margin-bottom: 16px;
+    }
+    .card h3 {
+      color: var(--text-bright);
+      font-size: 20px;
+      margin: 0 0 12px;
+    }
+    .card p {
+      color: #8b949e;
+      margin: 0;
+      font-size: 15px;
+    }
+    .code-section {
+      max-width: 1000px;
+      margin: 40px auto 80px;
+      padding: 0 20px;
+    }
+    .code-box {
+      background: #0d1117;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 24px;
+      font-family: monospace;
+      font-size: 14px;
+      color: #79c0ff;
+      overflow-x: auto;
+    }
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 40px 20px;
+      text-align: center;
+      color: #8b949e;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+
+  <nav class="nav">
+    <a href="#" class="brand">
+      <svg viewBox="0 0 512 512">
+        <circle cx="256" cy="256" r="248" fill="#161e2e" stroke="#238636" stroke-width="8"/>
+        <path d="M 148 135 L 196 135 L 196 377 L 148 377 Z" fill="#39d353"/>
+        <path d="M 196 135 L 256 260 L 256 315 L 196 195 Z" fill="#58a6ff"/>
+        <path d="M 316 135 L 256 260 L 256 315 L 316 195 Z" fill="#58a6ff"/>
+        <path d="M 316 135 L 364 135 L 364 377 L 316 377 Z" fill="#39d353"/>
+        <circle cx="256" cy="122" r="14" fill="#39d353"/>
+      </svg>
+      Internet Money
+    </a>
+    <div class="nav-links">
+      <a href="../imoney-explorer/index.html">Explorer</a>
+      <a href="../imoney-wallet/index.html">Wallet</a>
+      <a href="../../examples/e2e-payment-demo/index.html">Merchant Demo</a>
+      <a href="https://github.com/Internet-Money-Network/imoney" target="_blank">GitHub</a>
+    </div>
+  </nav>
+
+  <section class="hero">
+    <div class="hero-badge">⚡ TESTNET-1 IS LIVE • 0 PREMINE • 100% FAIR LAUNCH</div>
+    <h1>The 5-Second <span>Internet Cash</span> for Humanity</h1>
+    <p>
+      An ultra-fast, zero-custody Layer-1 cryptocurrency merging Kaspa GHOSTDAG BlockDAG ordering with the ASIC-resistant Money Printer algorithm and a 5-second merchant checkout SDK.
+    </p>
+    <div class="cta-row">
+      <a href="../imoney-wallet/index.html" class="btn-primary">⚡ Launch Web Wallet</a>
+      <a href="../imoney-explorer/index.html" class="btn-secondary">🔍 Open BlockDAG Explorer</a>
+      <a href="https://github.com/Internet-Money-Network/imoney" target="_blank" class="btn-secondary">📦 View GitHub Source</a>
+    </div>
+  </section>
+
+  <section class="grid">
+    <div class="card">
+      <div class="card-icon">⚡</div>
+      <h3>5-Second BlockDAG Settlement</h3>
+      <p>0.2 BPS parallel block consensus powered by GHOSTDAG (k=8). Eliminates traditional 10-minute Bitcoin bottlenecks while preventing network bloat forever.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">🔨</div>
+      <h3>ASIC-Resistant "Money Printer" PoW</h3>
+      <p>Memory-hard Blake3 + Keccak256 algorithm saturating GPU memory bandwidth (FishHash derivative). Prevents Bitmain industrial ASIC monopolies.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">🛒</div>
+      <h3>1-Click WooCommerce & SDK</h3>
+      <p>Accept zero-fee payments directly to your non-custodial wallet with our drop-in JavaScript SDK and pre-packaged WordPress plugin.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">💾</div>
+      <h3>Pure-Rust ACID Persistence</h3>
+      <p>Powered by embedded <code>redb</code> engine. Fast, pruned lightweight nodes requiring only ~5–8 GB total storage forever.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">🪙</div>
+      <h3>Fair 4-Year Halving Schedule</h3>
+      <p>Starts at 5 IM per block with smooth annual halving down to a permanent 0.3125 IM (~1% annual inflation) security subsidy floor.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">🛡️</div>
+      <h3>Post-Quantum Ready</h3>
+      <p>Native Bech32 address format supporting classical Ed25519 Schnorr and future Falcon-512 lattice signatures with witness pruning.</p>
+    </div>
+  </section>
+
+  <section class="code-section">
+    <h2 style="color: var(--text-bright); text-align: center; margin-bottom: 24px;">Integrate in 2 Lines of Code</h2>
+    <div class="code-box">
+      // 1. Initialize client<br>
+      const client = new IMoneyClient({ nodeUrl: "http://127.0.0.1:18556" });<br><br>
+      // 2. Open 5-second checkout modal<br>
+      client.openCheckoutModal({<br>
+      &nbsp;&nbsp;merchantAddress: "imntest:qpm2qsznhks23z7629mms6s4cwef74vcwvy22gd6aedxrr66r20",<br>
+      &nbsp;&nbsp;amountIm: 10.5,<br>
+      &nbsp;&nbsp;onSuccess: (payment) =&gt; console.log("Received " + payment.im + " IMN on BlockDAG!")<br>
+      });
+    </div>
+  </section>
+
+  <footer>
+    <p>© 2026 Internet Money Network (IMN). Released under MIT / Apache-2.0 Open Source License.</p>
+    <p>Target Domain: <code>internetmoneynetwork.org</code> • GitHub: <a href="https://github.com/Internet-Money-Network" style="color: var(--blue);" target="_blank">Internet-Money-Network</a></p>
+  </footer>
+
+</body>
+</html>

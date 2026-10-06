@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 320" width="100%" height="100%">
+  <defs>
+    <!-- Background Gradient -->
+    <linearGradient id="bannerBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0c1017"/>
+      <stop offset="50%" stop-color="#121824"/>
+      <stop offset="100%" stop-color="#080c12"/>
+    </linearGradient>
+
+    <!-- Emerald Gradient -->
+    <linearGradient id="emeraldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#58f187"/>
+      <stop offset="100%" stop-color="#238636"/>
+    </linearGradient>
+
+    <!-- Cyan Gradient -->
+    <linearGradient id="cyanGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#79c0ff"/>
+      <stop offset="100%" stop-color="#1f6feb"/>
+    </linearGradient>
+
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="8" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- Banner Background Card -->
+  <rect width="1200" height="320" rx="20" fill="url(#bannerBg)" stroke="#21262d" stroke-width="2"/>
+
+  <!-- Left Side: Scaled Logo Icon (Centered at X=160, Y=160) -->
+  <g transform="translate(40, 40) scale(0.47)">
+    <!-- Outer Rings -->
+    <circle cx="256" cy="256" r="248" fill="#161e2e" stroke="#238636" stroke-width="6" stroke-opacity="0.4"/>
+    <circle cx="256" cy="256" r="236" fill="none" stroke="url(#cyanGrad)" stroke-width="3" stroke-dasharray="16 10"/>
+
+    <!-- Mesh Lines -->
+    <g stroke="#58a6ff" stroke-width="3.5" stroke-opacity="0.35" stroke-dasharray="6 6">
+      <line x1="256" y1="70" x2="410" y2="155"/>
+      <line x1="410" y1="155" x2="410" y2="355"/>
+      <line x1="410" y1="355" x2="256" y2="442"/>
+      <line x1="256" y1="442" x2="102" y2="355"/>
+      <line x1="102" y1="355" x2="102" y2="155"/>
+      <line x1="102" y1="155" x2="256" y2="70"/>
+      <line x1="102" y1="155" x2="256" y2="256"/>
+      <line x1="410" y1="155" x2="256" y2="256"/>
+      <line x1="102" y1="355" x2="256" y2="256"/>
+      <line x1="410" y1="355" x2="256" y2="256"/>
+    </g>
+
+    <!-- Mesh Nodes -->
+    <circle cx="256" cy="70" r="10" fill="#58f187"/>
+    <circle cx="410" cy="155" r="10" fill="#58a6ff"/>
+    <circle cx="410" cy="355" r="10" fill="#58f187"/>
+    <circle cx="256" cy="442" r="10" fill="#58a6ff"/>
+    <circle cx="102" cy="355" r="10" fill="#58f187"/>
+    <circle cx="102" cy="155" r="10" fill="#58a6ff"/>
+
+    <!-- Emblem Geometry -->
+    <g filter="url(#glow)">
+      <path d="M 148 135 L 196 135 L 196 377 L 148 377 Z" fill="url(#emeraldGrad)"/>
+      <path d="M 196 135 L 256 260 L 256 315 L 196 195 Z" fill="url(#cyanGrad)"/>
+      <path d="M 316 135 L 256 260 L 256 315 L 316 195 Z" fill="url(#cyanGrad)"/>
+      <path d="M 316 135 L 364 135 L 364 377 L 316 377 Z" fill="url(#emeraldGrad)"/>
+      <polygon points="256,238 274,256 256,274 238,256" fill="#ffffff"/>
+      <rect x="220" y="347" width="72" height="30" rx="6" fill="url(#cyanGrad)"/>
+      <circle cx="256" cy="362" r="6" fill="#ffffff"/>
+      <circle cx="256" cy="122" r="14" fill="#58f187"/>
+    </g>
+  </g>
+
+  <!-- Right Side: Brand Typography & Slogan -->
+  <g transform="translate(330, 0)">
+    <!-- Primary Title -->
+    <text x="0" y="145" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-weight="900" font-size="74" fill="#f0f6fc" letter-spacing="1.5">
+      INTERNET <tspan fill="url(#emeraldGrad)">MONEY</tspan>
+    </text>
+
+    <!-- Ticker Tag Badge -->
+    <g transform="translate(730, 88)">
+      <rect width="105" height="42" rx="8" fill="#238636" fill-opacity="0.25" stroke="#238636" stroke-width="2"/>
+      <text x="52" y="28" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-weight="800" font-size="22" fill="#58f187" text-anchor="middle" letter-spacing="2">
+        IMN
+      </text>
+    </g>
+
+    <!-- Core Tagline Subtitle -->
+    <text x="0" y="195" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-weight="600" font-size="24" fill="#58a6ff" letter-spacing="0.5">
+      The 5-Second ASIC-Resistant BlockDAG Layer-1
+    </text>
+
+    <!-- Key Bullet Spec Highlights -->
+    <g transform="translate(0, 240)" font-family="monospace" font-size="16" fill="#8b949e">
+      <text x="0" y="0">⚡ 5s Settlement (0.2 BPS)</text>
+      <circle cx="230" cy="-6" r="3" fill="#30363d"/>
+      <text x="245" y="0">🔨 Money Printer PoW</text>
+      <circle cx="465" cy="-6" r="3" fill="#30363d"/>
+      <text x="480" y="0">🪙 0% Fees • Non-Custodial</text>
+    </g>
+  </g>
+</svg>
