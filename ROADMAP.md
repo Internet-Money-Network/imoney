@@ -76,6 +76,7 @@ This roadmap defines the step-by-step engineering plan to build Internet Money i
 - [x] **Step 3: Developer SDK & Checkout Modal** (`@imoney/sdk` for Node.js + browser CDN bundle `imoney.js`, reactive payment modal with QR code and live confirmation).
 - [x] **Step 4: WordPress / WooCommerce 1-Click Gateway** (`plugins/imoney-payments-for-woocommerce.zip` packaged with non-custodial payout address configuration).
 - [x] **Step 5: End-to-End Payment Demo** (`examples/e2e-payment-demo/index.html` illustrating 2-line code web store checkout).
-- [ ] **Step 6: P2P Peer Gossip Networking** (TCP / libp2p discovery between remote nodes).
+- [x] **Step 6: P2P Peer Gossip Networking** (Pure-async TCP framing, bidirectional Handshake, `GetTips`, block sync, mempool transaction propagation, `/api/v1/peers`).
 - [ ] **Step 7: Seed Node Deployment & Testnet Public Launch** (Deploying local network to cloud seed nodes under `internetmoneynetwork.org`).
+
 
