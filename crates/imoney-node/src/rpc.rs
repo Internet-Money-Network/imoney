@@ -1,3 +1,4 @@
+use crate::p2p::PeerManager;
 use crate::state::SharedLedger;
 use axum::extract::ws::{Message as WsMessage, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
@@ -15,7 +16,9 @@ use tower_http::cors::{Any, CorsLayer};
 pub struct AppState {
     pub ledger: SharedLedger,
     pub pow: Arc<MoneyPrinterPow>,
+    pub p2p: Arc<PeerManager>,
 }
+
 
 #[derive(Deserialize)]
 pub struct SubmitBlockRequest {
@@ -68,18 +71,25 @@ pub struct TxStatusResponse {
     pub total_output_im: f64,
 }
 
-pub fn create_router(ledger: SharedLedger, pow: Arc<MoneyPrinterPow>) -> Router {
+#[derive(Serialize)]
+pub struct PeersResponse {
+    pub total_connected: usize,
+    pub peers: Vec<String>,
+}
+
+pub fn create_router(ledger: SharedLedger, pow: Arc<MoneyPrinterPow>, p2p: Arc<PeerManager>) -> Router {
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
         .allow_headers(Any);
 
-    let state = Arc::new(AppState { ledger, pow });
+    let state = Arc::new(AppState { ledger, pow, p2p });
 
     Router::new()
         .route("/", get(dashboard_handler))
         .route("/api/v1/info", get(info_handler))
         .route("/api/v1/tips", get(tips_handler))
+        .route("/api/v1/peers", get(peers_handler))
         .route("/api/v1/mining/template", get(template_handler))
         .route("/api/v1/mining/submit", post(submit_handler))
         .route("/api/v1/tx/broadcast", post(broadcast_handler))
@@ -90,6 +100,7 @@ pub fn create_router(ledger: SharedLedger, pow: Arc<MoneyPrinterPow>) -> Router 
         .layer(cors)
         .with_state(state)
 }
+
 
 
 
@@ -160,6 +171,14 @@ async fn tips_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     Json(tips)
 }
 
+async fn peers_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let peers = state.p2p.get_connected_peers().await;
+    Json(PeersResponse {
+        total_connected: peers.len(),
+        peers,
+    })
+}
+
 async fn template_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let template = state.ledger.read().await.get_mining_template();
     Json(template)
@@ -170,15 +189,18 @@ async fn submit_handler(
     Json(payload): Json<SubmitBlockRequest>,
 ) -> (StatusCode, Json<SubmitBlockResponse>) {
     let mut ledger = state.ledger.write().await;
-    match ledger.add_block(payload.header, &state.pow) {
-        Ok(hash) => (
-            StatusCode::OK,
-            Json(SubmitBlockResponse {
-                success: true,
-                block_hash: Some(hash.to_hex()),
-                error: None,
-            }),
-        ),
+    match ledger.add_block(payload.header.clone(), &state.pow) {
+        Ok(hash) => {
+            state.p2p.broadcast_block(payload.header);
+            (
+                StatusCode::OK,
+                Json(SubmitBlockResponse {
+                    success: true,
+                    block_hash: Some(hash.to_hex()),
+                    error: None,
+                }),
+            )
+        }
         Err(e) => (
             StatusCode::BAD_REQUEST,
             Json(SubmitBlockResponse {
@@ -189,6 +211,7 @@ async fn submit_handler(
         ),
     }
 }
+
 
 async fn balance_handler(
     State(state): State<Arc<AppState>>,
@@ -231,15 +254,18 @@ async fn broadcast_handler(
     Json(payload): Json<BroadcastTxRequest>,
 ) -> (StatusCode, Json<BroadcastTxResponse>) {
     let mut ledger = state.ledger.write().await;
-    match ledger.broadcast_transaction(payload.transaction) {
-        Ok(tx_id) => (
-            StatusCode::OK,
-            Json(BroadcastTxResponse {
-                success: true,
-                tx_id: Some(tx_id.to_hex()),
-                error: None,
-            }),
-        ),
+    match ledger.broadcast_transaction(payload.transaction.clone()) {
+        Ok(tx_id) => {
+            state.p2p.broadcast_transaction(payload.transaction);
+            (
+                StatusCode::OK,
+                Json(BroadcastTxResponse {
+                    success: true,
+                    tx_id: Some(tx_id.to_hex()),
+                    error: None,
+                }),
+            )
+        }
         Err(e) => (
             StatusCode::BAD_REQUEST,
             Json(BroadcastTxResponse {
@@ -250,6 +276,7 @@ async fn broadcast_handler(
         ),
     }
 }
+
 
 async fn tx_status_handler(
     State(state): State<Arc<AppState>>,
