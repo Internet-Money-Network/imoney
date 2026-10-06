@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Internet Money (IMN) - 1-Click Merchant Checkout Demo</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #090d13;
+      color: #c9d1d9;
+      margin: 0;
+      padding: 40px 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .container {
+      max-width: 680px;
+      width: 100%;
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 12px;
+      padding: 32px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+    }
+    h1 {
+      color: #58a6ff;
+      margin-top: 0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .badge {
+      background: #238636;
+      color: white;
+      font-size: 12px;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-weight: bold;
+    }
+    .product-card {
+      background: #0d1117;
+      border: 1px solid #21262d;
+      border-radius: 8px;
+      padding: 20px;
+      margin: 20px 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .price {
+      font-size: 24px;
+      font-weight: bold;
+      color: #39d353;
+    }
+    .btn {
+      background: #238636;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 12px 24px;
+      font-size: 16px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .btn:hover {
+      background: #2ea043;
+    }
+    .specs {
+      font-size: 13px;
+      color: #8b949e;
+      line-height: 1.6;
+      border-top: 1px solid #21262d;
+      padding-top: 16px;
+    }
+    .code-box {
+      background: #05070a;
+      border: 1px solid #21262d;
+      border-radius: 6px;
+      padding: 12px;
+      font-family: monospace;
+      font-size: 12px;
+      color: #79c0ff;
+      margin-top: 16px;
+    }
+    #receipt {
+      display: none;
+      margin-top: 20px;
+      padding: 16px;
+      background: #0d2218;
+      border: 1px solid #238636;
+      border-radius: 8px;
+      color: #39d353;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <h1>
+      ⚡ Web Store Checkout
+      <span class="badge">TESTNET-1</span>
+    </h1>
+    <p style="color: #8b949e; margin-bottom: 24px;">
+      Demonstrating the 100% non-custodial, 5-second instant BlockDAG settlement with <code>@imoney/sdk</code>.
+    </p>
+
+    <div class="product-card">
+      <div>
+        <h3 style="margin: 0 0 6px 0; color: #f0f6fc;">Hardware Miner T-Shirt</h3>
+        <p style="margin: 0; color: #8b949e; font-size: 13px;">Official 100% Cotton ASIC-Resistant Tee</p>
+      </div>
+      <div style="text-align: right;">
+        <div class="price">2.50 IMN</div>
+        <div style="font-size: 11px; color: #8b949e;">≈ $2.50 USD • 0% Fees</div>
+      </div>
+    </div>
+
+    <button id="pay-btn" class="btn" style="width: 100%;">
+      ⚡ Pay 2.50 IMN with Internet Money
+    </button>
+
+    <div id="receipt">
+      <h3 style="margin: 0 0 8px 0;">🎉 Payment Verified Instantly!</h3>
+      <p style="margin: 0; font-size: 14px;" id="receipt-text"></p>
+    </div>
+
+    <div class="code-box">
+      // Integration in 2 lines of code:<br>
+      const client = new IMoneyClient({ nodeUrl: "http://127.0.0.1:18556" });<br>
+      client.openCheckoutModal({ merchantAddress: "imntest:q...", amountIm: 2.5 });
+    </div>
+
+    <div class="specs">
+      • <b>BlockDAG Confirmation</b>: ~5 seconds (0.2 BPS, k=8 GHOSTDAG)<br>
+      • <b>Zero Intermediary</b>: Customer funds go directly to your non-custodial wallet<br>
+      • <b>Anti-Double Spend</b>: Validated in real-time by pure-Rust persistent nodes
+    </div>
+  </div>
+
+  <!-- Include bundled Internet Money SDK -->
+  <script src="../../packages/imoney-sdk/dist/index.js"></script>
+  <script>
+    const payBtn = document.getElementById('pay-btn');
+    const receiptBox = document.getElementById('receipt');
+    const receiptText = document.getElementById('receipt-text');
+
+    // Use default testnet node address
+    const MERCHANT_ADDRESS = 'imntest:qpm2qsznhks23z7629mms6s4cwef74vcwvy22gd6aedxrr66r20';
+
+    payBtn.addEventListener('click', () => {
+      const client = new IMoneyClient({
+        nodeUrl: 'http://127.0.0.1:18556',
+        network: 'testnet'
+      });
+
+      client.openCheckoutModal({
+        merchantAddress: MERCHANT_ADDRESS,
+        amountIm: 2.5,
+        orderId: 'DEMO-' + Math.floor(1000 + Math.random() * 9000),
+        memo: 'T-Shirt Purchase',
+        timeoutSeconds: 300,
+        onSuccess: (payment) => {
+          receiptBox.style.display = 'block';
+          receiptText.innerText = `Received ${payment.im} IMN (${payment.atoms} atomic units). Confirmed on BlockDAG!`;
+          payBtn.innerText = '✓ Paid';
+          payBtn.style.background = '#1f6feb';
+        },
+        onExpire: () => {
+          alert('Invoice expired without payment.');
+        },
+        onCancel: () => {
+          console.log('Customer cancelled modal checkout.');
+        }
+      });
+    });
+  </script>
+</body>
+</html>
