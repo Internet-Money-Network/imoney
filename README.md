@@ -1,19 +1,31 @@
-# Internet Money (`IMN`)
+<p align="center">
+  <img src="assets/branding/imoney-logo-banner.svg" alt="Internet Money Logo Banner" width="800">
+</p>
 
-> **Permissionless, ASIC-resistant, 5-second blockDAG digital cash for the modern economy.**
+<p align="center">
+  <b>A fast, ASIC-resistant BlockDAG Layer-1 cryptocurrency for peer-to-peer commerce.</b><br>
+  <sub>Zero Premine &bull; Zero Dev Fee &bull; 5-Second Settlement &bull; Pure-Rust redb Storage &bull; Native Merchant SDK</sub>
+</p>
 
-[![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE)
-[![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg" alt="License"></a>
+  <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/rust-1.75%2B-orange.svg" alt="Rust"></a>
+  <a href="apps/imoney-explorer/index.html"><img src="https://img.shields.io/badge/explorer-testnet--1-green.svg" alt="Explorer"></a>
+  <a href="packages/imoney-sdk"><img src="https://img.shields.io/badge/sdk-%40imoney%2Fsdk-blueviolet.svg" alt="SDK"></a>
+</p>
 
 ---
 
-## 💡 Overview
+## Overview
 
-**Internet Money (`IMN`)** is a decentralized cryptocurrency designed from the ground up to fulfill the original vision of electronic peer-to-peer cash:
-- **Instant Finality:** 1 block every 5 seconds (0.2 BPS) on an asynchronous **GHOSTDAG** (blockDAG) consensus engine.
-- **True ASIC Resistance:** Powered by the **Money Printer** algorithm, a memory-hard Proof-of-Work engine designed specifically to saturate consumer gaming GPU memory bandwidth and keep mining decentralized among everyday users.
-- **Fair Launch & Sound Money:** Zero premine, zero founder tax, zero venture capital. Follows a 4-year halving cycle with a permanent 0.3125 IM / block floor (~1% perpetual tail inflation) guaranteeing infinite network security without fee-gating normal users.
-- **Lightweight Nodes:** By pacing blocks at 5 seconds ($k=8$), daily block header volume is reduced by **50x compared to Kaspa**, allowing full nodes to run effortlessly on laptops, modest PCs, or Raspberry Pis.
+**Internet Money (`IMN`)** is an open-source, permissionless Layer-1 proof-of-work cryptocurrency designed for real-world merchant checkout and decentralized digital cash.
+
+- **5-Second Settlement (0.2 BPS):** Combines the GHOSTDAG ($k=8$) parallel block consensus model with 5,000 ms block times. Honest concurrent blocks merge into a single directed acyclic graph without chain splits or high orphaning rates.
+- **ASIC-Resistant "Money Printer" PoW:** Memory-hard Blake3 + Keccak256 algorithm requiring high-bandwidth pseudo-random lookups across memory (FishHash derivative). Prevents custom ASIC dominance by forcing miners to utilize retail GDDR6/HBM memory bandwidth.
+- **Sub-1% Long-Term Inflation Floor:** Strict 4-year halving cycle starting at 5.0 IM/block, tapering down to a permanent 0.3125 IM (~1% annual inflation) security subsidy floor to ensure permanent miner incentive without exorbitant user fees.
+- **Lightweight Nodes (~5–8 GB):** Generating only 17,280 blocks/day (50x fewer than 10 BPS chains), pruned full nodes run on standard hardware and modest VPS instances using pure-Rust embedded `redb` ACID persistence.
+- **Plug-and-Play Merchant Stack:** Zero-custody developer SDK (`@imoney/sdk`) and 1-click WooCommerce/WordPress plugin supporting sub-second WebSocket payment detection and 5-second customer checkouts.
+
 
 ---
 
@@ -47,15 +59,25 @@ Era 4+ (Year 16+):      0.31250000 IM / block  -->   Permanent Floor (~1% inflat
 
 ---
 
-## 🗂️ Workspace Architecture
+## Workspace Architecture
 
-The codebase is organized as a modular Rust workspace:
+The codebase is structured as a modular mono-repository:
 
-- [`crates/imoney-core`](crates/imoney-core): Primitive types (`BlockHeader`, `Transaction`, `Hash`, consensus constants).
-- [`crates/imoney-pow`](crates/imoney-pow): The **Money Printer** memory-hard Proof-of-Work engine and CPU/GPU validation functions.
-- [`crates/imoney-emission`](crates/imoney-emission): Exact integer-based emission curve, halving calculations, and supply models.
-- [`crates/imoney-consensus`](crates/imoney-consensus): GHOSTDAG ordering rules, blue/red set coloring, and Difficulty Adjustment Algorithm (DAA).
-- [`crates/imoney-miner`](crates/imoney-miner): Reference multi-threaded miner CLI and hashrate benchmark.
+- **Core Protocol & Node (`crates/`):**
+  - [`crates/imoney-core`](crates/imoney-core): Bech32 addresses (`imn:q...`), Ed25519 Schnorr signing, transaction verification.
+  - [`crates/imoney-pow`](crates/imoney-pow): Memory-hard "Money Printer" algorithm (Blake3 + Keccak256 memory bandwidth lookups).
+  - [`crates/imoney-emission`](crates/imoney-emission): 4-year halving curve starting at 5 IM/block down to 0.3125 IM permanent floor.
+  - [`crates/imoney-consensus`](crates/imoney-consensus): GHOSTDAG ordering rules ($k=8$), blue scores, and rolling DAA window.
+  - [`crates/imoney-node`](crates/imoney-node): Full node daemon with embedded pure-Rust `redb` ACID storage, REST/WebSocket API, and TCP P2P gossip sync.
+  - [`crates/imoney-miner`](crates/imoney-miner): Reference multi-threaded miner CLI and benchmark.
+- **Ecosystem Apps (`apps/`):**
+  - [`apps/imoney-explorer`](apps/imoney-explorer): Real-time BlockDAG visualizer, network metrics, and address/tx search.
+  - [`apps/imoney-wallet`](apps/imoney-wallet): Non-custodial web & desktop wallet with client-side key management.
+  - [`apps/imoney-website`](apps/imoney-website): Official portal website for `internetmoneynetwork.org`.
+- **Developer Tools & Plugins:**
+  - [`packages/imoney-sdk`](packages/imoney-sdk): Universal TypeScript/JavaScript SDK and CDN-ready bundle (`imoney.js`).
+  - [`plugins/imoney-payments-for-woocommerce`](plugins/imoney-payments-for-woocommerce): 1-click zero-fee WooCommerce payment gateway.
+
 
 ---
 
