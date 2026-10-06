@@ -25,3 +25,4 @@ thiserror.workspace = true
 chrono.workspace = true
 hex.workspace = true
 rand.workspace = true
+redb = "4.3.0"

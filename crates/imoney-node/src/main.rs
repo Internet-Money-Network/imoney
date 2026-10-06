@@ -1,15 +1,18 @@
 mod genesis;
 mod rpc;
 mod state;
+mod storage;
 
 use clap::Parser;
 use genesis::create_testnet_genesis;
 use imoney_core::constants::{CURRENCY_NAME, TARGET_TIME_PER_BLOCK_MS, TICKER};
-use imoney_core::{BlockHeader, Hash};
+use imoney_core::{Address, AddressType, BlockHeader, Hash, Network};
 use imoney_pow::{DEVNET_DATASET_ITEMS, MoneyPrinterContext, MoneyPrinterPow};
 use rpc::create_router;
 use state::{DagLedger, SharedLedger};
+use std::fs;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Duration;
@@ -22,7 +25,15 @@ struct Args {
     #[arg(long, default_value = "127.0.0.1:18556")]
     rpc_bind: String,
 
-    /// Enable automatic background miner (for local devnet/testnet testing)
+    /// Path to persistent database directory
+    #[arg(long, default_value = "./data")]
+    data_dir: PathBuf,
+
+    /// Mining payout address (Bech32, e.g., imntest:q...)
+    #[arg(long)]
+    mining_address: Option<String>,
+
+    /// Enable automatic background miner (targets ~5s block intervals)
     #[arg(long, default_value_t = false)]
     auto_mine: bool,
 }
@@ -35,8 +46,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  {} ({}) - Full Node Daemon [TESTNET-1]", CURRENCY_NAME, TICKER);
     println!("  Consensus: GHOSTDAG @ 5s Block Time (0.2 BPS)");
     println!("  PoW: Money Printer (ASIC-Resistant Memory-Hard)");
+    println!("  Storage: Persistent ACID Embedded DB (redb)");
+    println!("  Data Directory: {:?}", args.data_dir);
     println!("  RPC / Web Dashboard: http://{}", args.rpc_bind);
     println!("============================================================");
+
+    // Ensure data directory exists
+    fs::create_dir_all(&args.data_dir)?;
+    let db_path = args.data_dir.join("imoney.redb");
+
+    // Parse or generate mining payout address
+    let mining_address = match args.mining_address {
+        Some(s) => Some(Address::decode(&s)?),
+        None => {
+            // Generate a deterministic default testnet miner key for easy local testing
+            let dummy_key = [0x77u8; 32];
+            let addr = Address::from_public_key(Network::Testnet, AddressType::PubKeyHash, &dummy_key);
+            println!("[*] Default Testnet Mining Address: {}", addr);
+            Some(addr)
+        }
+    };
 
     println!("[*] Initializing Money Printer PoW Context (Devnet mode)...");
     let genesis = create_testnet_genesis();
@@ -45,10 +74,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pow = Arc::new(MoneyPrinterPow::new(ctx));
     println!("[+] PoW Context initialized successfully.");
 
-    let ledger: SharedLedger = Arc::new(RwLock::new(DagLedger::new()));
-    println!("[+] Testnet Genesis Block loaded. DAG ledger active.");
+    println!("[*] Opening persistent database at {:?}...", db_path);
+    let ledger_instance = DagLedger::open(&db_path, mining_address)?;
+    let ledger: SharedLedger = Arc::new(RwLock::new(ledger_instance));
+    {
+        let r = ledger.read().await;
+        println!(
+            "[+] Persistent ledger active: {} blocks loaded | Blue Score: {}",
+            r.blocks.len(),
+            r.virtual_blue_score
+        );
+    }
 
-    // Optional background auto-miner
+    // Background auto-miner task
     if args.auto_mine {
         let ledger_clone = ledger.clone();
         let pow_clone = pow.clone();
@@ -62,7 +100,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let bits = template.bits;
                 let stop = Arc::new(AtomicBool::new(false));
 
-                // Mine with single thread in background
                 if let Some((nonce, _hash)) = pow_clone.mine(&pre_pow_hash, bits, 0, 10_000_000, stop) {
                     let candidate = BlockHeader {
                         version: template.version,
@@ -81,11 +118,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let mut writer = ledger_clone.write().await;
                     match writer.add_block(candidate, &pow_clone) {
                         Ok(new_hash) => {
+                            let balance_info = writer.mining_address.as_ref().and_then(|a| writer.get_balance(a).ok()).map(|(_, coins)| coins).unwrap_or(0.0);
                             println!(
-                                "[+] Mined Block #{} | Hash: {} | Blue Score: {}",
+                                "[+] Mined Block #{} | Hash: {} | Blue Score: {} | Miner Balance: {:.2} IM",
                                 writer.virtual_daa_score,
                                 new_hash,
-                                writer.virtual_blue_score
+                                writer.virtual_blue_score,
+                                balance_info
                             );
                         }
                         Err(e) => {

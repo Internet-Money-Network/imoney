@@ -13,3 +13,4 @@ byteorder.workspace = true
 blake3.workspace = true
 thiserror.workspace = true
 rand.workspace = true
+bech32 = "0.12.0"
