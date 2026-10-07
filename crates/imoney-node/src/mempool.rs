@@ -38,6 +38,8 @@ pub struct Mempool {
     entries: HashMap<Hash, MempoolEntry>,
     /// Which pending transaction spends each outpoint.
     spent: HashMap<Outpoint, Hash>,
+    /// Pending transactions by the invoice they name.
+    invoices: HashMap<String, Vec<Hash>>,
     total_bytes: usize,
     max_bytes: usize,
     /// Lowest fee admitted, in atoms per byte.
@@ -55,6 +57,7 @@ impl Mempool {
         Self {
             entries: HashMap::new(),
             spent: HashMap::new(),
+            invoices: HashMap::new(),
             total_bytes: 0,
             max_bytes,
             min_fee_per_byte: MIN_RELAY_FEE_PER_BYTE,
@@ -115,6 +118,9 @@ impl Mempool {
         for input in &entry.tx.inputs {
             self.spent.insert(input.previous_outpoint.clone(), tx_id);
         }
+        if let Some(invoice_id) = entry.tx.invoice_id() {
+            self.invoices.entry(invoice_id.to_string()).or_default().push(tx_id);
+        }
         self.total_bytes += size;
         self.entries.insert(tx_id, entry);
         Ok(tx_id)
@@ -160,8 +166,34 @@ impl Mempool {
         for input in &entry.tx.inputs {
             self.spent.remove(&input.previous_outpoint);
         }
+        if let Some(invoice_id) = entry.tx.invoice_id() {
+            if let Some(ids) = self.invoices.get_mut(invoice_id) {
+                ids.retain(|id| id != tx_id);
+                if ids.is_empty() {
+                    self.invoices.remove(invoice_id);
+                }
+            }
+        }
         self.total_bytes -= entry.size;
         Some(entry.tx)
+    }
+
+    /// Removes the pending transaction that spends `outpoint`, if there is one. Called for each
+    /// coin a new block removed from the ledger: that is the only way a block can invalidate a
+    /// pending transaction, so nothing else in the pool needs to be looked at.
+    pub fn remove_spender(&mut self, outpoint: &Outpoint) -> Option<Hash> {
+        let tx_id = *self.spent.get(outpoint)?;
+        self.remove(&tx_id);
+        Some(tx_id)
+    }
+
+    /// Pending transactions that name `invoice_id`.
+    pub fn by_invoice(&self, invoice_id: &str) -> impl Iterator<Item = &Transaction> {
+        self.invoices
+            .get(invoice_id)
+            .into_iter()
+            .flatten()
+            .filter_map(|tx_id| self.entries.get(tx_id).map(|entry| &entry.tx))
     }
 
     /// Keeps only the transactions for which `still_valid` returns true.
@@ -299,6 +331,28 @@ mod tests {
         // The evicted transaction's outpoint is spendable again
         assert!(pool.insert(tx(1, 0), 9_000).is_ok());
         assert!(!pool.contains(&better));
+    }
+
+    #[test]
+    fn spender_and_invoice_lookups_follow_inserts_and_removals() {
+        let mut pool = Mempool::default().with_min_fee_rate(1);
+        let mut invoiced = tx(1, 0);
+        invoiced.payload = [imoney_core::transaction::INVOICE_TAG, b"INV-9"].concat();
+        let invoiced_id = pool.insert(invoiced.clone(), 1_000).unwrap();
+        let plain_id = pool.insert(tx(2, 0), 1_000).unwrap();
+
+        assert_eq!(pool.by_invoice("INV-9").map(|t| t.id()).collect::<Vec<_>>(), vec![invoiced_id]);
+        assert_eq!(pool.by_invoice("INV-8").count(), 0);
+
+        // A block spent the coin the plain transaction wanted: only that one goes
+        let outpoint = Outpoint { transaction_id: Hash([2u8; 32]), index: 0 };
+        assert_eq!(pool.remove_spender(&outpoint), Some(plain_id));
+        assert_eq!(pool.remove_spender(&outpoint), None);
+        assert!(pool.contains(&invoiced_id));
+
+        pool.remove(&invoiced_id);
+        assert_eq!(pool.by_invoice("INV-9").count(), 0);
+        assert!(pool.is_empty());
     }
 
     #[test]

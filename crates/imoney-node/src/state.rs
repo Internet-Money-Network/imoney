@@ -915,12 +915,14 @@ impl DagLedger {
         self.level_index.insert((self.dag.get(&block_hash).level, block_hash));
         self.set_virtual(virtual_state);
 
-        // Drop pending transactions that were accepted or can no longer be spent
-        let mut mempool = std::mem::take(&mut self.mempool);
-        mempool.retain(|tx| {
-            self.check_spend(tx, |outpoint| self.storage.get_utxo(outpoint), self.virtual_blue_score).is_ok()
-        });
-        self.mempool = mempool;
+        // Drop pending transactions that were accepted or can no longer be spent. A block can
+        // only invalidate a pending transaction by removing a coin it spends, so looking up the
+        // coins this block removed is enough; the rest of the pool is untouched.
+        for outpoint in &view.batch.utxo_deletes {
+            if !view.batch.utxo_puts.contains_key(outpoint) {
+                self.mempool.remove_spender(outpoint);
+            }
+        }
 
         let _ = self.events.send(LedgerEvent::BlockAdded { hash: block_hash, blue_score: self.virtual_blue_score });
 
@@ -1147,8 +1149,7 @@ impl DagLedger {
 
         let mut payments: Vec<InvoicePayment> = self
             .mempool
-            .transactions()
-            .filter(|tx| tx.invoice_id() == Some(invoice_id))
+            .by_invoice(invoice_id)
             .map(|tx| InvoicePayment { tx_id: tx.id(), amount_atoms: paid_to_address(tx), confirmations: 0 })
             .collect();
         for tx_id in self.storage.get_invoice_tx_ids(invoice_id)? {

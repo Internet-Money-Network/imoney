@@ -62,6 +62,8 @@ fn invoice_index_key(invoice_id: &str, tx_id: &Hash) -> Vec<u8> {
 
 /// Metadata key: hash of the tip the selected chain ends in.
 pub const META_SINK: &str = "sink";
+/// Metadata key: running total of every unspent output, in atoms (u128, big-endian).
+const META_SUPPLY: &str = "supply_atoms";
 /// Metadata key: selected-chain blocks at or below this blue score have been pruned.
 pub const META_PRUNED_FLOOR: &str = "pruned_floor";
 /// Metadata key: the acceptance data of the virtual block.
@@ -273,7 +275,18 @@ impl Storage {
         }
         write_tx.commit()?;
 
-        Ok(Self { db: Arc::new(db) })
+        let storage = Self { db: Arc::new(db) };
+        // A database from before the running total existed: count once and remember
+        if storage.get_metadata(META_SUPPLY)?.is_none() {
+            let total = storage.scan_utxo_atoms()?;
+            let write_tx = storage.db.begin_write()?;
+            {
+                let mut metadata_table = write_tx.open_table(METADATA_TABLE)?;
+                metadata_table.insert(META_SUPPLY, total.to_be_bytes().as_slice())?;
+            }
+            write_tx.commit()?;
+        }
+        Ok(storage)
     }
 
     /// Writes a batch atomically: after a crash either all of it is on disk or none of it is.
@@ -303,6 +316,9 @@ impl Storage {
                 metadata_table.insert(*key, bytes.as_slice())?;
             }
 
+            // The supply total moves by exactly what this batch adds to and removes from the UTXO set
+            let mut added: u128 = 0;
+            let mut removed_total: u128 = 0;
             let mut utxo_table = write_tx.open_table(UTXO_TABLE)?;
             let mut script_table = write_tx.open_table(SCRIPT_UTXO_TABLE)?;
             for outpoint in &batch.utxo_deletes {
@@ -311,12 +327,29 @@ impl Storage {
                     None => None,
                 };
                 if let Some(entry) = removed {
+                    removed_total += entry.output.value_atoms as u128;
                     script_table.remove(script_index_key(&entry.output.script_public_key, outpoint).as_slice())?;
                 }
             }
             for (outpoint, entry) in &batch.utxo_puts {
-                utxo_table.insert(outpoint.to_bytes().as_slice(), entry.to_bytes().as_slice())?;
+                let replaced = match utxo_table.insert(outpoint.to_bytes().as_slice(), entry.to_bytes().as_slice())? {
+                    Some(old) => Some(UtxoEntry::from_bytes(old.value())?),
+                    None => None,
+                };
+                if let Some(old) = replaced {
+                    removed_total += old.output.value_atoms as u128;
+                    script_table.remove(script_index_key(&old.output.script_public_key, outpoint).as_slice())?;
+                }
+                added += entry.output.value_atoms as u128;
                 script_table.insert(script_index_key(&entry.output.script_public_key, outpoint).as_slice(), ())?;
+            }
+            if added != removed_total {
+                let current = match metadata_table.get(META_SUPPLY)? {
+                    Some(bytes) => bytes.value().try_into().map(u128::from_be_bytes).unwrap_or(0),
+                    None => 0,
+                };
+                let updated = (current + added).saturating_sub(removed_total);
+                metadata_table.insert(META_SUPPLY, updated.to_be_bytes().as_slice())?;
             }
 
             let mut tx_table = write_tx.open_table(TRANSACTIONS_TABLE)?;
@@ -446,8 +479,19 @@ impl Storage {
         Ok(tx_ids)
     }
 
-    /// Sum of every unspent output: the circulating supply in atoms.
+    /// The circulating supply in atoms: the sum of every unspent output, kept as a running total
+    /// that each write updates, so reading it does not depend on how many coins exist.
     pub fn total_utxo_atoms(&self) -> Result<u128, StorageError> {
+        Ok(self
+            .get_metadata(META_SUPPLY)?
+            .and_then(|bytes| bytes.try_into().ok())
+            .map(u128::from_be_bytes)
+            .unwrap_or(0))
+    }
+
+    /// Adds up every unspent output by reading the whole UTXO set. Slow on a large chain; used
+    /// to seed the running total and to check it.
+    pub fn scan_utxo_atoms(&self) -> Result<u128, StorageError> {
         let read_tx = self.db.begin_read()?;
         let utxo_table = read_tx.open_table(UTXO_TABLE)?;
         let mut total: u128 = 0;

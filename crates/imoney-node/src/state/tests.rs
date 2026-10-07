@@ -88,6 +88,11 @@ fn balance(ledger: &DagLedger, address: &Address) -> u64 {
     ledger.get_balance(address).unwrap().0
 }
 
+/// The running supply total must always equal an actual count of every coin.
+fn assert_supply_total_is_exact(ledger: &DagLedger) {
+    assert_eq!(ledger.storage.total_utxo_atoms().unwrap(), ledger.storage.scan_utxo_atoms().unwrap());
+}
+
 /// Total subsidy of the blocks whose rewards exist in the current ledger state.
 /// Rewards exist for every block in the virtual block's past that was merged as blue.
 fn expected_supply(ledger: &DagLedger) -> u128 {
@@ -389,6 +394,9 @@ fn heavier_side_chain_replaces_the_selected_chain_and_its_payments() {
         assert_eq!(balance(&fresh, address), balance(&node, address));
     }
     assert_eq!(fresh.storage.total_utxo_atoms().unwrap(), node.storage.total_utxo_atoms().unwrap());
+    // After payments, a reorganisation and merges, the running totals still match a full count
+    assert_supply_total_is_exact(&node);
+    assert_supply_total_is_exact(&fresh);
 }
 
 #[test]
@@ -810,6 +818,7 @@ fn pruning_deletes_old_block_contents_but_not_the_ledger() {
     assert_eq!((balance(&reopened, &shop), balance(&reopened, &address_of(&payer)), balance(&reopened, &miner)), balances);
     reopened.enable_pruning(10).unwrap();
     mine_tip(&mut reopened, &pow, &miner);
+    assert_supply_total_is_exact(&reopened);
     assert_eq!(reopened.storage.total_utxo_atoms().unwrap(), expected_supply(&reopened));
 }
 
@@ -849,4 +858,40 @@ fn disk_use_per_block() {
     }
     let per_block = (size(&pruned_path) - at_2000) / 6_000;
     println!("pruned node: {} bytes each on disk, {:.1} MB a day", per_block, per_block as f64 * 17_280.0 / 1e6);
+}
+
+#[test]
+fn block_removes_only_the_pending_transactions_it_invalidates() {
+    let (alice, bob) = (key(180), key(181));
+    let shop = address_of(&key(182));
+    let miner = address_of(&key(200));
+    let mut ledger = open("mempool-targeted");
+    let pow = test_pow();
+    mine_tip(&mut ledger, &pow, &address_of(&alice));
+    mine_tip(&mut ledger, &pow, &address_of(&bob));
+    for _ in 0..=MATURITY {
+        mine_tip(&mut ledger, &pow, &miner);
+    }
+
+    // Alice has two competing payments; only one is in this node's mempool. Bob's is unrelated.
+    let alice_pending = pay(&ledger, &alice, &shop, 1_000, 500);
+    let alice_rival = pay(&ledger, &alice, &shop, 2_000, 500);
+    let bob_pending = pay(&ledger, &bob, &shop, 3_000, 500);
+    ledger.broadcast_transaction(alice_pending.clone()).unwrap();
+    ledger.broadcast_transaction(bob_pending.clone()).unwrap();
+
+    // A block arrives carrying Alice's other payment
+    let tip = ledger.virtual_selected_parent;
+    let block = mine_on(&ledger, &pow, &[tip], &miner, vec![alice_rival]);
+    ledger.add_block(block, &pow).unwrap();
+
+    assert!(!ledger.mempool.contains(&alice_pending.id()), "its coin was spent by the block");
+    assert!(ledger.mempool.contains(&bob_pending.id()), "an unrelated payment stays");
+    assert_eq!(ledger.mempool.len(), 1);
+
+    // The next block confirms Bob's payment and empties the pool
+    mine_tip(&mut ledger, &pow, &miner);
+    assert!(ledger.mempool.is_empty());
+    assert_eq!(balance(&ledger, &shop), 5_000);
+    assert_supply_total_is_exact(&ledger);
 }
