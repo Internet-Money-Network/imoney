@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <!-- Solid dark circular container with subtle crisp border -->
+  <rect width="512" height="512" rx="128" fill="#0f1115"/>
+  <rect x="1.5" y="1.5" width="509" height="509" rx="126.5" fill="none" stroke="#262a33" stroke-width="3"/>
+
+  <!-- Minimalist Geometric "IM" / Flow Symbol -->
+  <!-- 
+    Pure, precise architectural geometry:
+    Left solid bar (I) + Two forward-slanted geometric parallels forming (M) & BlockDAG parallel branch flow.
+  -->
+  <g fill="#f0f2f5">
+    <!-- Left vertical pillar ('I') -->
+    <rect x="116" y="128" width="56" height="256" rx="12"/>
+
+    <!-- Middle upward-pointing parallel polygon -->
+    <path d="M 212 384 L 212 232 L 272 128 L 328 128 L 268 232 L 268 384 Z"/>
+
+    <!-- Right parallel downward polygon finishing the 'M' -->
+    <path d="M 340 384 L 340 232 L 400 128 L 456 128 L 396 232 L 396 384 Z"/>
+  </g>
+
+  <!-- Single confident emerald green status dot / origin node -->
+  <circle cx="144" cy="100" r="14" fill="#00e575"/>
+</svg>
