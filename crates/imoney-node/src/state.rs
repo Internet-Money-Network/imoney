@@ -83,6 +83,8 @@ impl ConsensusParams {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct NodeInfo {
     pub network: String,
+    /// Identifies the network; also the base seed of its proof of work.
+    pub genesis_hash: String,
     pub total_blocks: usize,
     pub virtual_selected_parent: String,
     pub virtual_blue_score: u64,
@@ -669,7 +671,7 @@ impl DagLedger {
 
         // Validate Proof of Work
         let pre_pow_hash = header.pre_pow_hash().map_err(|e| StateError::Header(e.to_string()))?;
-        let pow_hash = pow_engine.calculate_hash(&pre_pow_hash, header.nonce);
+        let pow_hash = pow_engine.calculate_hash(&pre_pow_hash, header.nonce, header.daa_score);
         if !is_valid_pow(&pow_hash, header.bits) {
             return Err(StateError::InvalidPoW(block_hash));
         }
@@ -943,6 +945,7 @@ impl DagLedger {
                 Network::Testnet => "testnet-1",
             }
             .to_string(),
+            genesis_hash: self.genesis_hash.to_hex(),
             total_blocks: self.blocks.len(),
             virtual_selected_parent: self.virtual_selected_parent.to_hex(),
             virtual_blue_score: self.virtual_blue_score,

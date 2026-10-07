@@ -30,15 +30,19 @@ With an honest network share $\alpha \ge 0.5$, a cluster parameter of $k = 8$ pr
 ## 3. Proof-of-Work: The "Money Printer" Engine
 
 ### 3.1 Design Philosophy
-Algorithms that rely solely on arithmetic compute (e.g. SHA-256, kHeavyHash) inevitably succumb to ASIC takeover because custom silicon can multiply logic density by orders of magnitude compared to general-purpose hardware.
+Algorithms that rely solely on arithmetic compute (e.g. SHA-256, kHeavyHash) are quickly dominated by custom chips. Money Printer is designed so that the cost of a hash is dominated by random reads from a large block of memory, which commodity graphics cards already do well. This is a design goal. The algorithm below has not been independently reviewed, and its resistance to specialised hardware is unproven.
 
-The **Money Printer** algorithm forces memory bandwidth saturation:
-1. **Dataset:** A pseudorandom dataset of 64-byte items generated from an epoch seed derived from the consensus Virtual Selected Parent Chain.
-2. **Memory Iterations:** Every hash evaluation executes 32 pseudo-random memory lookups into the dataset, followed by arithmetic mixing across 64-bit integer lanes.
-3. **Hardware Target:** Standard consumer gaming GPUs equipped with 4 GB to 16 GB of VRAM. An ASIC manufacturer must package commodity HBM/GDDR memory, eliminating the economic edge over retail graphics cards.
+### 3.2 Cache and dataset
+Each epoch has a seed derived from the network's genesis hash and the epoch number. An epoch lasts 120,960 blocks by DAA score (one week at the target rate).
 
-### 3.2 Instant Node Verification
-Full nodes and mobile wallets do not require high-performance GPU mining rigs. Verification evaluates the resulting hash against the 256-bit difficulty target in sub-millisecond execution using CPU vector instructions.
+1. **Cache.** A list of 64-byte items built from the seed: a Blake3 hash chain, followed by two passes in which each item is rewritten from its neighbour and an item selected by its own contents. The cache must be built in order. It is 16 MB on mainnet and 64 KB on testnet.
+2. **Dataset.** Item *i* of the dataset is computed from the cache alone: it starts from cache item *i* mod the cache size, is combined with 16 cache items selected by the running value, and is hashed. The dataset is 4.3 GB on mainnet and 4 MB on testnet.
+
+### 3.3 Hash
+The header's pre-proof-of-work hash and the nonce are expanded with Blake3 into a 64-byte mix of eight 64-bit lanes. Then, 32 times, a dataset position is taken from the mix, that item is read, and each lane is combined with it by XOR, rotation and multiplication, with a diffusion step across lanes. Every read position depends on all earlier reads. The final hash is Blake3 over the initial expansion and the final mix, and must not exceed the block's target.
+
+### 3.4 Verification without the dataset
+Because any dataset item can be computed from the cache, a node verifies a block by computing only the 32 items that block's hash reads. A verifying node therefore holds the cache, not the dataset. Miners hold the full dataset so that each read is a single memory access.
 
 ---
 

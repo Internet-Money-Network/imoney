@@ -60,3 +60,44 @@ pub fn is_valid_pow(hash: &Hash, bits: u32) -> bool {
     }
     true
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compact_form_round_trips() {
+        for bits in [0x207fffffu32, 0x1f00ffff, 0x1e7fff80, 0x1d2b3c4d, 0x1b0404cb, 0x03123456, 0x04123456] {
+            assert_eq!(u256_to_compact(&compact_to_u256(bits)), bits, "0x{:08x}", bits);
+        }
+        assert_eq!(u256_to_compact(&[0u8; 32]), 0);
+    }
+
+    #[test]
+    fn compact_expands_to_the_expected_target() {
+        let target = compact_to_u256(0x1d00ffff);
+        // 0x00ffff followed by 26 zero bytes
+        assert_eq!(&target[..6], &[0, 0, 0, 0, 0xff, 0xff]);
+        assert!(target[6..].iter().all(|b| *b == 0));
+
+        let easiest = compact_to_u256(0x207fffff);
+        assert_eq!(&easiest[..3], &[0x7f, 0xff, 0xff]);
+    }
+
+    #[test]
+    fn hash_must_not_exceed_the_target() {
+        let bits = 0x1d00ffff;
+        let target = compact_to_u256(bits);
+        assert!(is_valid_pow(&Hash(target), bits)); // equal is valid
+
+        let mut above = target;
+        above[31] = 1;
+        assert!(!is_valid_pow(&Hash(above), bits));
+
+        let mut below = target;
+        below[5] = 0xfe;
+        assert!(is_valid_pow(&Hash(below), bits));
+        assert!(is_valid_pow(&Hash([0u8; 32]), bits));
+        assert!(!is_valid_pow(&Hash([0xff; 32]), 0x207fffff));
+    }
+}

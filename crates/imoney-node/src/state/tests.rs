@@ -1,7 +1,7 @@
 use super::*;
 use ed25519_dalek::SigningKey;
 use imoney_core::{AddressType, TxInput};
-use imoney_pow::MoneyPrinterContext;
+use imoney_pow::{PowMode, PowParams};
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 
@@ -17,7 +17,8 @@ fn key(seed: u8) -> SigningKey {
 }
 
 fn test_pow() -> MoneyPrinterPow {
-    MoneyPrinterPow::new(Arc::new(MoneyPrinterContext::new(&Hash([1u8; 32]), 1024)))
+    let params = PowParams { cache_items: 64, dataset_items: 1024, epoch_blocks: 120_960 };
+    MoneyPrinterPow::new(params, Hash([1u8; 32]), PowMode::Full)
 }
 
 fn test_params() -> ConsensusParams {
@@ -42,7 +43,7 @@ fn solve(mut block: Block, pow: &MoneyPrinterPow) -> Block {
     block.header.hash_merkle_root = Block::compute_merkle_root(&block.transactions);
     let pre_pow_hash = block.header.pre_pow_hash().unwrap();
     let (nonce, _) = pow
-        .mine(&pre_pow_hash, block.header.bits, 0, 1_000_000, Arc::new(AtomicBool::new(false)))
+        .mine(&pre_pow_hash, block.header.bits, 0, 1_000_000, Arc::new(AtomicBool::new(false)), block.header.daa_score)
         .expect("test difficulty must be minable");
     block.header.nonce = nonce;
     block
@@ -566,4 +567,29 @@ fn fee_is_split_between_the_miner_and_the_named_service_address() {
     // The service share is ordinary money: spendable at once, not held for maturity
     assert_eq!(ledger.get_spendable_utxos(&node_operator).unwrap().len(), 1);
     assert_eq!(ledger.get_info().service_address, None);
+}
+
+#[test]
+fn consolidation_turns_many_outputs_into_one() {
+    let miner = key(120);
+    let me = address_of(&miner);
+    let mut ledger = open("consolidate");
+    let pow = test_pow();
+    for _ in 0..4 {
+        mine_tip(&mut ledger, &pow, &me);
+    }
+    for _ in 0..=MATURITY {
+        mine_tip(&mut ledger, &pow, &address_of(&key(200)));
+    }
+    let utxos = ledger.get_spendable_utxos(&me).unwrap();
+    assert_eq!(utxos.len(), 4);
+    let before = balance(&ledger, &me);
+
+    let merge = Transaction::build_consolidation(&miner, Network::Testnet, 2_000, utxos, None).unwrap();
+    ledger.broadcast_transaction(merge).unwrap();
+    mine_tip(&mut ledger, &pow, &address_of(&key(200)));
+
+    assert_eq!(ledger.get_utxos(&me).unwrap().len(), 1);
+    assert_eq!(balance(&ledger, &me), before - 2_000);
+    assert_eq!(ledger.storage.total_utxo_atoms().unwrap(), expected_supply(&ledger));
 }

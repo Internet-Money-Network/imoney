@@ -2,7 +2,7 @@ use clap::Parser;
 use imoney_node::genesis::create_testnet_genesis;
 use imoney_core::constants::{CURRENCY_NAME, TICKER};
 use imoney_core::{Address, AddressType, Network};
-use imoney_pow::{DEVNET_DATASET_ITEMS, MoneyPrinterContext, MoneyPrinterPow};
+use imoney_pow::{MoneyPrinterPow, PowMode, PowParams};
 use imoney_node::p2p::PeerManager;
 use imoney_node::rpc::create_router;
 use imoney_node::state::{DagLedger, SharedLedger};
@@ -105,12 +105,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    println!("[*] Initializing Money Printer PoW Context (Devnet mode)...");
-    let genesis = create_testnet_genesis();
-    let genesis_seed = genesis.header.pre_pow_hash().unwrap();
-    let ctx = Arc::new(MoneyPrinterContext::new(&genesis_seed, DEVNET_DATASET_ITEMS));
-    let pow = Arc::new(MoneyPrinterPow::new(ctx));
-    println!("[+] PoW Context initialized successfully.");
+    // Verifying blocks needs only the small cache; mining holds the full dataset in memory.
+    // The genesis hash seeds the proof of work, tying it to this network.
+    let pow_mode = if args.auto_mine { PowMode::Full } else { PowMode::Light };
+    let pow = Arc::new(MoneyPrinterPow::new(PowParams::testnet(), create_testnet_genesis().hash(), pow_mode));
+    println!("[+] Money Printer PoW ready ({:?} mode).", pow_mode);
 
     println!("[*] Opening persistent database at {:?}...", db_path);
     let mut ledger_instance = DagLedger::open(&db_path, mining_address)?;
@@ -165,10 +164,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let template = ledger_clone.read().await.get_mining_template(None);
                 let pre_pow_hash = template.pre_pow_hash;
                 let bits = template.block.header.bits;
+                let daa_score = template.block.header.daa_score;
                 let start_nonce = rand::random::<u32>() as u64;
                 let worker = pow_clone.clone();
                 let found = tokio::task::spawn_blocking(move || {
-                    worker.mine(&pre_pow_hash, bits, start_nonce, AUTO_MINE_BATCH, Arc::new(AtomicBool::new(false)))
+                    worker.mine(&pre_pow_hash, bits, start_nonce, AUTO_MINE_BATCH, Arc::new(AtomicBool::new(false)), daa_score)
                 })
                 .await
                 .ok()

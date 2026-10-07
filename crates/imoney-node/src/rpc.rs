@@ -84,6 +84,22 @@ pub struct WalletSendRequest {
     pub fee_atoms: Option<u64>,
 }
 
+#[derive(Deserialize)]
+pub struct WalletConsolidateRequest {
+    pub private_key_hex: String,
+    /// Fee in atoms. Defaults to twice the minimum relay fee for the transaction's size.
+    pub fee_atoms: Option<u64>,
+}
+
+#[derive(Serialize)]
+pub struct WalletConsolidateResponse {
+    pub success: bool,
+    pub tx_id: Option<String>,
+    pub outputs_merged: usize,
+    pub fee_atoms: u64,
+    pub error: Option<String>,
+}
+
 #[derive(Serialize)]
 pub struct WalletSendResponse {
     pub success: bool,
@@ -176,6 +192,7 @@ pub fn create_router(
         .route("/api/v1/mining/submit", post(submit_handler))
         .route("/api/v1/wallet/generate", post(wallet_generate_handler))
         .route("/api/v1/wallet/send", post(wallet_send_handler))
+        .route("/api/v1/wallet/consolidate", post(wallet_consolidate_handler))
         .layer(middleware::from_fn_with_state(state.clone(), require_token));
 
     Router::new()
@@ -636,6 +653,72 @@ async fn wallet_send_handler(
 }
 
 
+
+/// Merges the address's smallest spendable outputs (up to 300) into a single output.
+async fn wallet_consolidate_handler(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<WalletConsolidateRequest>,
+) -> (StatusCode, Json<WalletConsolidateResponse>) {
+    let fail = |status: StatusCode, fee_atoms: u64, error: String| {
+        (
+            status,
+            Json(WalletConsolidateResponse { success: false, tx_id: None, outputs_merged: 0, fee_atoms, error: Some(error) }),
+        )
+    };
+    let priv_bytes: [u8; 32] = match hex::decode(&payload.private_key_hex).ok().and_then(|b| b.try_into().ok()) {
+        Some(bytes) => bytes,
+        None => return fail(StatusCode::BAD_REQUEST, 0, "Invalid 32-byte hex private key".to_string()),
+    };
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&priv_bytes);
+    let owner = Address::from_public_key(
+        imoney_core::Network::Testnet,
+        imoney_core::AddressType::PubKeyHash,
+        signing_key.verifying_key().as_bytes(),
+    );
+
+    let mut ledger = state.ledger.write().await;
+    let mut utxos = match ledger.get_spendable_utxos(&owner) {
+        Ok(utxos) => utxos,
+        Err(e) => return fail(StatusCode::INTERNAL_SERVER_ERROR, 0, format!("Failed to retrieve UTXOs: {}", e)),
+    };
+    // Smallest first: those are the ones worth sweeping up
+    utxos.sort_by_key(|(_, output)| output.value_atoms);
+    utxos.truncate(imoney_core::transaction::MAX_CONSOLIDATION_INPUTS);
+    let outputs_merged = utxos.len();
+
+    // About 144 bytes per input plus a fixed part
+    let estimated_bytes = 150 + 144 * outputs_merged as u64;
+    let fee_atoms = payload.fee_atoms.unwrap_or(2 * estimated_bytes * crate::mempool::MIN_RELAY_FEE_PER_BYTE);
+
+    let service_address = ledger.service_address.clone();
+    let tx = match Transaction::build_consolidation(
+        &signing_key,
+        imoney_core::Network::Testnet,
+        fee_atoms,
+        utxos,
+        service_address.as_ref(),
+    ) {
+        Ok(tx) => tx,
+        Err(e) => return fail(StatusCode::BAD_REQUEST, fee_atoms, e),
+    };
+
+    match ledger.broadcast_transaction(tx.clone()) {
+        Ok(tx_id) => {
+            state.p2p.broadcast_transaction(tx);
+            (
+                StatusCode::OK,
+                Json(WalletConsolidateResponse {
+                    success: true,
+                    tx_id: Some(tx_id.to_hex()),
+                    outputs_merged,
+                    fee_atoms,
+                    error: None,
+                }),
+            )
+        }
+        Err(e) => fail(StatusCode::BAD_REQUEST, fee_atoms, e.to_string()),
+    }
+}
 
 async fn ws_address_handler(
     ws: WebSocketUpgrade,

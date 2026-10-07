@@ -7,6 +7,7 @@ export interface IMoneyClientConfig {
 
 export interface NodeInfo {
   network: string;
+  genesis_hash: string;
   total_blocks: number;
   virtual_selected_parent: string;
   virtual_blue_score: number;

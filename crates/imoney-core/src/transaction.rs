@@ -10,6 +10,9 @@ const TX_ID_CONTEXT: &str = "IMN 2026 transaction id";
 const TX_HASH_CONTEXT: &str = "IMN 2026 transaction hash";
 const SIG_HASH_CONTEXT: &str = "IMN 2026 signature hash";
 
+/// Most outputs one consolidation transaction may merge; keeps it under `MAX_TX_BYTES`.
+pub const MAX_CONSOLIDATION_INPUTS: usize = 300;
+
 /// Script version 0: the script is the 32-byte Blake3 hash of an Ed25519 public key.
 pub const SCRIPT_VERSION_PUBKEY_HASH: u8 = AddressType::PubKeyHash as u8;
 
@@ -231,6 +234,51 @@ impl Transaction {
             .map_err(|e| TransactionError::InvalidSignature(e.to_string()))?;
 
         Ok(())
+    }
+
+    /// Merges many of the signer's outputs into one, paying `fee_atoms`. Wallets use this to tidy
+    /// up after receiving many small payments or mining rewards: afterwards the owner holds one
+    /// coin instead of many, which keeps later payments small and shrinks the UTXO set.
+    pub fn build_consolidation(
+        signing_key: &SigningKey,
+        network: Network,
+        fee_atoms: u64,
+        utxos: Vec<(Outpoint, TxOutput)>,
+        service: Option<&Address>,
+    ) -> Result<Self, String> {
+        if utxos.len() < 2 {
+            return Err("Nothing to merge: fewer than two outputs".to_string());
+        }
+        if utxos.len() > MAX_CONSOLIDATION_INPUTS {
+            return Err(format!("At most {} outputs can be merged at once", MAX_CONSOLIDATION_INPUTS));
+        }
+        let owner = Address::from_public_key(network, AddressType::PubKeyHash, signing_key.verifying_key().as_bytes());
+        let total = utxos
+            .iter()
+            .try_fold(0u64, |sum, (_, output)| sum.checked_add(output.value_atoms))
+            .ok_or_else(|| "Merged total overflows".to_string())?;
+        if total <= fee_atoms {
+            return Err(format!("Outputs are worth {} atoms, not more than the {}-atom fee", total, fee_atoms));
+        }
+
+        let mut tx = Transaction {
+            version: 1,
+            inputs: utxos
+                .into_iter()
+                .map(|(outpoint, _)| TxInput { previous_outpoint: outpoint, signature_script: Vec::new(), sequence: 0 })
+                .collect(),
+            outputs: vec![TxOutput { value_atoms: total - fee_atoms, script_public_key: ScriptPublicKey::pay_to_address(&owner) }],
+            lock_time: 0,
+            subnetwork_id: [0u8; 20],
+            gas: 0,
+            payload: Vec::new(),
+            service: service.map(ScriptPublicKey::pay_to_address),
+        };
+        for i in 0..tx.inputs.len() {
+            tx.sign_input(network, i, signing_key)
+                .map_err(|e| format!("Failed to sign input {}: {}", i, e))?;
+        }
+        Ok(tx)
     }
 
     /// Creates a transfer transaction sending `amount_atoms` to `recipient`, returning change to `sender`.
@@ -556,5 +604,34 @@ mod tests {
         assert!(with_service.verify_input(Network::Testnet, 0, &script).is_ok());
         with_service.service = Some(ScriptPublicKey::pay_to_address(&sender_addr));
         assert!(with_service.verify_input(Network::Testnet, 0, &script).is_err());
+    }
+
+    #[test]
+    fn consolidation_merges_outputs_into_one_and_fits_the_size_limit() {
+        let key = SigningKey::from_bytes(&[6u8; 32]);
+        let owner = Address::from_public_key(Network::Testnet, AddressType::PubKeyHash, key.verifying_key().as_bytes());
+        let script = ScriptPublicKey::pay_to_address(&owner);
+        let utxos = |count: usize| -> Vec<(Outpoint, TxOutput)> {
+            (0..count)
+                .map(|i| {
+                    (
+                        Outpoint { transaction_id: Hash([1u8; 32]), index: i as u32 },
+                        TxOutput { value_atoms: 1_000, script_public_key: script.clone() },
+                    )
+                })
+                .collect()
+        };
+
+        let tx = Transaction::build_consolidation(&key, Network::Testnet, 50_000, utxos(MAX_CONSOLIDATION_INPUTS), None).unwrap();
+        assert_eq!(tx.inputs.len(), MAX_CONSOLIDATION_INPUTS);
+        assert_eq!(tx.outputs.len(), 1);
+        assert_eq!(tx.outputs[0].value_atoms, 300_000 - 50_000);
+        assert_eq!(tx.outputs[0].script_public_key, script);
+        assert!(tx.to_bytes().len() <= MAX_TX_BYTES, "{} bytes", tx.to_bytes().len());
+        assert!(tx.verify_input(Network::Testnet, 299, &script).is_ok());
+
+        assert!(Transaction::build_consolidation(&key, Network::Testnet, 100, utxos(1), None).is_err());
+        assert!(Transaction::build_consolidation(&key, Network::Testnet, 2_000, utxos(2), None).is_err());
+        assert!(Transaction::build_consolidation(&key, Network::Testnet, 100, utxos(MAX_CONSOLIDATION_INPUTS + 1), None).is_err());
     }
 }

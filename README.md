@@ -94,13 +94,19 @@ cd imoney
 cargo build --release
 ```
 
-### Run Benchmark & Test Mining
+### Run a Node and Mine
 ```bash
-# Run hashrate benchmark
-cargo run --bin imoney-miner -- --benchmark
+# Start a node (wallet and dashboard at http://127.0.0.1:18556)
+cargo run --release --bin imoney-node
 
-# Mine a sample test blockDAG header
-cargo run --bin imoney-miner -- --mine-test
+# In another terminal: mine for that node, paying an address you control
+cargo run --release --bin imoney-miner -- --node http://127.0.0.1:18556 --address imntest:q...
+
+# Or run a node that mines by itself
+cargo run --release --bin imoney-node -- --auto-mine
+
+# Hashrate benchmark
+cargo run --release --bin imoney-miner -- --benchmark
 ```
 
 ---
