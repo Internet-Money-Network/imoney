@@ -259,7 +259,8 @@ async fn nodes_on_another_network_are_refused_and_banned() {
     tokio::time::sleep(Duration::from_secs(3)).await;
     assert_eq!(a.peer_count().await, 0);
     assert_eq!(stranger.peer_count().await, 0);
-    assert!(a.manager.is_banned(&stranger.addr.ip()));
+    // Whichever side read the other's foreign bytes first has banned it
+    assert!(a.manager.is_banned(&stranger.addr.ip()) || stranger.manager.is_banned(&a.addr.ip()));
 }
 
 #[tokio::test(flavor = "multi_thread")]

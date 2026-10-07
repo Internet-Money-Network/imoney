@@ -592,3 +592,68 @@ fn consolidation_turns_many_outputs_into_one() {
     assert_eq!(balance(&ledger, &me), before - 2_000);
     assert_eq!(ledger.storage.total_utxo_atoms().unwrap(), expected_supply(&ledger));
 }
+
+/// Extends `parent` with `count` blocks one after another, adding each to the ledger.
+fn extend(ledger: &mut DagLedger, pow: &MoneyPrinterPow, parent: Hash, count: usize, payout: &Address) -> Hash {
+    let mut tip = parent;
+    for _ in 0..count {
+        let block = mine_on(ledger, pow, &[tip], payout, Vec::new());
+        tip = ledger.add_block(block, pow).unwrap();
+    }
+    tip
+}
+
+#[test]
+fn chain_forking_below_the_finality_point_is_refused_however_heavy() {
+    let mut params = test_params();
+    params.finality_depth = 5;
+    let mut ledger = DagLedger::open_with_params(fresh_db("finality"), None, params).unwrap();
+    let pow = test_pow();
+    let (honest, attacker) = (address_of(&key(130)), address_of(&key(131)));
+
+    let genesis = ledger.genesis_hash;
+    let early = extend(&mut ledger, &pow, genesis, 2, &honest);
+    let honest_tip = extend(&mut ledger, &pow, early, 10, &honest);
+    assert_eq!(ledger.virtual_selected_parent, honest_tip);
+    let honest_balance = balance(&ledger, &honest);
+
+    // A longer chain from 10 blocks back: beyond the 5-block finality depth
+    let attack_tip = extend(&mut ledger, &pow, early, 14, &attacker);
+    assert!(ledger.dag.get(&attack_tip).ghostdag.blue_work > ledger.dag.get(&honest_tip).ghostdag.blue_work);
+    assert_eq!(ledger.virtual_selected_parent, honest_tip, "the honest chain must stay selected");
+    assert!(ledger.finality_conflict);
+    assert!(ledger.get_info().finality_conflict);
+    // Nothing the honest chain earned is disturbed, and the refused chain earns nothing
+    assert_eq!(balance(&ledger, &honest), honest_balance);
+    assert_eq!(balance(&ledger, &attacker), 0);
+    assert_eq!(ledger.last_reorg, None);
+    assert_eq!(ledger.virtual_parents, vec![honest_tip]);
+    assert_eq!(ledger.storage.total_utxo_atoms().unwrap(), expected_supply(&ledger));
+
+    // The honest chain keeps growing on top of its own tip
+    let next = extend(&mut ledger, &pow, honest_tip, 1, &honest);
+    assert_eq!(ledger.virtual_selected_parent, next);
+}
+
+#[test]
+fn heavier_chain_forking_above_the_finality_point_wins_and_raises_the_reorg_alarm() {
+    let mut params = test_params();
+    params.finality_depth = 8;
+    let mut ledger = DagLedger::open_with_params(fresh_db("reorg-alarm"), None, params).unwrap();
+    let pow = test_pow();
+    let (first, second) = (address_of(&key(132)), address_of(&key(133)));
+
+    let genesis = ledger.genesis_hash;
+    let base = extend(&mut ledger, &pow, genesis, 6, &first);
+    let losing_tip = extend(&mut ledger, &pow, base, 4, &first);
+    assert_eq!(ledger.virtual_selected_parent, losing_tip);
+
+    // Forks 4 blocks back, inside the finality depth, and grows longer
+    let winning_tip = extend(&mut ledger, &pow, base, 6, &second);
+    assert_eq!(ledger.virtual_selected_parent, winning_tip);
+    assert!(!ledger.finality_conflict);
+    let (depth, _) = ledger.last_reorg.expect("a 4-block reorg is recorded");
+    assert_eq!(depth, 4);
+    assert_eq!(ledger.get_info().last_reorg_depth, Some(4));
+    assert_eq!(ledger.storage.total_utxo_atoms().unwrap(), expected_supply(&ledger));
+}

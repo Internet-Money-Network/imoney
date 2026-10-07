@@ -21,6 +21,9 @@ use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::{broadcast, RwLock};
 
+/// A selected-chain switch that undoes at least this many blocks is recorded as a warning sign.
+pub const REORG_ALARM_DEPTH: usize = 3;
+
 /// Bytes of a block template kept free for the header and coinbase.
 const TEMPLATE_RESERVED_BYTES: usize = 2_000;
 
@@ -69,6 +72,9 @@ pub struct ConsensusParams {
     pub coinbase_maturity: u64,
     /// How far ahead of the local clock a block timestamp may be.
     pub max_future_ms: u64,
+    /// Blue-score depth below the tip beyond which the selected chain is never replaced.
+    /// A heavier chain that forks off deeper than this is ignored.
+    pub finality_depth: u64,
 }
 
 impl ConsensusParams {
@@ -78,6 +84,8 @@ impl ConsensusParams {
             daa: DaaParams::new(crate::genesis::TESTNET_GENESIS_BITS),
             coinbase_maturity: 20,
             max_future_ms: 120_000,
+            // 12 hours of 5-second blocks
+            finality_depth: 8_640,
         }
     }
 }
@@ -96,6 +104,14 @@ pub struct NodeInfo {
     pub current_bits: String,
     pub current_block_reward_imn: f64,
     pub target_block_interval_sec: u64,
+    /// Blocks below this depth can no longer be reorganised away.
+    pub finality_depth: u64,
+    /// True when a heavier chain exists that this node refuses because it forks below the
+    /// finality point. The network may be split; operators should investigate.
+    pub finality_conflict: bool,
+    /// Depth and time of the most recent selected-chain switch that undid several blocks.
+    pub last_reorg_depth: Option<usize>,
+    pub last_reorg_at_ms: Option<u64>,
     pub mining_address: Option<String>,
     /// Name this as a payment's service address to give this node half of the fee.
     pub service_address: Option<String>,
@@ -218,6 +234,10 @@ struct VirtualState {
     acceptance: AcceptanceData,
     daa_score: u64,
     bits: u32,
+    /// A heavier tip was passed over because following it would break finality.
+    finality_conflict: bool,
+    /// Selected-chain blocks undone to reach this state.
+    reorg_depth: usize,
 }
 
 /// BlockDAG Ledger for Internet Money backed by ACID on-disk storage.
@@ -244,6 +264,9 @@ pub struct DagLedger {
     /// Ledger change notifications. Sending never blocks; slow subscribers skip events.
     pub events: broadcast::Sender<LedgerEvent>,
     pub genesis_hash: Hash,
+    pub finality_conflict: bool,
+    /// Depth and local time (ms) of the last selected-chain switch of `REORG_ALARM_DEPTH` or more.
+    pub last_reorg: Option<(usize, u64)>,
     /// Every block ordered by `(level, hash)`: an order in which parents precede children,
     /// used to page through the DAG when another node syncs from this one.
     level_index: BTreeSet<(u64, Hash)>,
@@ -283,6 +306,8 @@ impl DagLedger {
             mempool: Mempool::default(),
             events: broadcast::channel(1024).0,
             genesis_hash: create_testnet_genesis().hash(),
+            finality_conflict: false,
+            last_reorg: None,
             level_index: BTreeSet::new(),
             virtual_acceptance: AcceptanceData::default(),
         };
@@ -355,6 +380,14 @@ impl DagLedger {
         self.virtual_daa_score = state.daa_score;
         self.difficulty_bits = state.bits;
         self.virtual_acceptance = state.acceptance;
+        if state.finality_conflict && !self.finality_conflict {
+            eprintln!("[!] A heavier chain forks below the finality point and is being ignored. The network may be split.");
+        }
+        self.finality_conflict = state.finality_conflict;
+        if state.reorg_depth >= REORG_ALARM_DEPTH {
+            eprintln!("[!] Selected chain reorganised: {} blocks replaced.", state.reorg_depth);
+            self.last_reorg = Some((state.reorg_depth, chrono::Utc::now().timestamp_millis() as u64));
+        }
     }
 
     fn load_block(&self, hash: &Hash, pending: Option<(&Hash, &Block)>) -> Result<Block, StorageError> {
@@ -523,6 +556,26 @@ impl DagLedger {
         Ok(acceptance)
     }
 
+    /// The selected-chain ancestor of `from` with the highest blue score not above `blue_score`.
+    fn chain_ancestor_at_or_below(&self, from: Hash, blue_score: u64) -> Hash {
+        let mut cursor = from;
+        loop {
+            let data = &self.dag.get(&cursor).ghostdag;
+            if data.blue_score <= blue_score || data.is_genesis() {
+                return cursor;
+            }
+            cursor = data.selected_parent;
+        }
+    }
+
+    /// The block on the current selected chain, `finality_depth` below the sink, that every
+    /// future selected chain must pass through.
+    pub fn finality_point(&self) -> Hash {
+        let sink = self.virtual_selected_parent;
+        let sink_score = self.dag.get(&sink).ghostdag.blue_score;
+        self.chain_ancestor_at_or_below(sink, sink_score.saturating_sub(self.params.finality_depth))
+    }
+
     /// Chooses the virtual block's parents: the sink plus as many other tips as can be merged.
     fn pick_virtual_parents(&self, sink: &Hash) -> Vec<Hash> {
         let mut others: Vec<Hash> = self.tips.iter().filter(|t| *t != sink).copied().collect();
@@ -534,8 +587,11 @@ impl DagLedger {
                 break;
             }
             parents.push(tip);
-            // A tip that would push the mergeset past its limit is left for a later block
-            if self.dag.ghostdag(&parents).is_err() {
+            // A tip that would push the mergeset past its limit is left for a later block.
+            // A tip heavier than the sink (one refused for finality) is never merged: it would
+            // become the virtual block's selected parent and take the ledger with it.
+            let keeps_sink_selected = self.dag.ghostdag(&parents).is_ok_and(|data| data.selected_parent == *sink);
+            if !keeps_sink_selected {
                 parents.pop();
             }
         }
@@ -551,7 +607,19 @@ impl DagLedger {
         pending: Option<(&Hash, &Block)>,
     ) -> Result<VirtualState, StateError> {
         let old_sink = self.virtual_selected_parent;
-        let new_sink = self.dag.best_of(self.tips.iter()).expect("the DAG always has a tip");
+
+        // Only tips whose selected chain runs through the finality point may become the sink
+        let finality_point = self.finality_point();
+        let finality_score = self.dag.get(&finality_point).ghostdag.blue_score;
+        let eligible: Vec<Hash> = self
+            .tips
+            .iter()
+            .filter(|tip| self.chain_ancestor_at_or_below(**tip, finality_score) == finality_point)
+            .copied()
+            .collect();
+        let heaviest = self.dag.best_of(self.tips.iter()).expect("the DAG always has a tip");
+        let new_sink = self.dag.best_of(eligible.iter()).unwrap_or(old_sink);
+        let finality_conflict = heaviest != new_sink;
 
         view.undo(&self.virtual_acceptance);
 
@@ -594,6 +662,8 @@ impl DagLedger {
         view.batch.metadata.push((META_VIRTUAL_ACCEPTANCE, acceptance.to_bytes()));
 
         Ok(VirtualState {
+            finality_conflict,
+            reorg_depth: to_undo.len(),
             sink: new_sink,
             daa_score: self.dag.daa_score(&ghostdag),
             bits: self.dag.expected_bits(&ghostdag, &self.params.daa),
@@ -957,6 +1027,10 @@ impl DagLedger {
             current_bits: format!("0x{:08x}", self.difficulty_bits),
             current_block_reward_imn: block_subsidy_imn(self.virtual_daa_score),
             target_block_interval_sec: TARGET_TIME_PER_BLOCK_MS / 1000,
+            finality_depth: self.params.finality_depth,
+            finality_conflict: self.finality_conflict,
+            last_reorg_depth: self.last_reorg.map(|(depth, _)| depth),
+            last_reorg_at_ms: self.last_reorg.map(|(_, at)| at),
             mining_address: self.mining_address.as_ref().map(|a| a.to_string()),
             service_address: self.service_address.as_ref().map(|a| a.to_string()),
             mempool_size: self.mempool.len(),

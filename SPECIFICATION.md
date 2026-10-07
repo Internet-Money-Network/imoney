@@ -118,7 +118,10 @@ The coinbase transaction names the miner's payout script in at most one output w
 A transaction may name a *service script*: the node that served the payment, chosen by the wallet and covered by the signature. When such a transaction is accepted, half of its fee (rounded down) is paid to that script as an extra output at index `outputs.len()`, spendable immediately, and the miner's share is the remainder. A transaction without a service script pays its whole fee to the miner. Because anyone may name their own address, this works as a fee discount for those who run a node rather than as an income guaranteed by the protocol. A reward may be spent once it is buried by the coinbase maturity depth (20 blue-score on testnet).
 
 ### 6.4 Chain reorganisation
-The selected chain ends in the tip with the most blue work. Each selected-chain block's exact ledger change is stored, so when a heavier chain appears the node undoes the old chain's changes back to the common block and applies the new chain's.
+The selected chain ends in the eligible tip with the most blue work. Each selected-chain block's exact ledger change is stored, so when a heavier chain appears the node undoes the old chain's changes back to the common block and applies the new chain's.
+
+### 6.5 Finality
+The *finality point* is the selected-chain block 8,640 blue score (12 hours) below the current tip. A tip is eligible only if its selected chain passes through the finality point, so a chain that forks off deeper than that is never adopted, whatever its work. This stops rented hashpower from rewriting old history. The cost is that two parts of the network separated for longer than the finality depth will not rejoin by themselves. A node that sees a heavier chain it must refuse reports `finality_conflict` in its status. A node also records the depth and time of any reorganisation of 3 or more blocks, so that software accepting payments can pause while one is recent.
 
 ---
 
