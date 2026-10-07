@@ -21,11 +21,11 @@
 
 **Internet Money (`IMN`)** is an open-source, permissionless Layer-1 proof-of-work cryptocurrency designed for real-world merchant checkout and decentralized digital cash.
 
-- **~5-Second Block Inclusion (0.2 BPS):** Combines the GHOSTDAG ($k=8$) parallel block consensus model with 5,000 ms block times. Honest concurrent blocks merge into a single directed acyclic graph without chain splits or high orphaning rates.
+- **~5-Second Block Inclusion (0.2 BPS):** Combines the GHOSTDAG ($k=8$) parallel block consensus model with 5,000 ms block times. Honest concurrent blocks merge into a single directed acyclic graph instead of being thrown away, and history older than 12 hours is final.
 - **"Money Printer" PoW (FishHash):** The memory-hard FishHash algorithm from Iron Fish, with a seed specific to this network. Each hash makes random reads across a 4.6 GB dataset, which favours commodity GPU memory over custom chips. Nodes verify blocks from a 75 MB cache.
 - **Sub-1% Long-Term Inflation Floor:** Strict 4-year halving cycle starting at 5.0 IMN/block, tapering down to a permanent 0.3125 IMN (about 0.83% annual inflation at year 16, declining) security subsidy floor to ensure permanent miner incentive without exorbitant user fees.
-- **Lightweight Nodes (~5–8 GB):** Generating only 17,280 blocks/day (50x fewer than 10 BPS chains), pruned full nodes run on standard hardware and modest VPS instances using pure-Rust embedded `redb` ACID persistence.
-- **Plug-and-Play Merchant Stack:** Zero-custody developer SDK (`@imoney/sdk`) and 1-click WooCommerce/WordPress plugin supporting sub-second WebSocket payment detection and 5-second customer checkouts.
+- **Small Nodes:** One block every five seconds, a 100 KB block limit and optional pruning keep a full verifying node within reach of a small VPS, using pure-Rust embedded `redb` storage.
+- **Merchant Stack:** Every order gets an invoice number that the payer's wallet signs into the payment. The SDK (`@imoney/sdk`) and WooCommerce plugin report it as seen (under a second), in a block (about 5 seconds) or final, confirmed by the merchant's own node.
 
 
 ---
@@ -111,6 +111,8 @@ cargo run --release --bin imoney-miner -- --benchmark
 ```
 
 ---
+
+See [docs/RUNNING-A-NODE.md](docs/RUNNING-A-NODE.md) for options, seed nodes, pruning and running a node for a shop.
 
 ### Rebuilding the browser pieces
 The wallet's signing module and the SDK bundles are committed, so the node builds without extra tools. To regenerate them after changing `crates/imoney-wasm` or `packages/imoney-sdk`:

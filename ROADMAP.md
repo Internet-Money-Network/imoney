@@ -78,6 +78,7 @@ This roadmap defines the step-by-step engineering plan to build Internet Money i
 - [x] **Step 5: End-to-End Payment Demo** (`examples/e2e-payment-demo/index.html` illustrating 2-line code web store checkout).
 - [x] **Step 6: P2P Peer Gossip Networking** (Pure-async TCP framing, bidirectional Handshake, `GetTips`, block sync, mempool transaction propagation, `/api/v1/peers`).
 - [x] **Step 6b: Consensus & Merchant Hardening** (real GHOSTDAG ordering, enforced difficulty, 12-hour finality, FishHash proof of work, fee split with node operators, browser-signing wallet, invoice numbers with seen / included / final levels, server-side WooCommerce confirmation).
+- [x] **Step 6c: Operations** (optional pruning, saved peer lists, DNS seed names, graceful shutdown, Docker and systemd files, randomized decoder tests, [node guide](docs/RUNNING-A-NODE.md)).
 - [ ] **Step 7: Seed Node Deployment & Testnet Public Launch** (Deploying the network to cloud seed nodes under `internetmoneynetwork.org`).
 
 

@@ -136,6 +136,49 @@ fn every_message_round_trips() {
     assert!(Message::from_bytes(&[200]).is_err());
 }
 
+/// Random and corrupted bytes must never panic the message decoder, and anything it accepts
+/// must re-encode to the same bytes.
+#[test]
+fn message_decoder_survives_arbitrary_and_corrupted_input() {
+    use rand::{Rng, RngCore, SeedableRng};
+    let mut rng = rand::rngs::StdRng::seed_from_u64(0xfeed);
+    let check = |bytes: &[u8]| {
+        if let Ok(message) = Message::from_bytes(bytes) {
+            assert_eq!(message.to_bytes(), bytes, "accepted a non-canonical encoding");
+        }
+    };
+
+    for _ in 0..30_000 {
+        let mut noise = vec![0u8; rng.gen_range(0..300)];
+        rng.fill_bytes(&mut noise);
+        // Bias towards valid message tags so the bodies get exercised
+        if !noise.is_empty() && rng.gen_bool(0.8) {
+            noise[0] %= 15;
+        }
+        check(&noise);
+    }
+
+    let block = crate::genesis::create_testnet_genesis();
+    let samples = [
+        Message::BlockBatch { blocks: vec![block.clone(), block.clone()], next: Some((3, Hash([9u8; 32]))) },
+        Message::Addr(vec!["203.0.113.7:18555".parse().unwrap(), "[2001:db8::1]:18555".parse().unwrap()]),
+        Message::Tx(block.transactions[0].clone()),
+    ];
+    for sample in samples {
+        let valid = sample.to_bytes();
+        for _ in 0..5_000 {
+            let mut corrupted = valid.clone();
+            if rng.gen_bool(0.5) {
+                let at = rng.gen_range(0..corrupted.len());
+                corrupted[at] ^= 1 << rng.gen_range(0..8);
+            } else {
+                corrupted.truncate(rng.gen_range(0..corrupted.len()));
+            }
+            check(&corrupted);
+        }
+    }
+}
+
 #[tokio::test]
 async fn frames_survive_arbitrary_chunking_and_reject_bad_input() {
     let mut wire = Vec::new();

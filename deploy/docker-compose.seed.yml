@@ -1,0 +1,16 @@
+# A seed node: keeps the full history, serves it to nodes that are syncing, and does not mine.
+#   docker compose -f deploy/docker-compose.seed.yml up -d
+services:
+  imoney-seed:
+    build: ..
+    restart: unless-stopped
+    # List the other seeds here so the seeds stay connected to each other
+    command: ["--peers", "seed.internetmoneynetwork.org:18555"]
+    volumes:
+      - imoney-data:/data
+    ports:
+      - "18555:18555"            # peer-to-peer: open to the internet
+      - "127.0.0.1:18556:18556"  # RPC: this machine only
+
+volumes:
+  imoney-data:

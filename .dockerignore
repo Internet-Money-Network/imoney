@@ -1,0 +1,5 @@
+target
+.git
+data
+**/node_modules
+.wrangler

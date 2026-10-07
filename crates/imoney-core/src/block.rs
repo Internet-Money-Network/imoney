@@ -168,4 +168,45 @@ mod tests {
         tampered.transactions[1].inputs[0].signature_script[40] ^= 1;
         assert_eq!(tampered.validate_structure(), Err(BlockError::MerkleRootMismatch));
     }
+
+    /// Feeds the decoders random and corrupted input. They must never panic, and anything they
+    /// accept must re-encode to exactly the bytes it came from (one encoding per value).
+    #[test]
+    fn decoders_survive_arbitrary_and_corrupted_input() {
+        use rand::{Rng, RngCore, SeedableRng};
+        let mut rng = rand::rngs::StdRng::seed_from_u64(0x1337);
+
+        fn check<T: Decode + Encode>(bytes: &[u8]) {
+            if let Ok(value) = T::from_bytes(bytes) {
+                assert_eq!(value.to_bytes(), bytes, "accepted a non-canonical encoding");
+            }
+        }
+
+        for _ in 0..20_000 {
+            let mut noise = vec![0u8; rng.gen_range(0..400)];
+            rng.fill_bytes(&mut noise);
+            check::<Transaction>(&noise);
+            check::<BlockHeader>(&noise);
+            check::<Block>(&noise);
+        }
+
+        let block = block_with(vec![Transaction::coinbase(1, Vec::new(), b"x"), payment(1), payment(2)]);
+        let valid = block.to_bytes();
+        for _ in 0..20_000 {
+            let mut corrupted = valid.clone();
+            match rng.gen_range(0..3) {
+                0 => {
+                    let at = rng.gen_range(0..corrupted.len());
+                    corrupted[at] ^= 1 << rng.gen_range(0..8);
+                }
+                1 => corrupted.truncate(rng.gen_range(0..corrupted.len())),
+                _ => {
+                    let at = rng.gen_range(0..corrupted.len());
+                    corrupted.insert(at, rng.gen());
+                }
+            }
+            check::<Block>(&corrupted);
+            check::<Transaction>(&corrupted[corrupted.len().min(222)..]);
+        }
+    }
 }
