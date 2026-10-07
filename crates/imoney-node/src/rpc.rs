@@ -67,47 +67,40 @@ pub struct UtxoItemResponse {
     pub index: u32,
     pub value_atoms: u64,
     pub value_imn: f64,
+    /// False for a block reward that has not matured yet.
+    pub spendable: bool,
 }
 
-#[derive(Serialize)]
-pub struct WalletGenerateResponse {
+#[derive(Deserialize)]
+pub struct InvoiceQuery {
+    /// The address the invoice is payable to.
     pub address: String,
-    pub private_key_hex: String,
-    pub public_key_hex: String,
-}
-
-#[derive(Deserialize)]
-pub struct WalletSendRequest {
-    pub private_key_hex: String,
-    pub recipient_address: String,
-    pub amount_imn: f64,
-    pub fee_atoms: Option<u64>,
-}
-
-#[derive(Deserialize)]
-pub struct WalletConsolidateRequest {
-    pub private_key_hex: String,
-    /// Fee in atoms. Defaults to twice the minimum relay fee for the transaction's size.
-    pub fee_atoms: Option<u64>,
 }
 
 #[derive(Serialize)]
-pub struct WalletConsolidateResponse {
-    pub success: bool,
-    pub tx_id: Option<String>,
-    pub outputs_merged: usize,
-    pub fee_atoms: u64,
-    pub error: Option<String>,
+pub struct InvoicePaymentResponse {
+    pub tx_id: String,
+    pub amount_atoms: u64,
+    pub confirmations: u64,
+    /// "seen" (in the mempool), "included" (in a block) or "final".
+    pub level: &'static str,
 }
 
+/// What has been paid towards an invoice, summed by how settled each payment is.
+/// Each total includes the ones after it: `seen_atoms >= included_atoms >= final_atoms`.
 #[derive(Serialize)]
-pub struct WalletSendResponse {
-    pub success: bool,
-    pub tx_id: Option<String>,
-    pub fee_atoms: u64,
-    pub error: Option<String>,
+pub struct InvoiceResponse {
+    pub invoice_id: String,
+    pub address: String,
+    pub payments: Vec<InvoicePaymentResponse>,
+    pub seen_atoms: u64,
+    pub included_atoms: u64,
+    pub final_atoms: u64,
+    /// Confirmations this node requires before it reports a payment as final.
+    pub final_confirmations: u64,
+    /// True while the network looks unsettled; nothing is reported as final while it is set.
+    pub network_alert: bool,
 }
-
 
 #[derive(Serialize)]
 pub struct TxStatusResponse {
@@ -183,21 +176,22 @@ pub fn create_router(
         .route("/api/v1/tx/:txid", get(tx_status_handler))
         .route("/api/v1/address/:addr/balance", get(balance_handler))
         .route("/api/v1/address/:addr/utxos", get(utxos_handler))
+        .route("/api/v1/invoice/:id", get(invoice_handler))
         .route("/api/v1/ws/address/:addr", get(ws_address_handler))
         .layer(cors);
 
-    // Calls that handle private keys or add blocks get no cross-origin access, so another
-    // website open in the operator's browser cannot reach them, and an optional token.
+    // Adding blocks gets no cross-origin access, so a website open in the operator's browser
+    // cannot reach it, and an optional token. The node never handles private keys.
     let restricted = Router::new()
         .route("/api/v1/mining/submit", post(submit_handler))
-        .route("/api/v1/wallet/generate", post(wallet_generate_handler))
-        .route("/api/v1/wallet/send", post(wallet_send_handler))
-        .route("/api/v1/wallet/consolidate", post(wallet_consolidate_handler))
         .layer(middleware::from_fn_with_state(state.clone(), require_token));
 
     Router::new()
         .route("/", get(dashboard_handler))
         .route("/wallet", get(wallet_gui_handler))
+        .route("/wallet/pkg/imoney_wasm.js", get(wallet_wasm_js_handler))
+        .route("/wallet/pkg/imoney_wasm_bg.wasm", get(wallet_wasm_handler))
+        .route("/wallet/sdk.js", get(wallet_sdk_handler))
         .merge(public)
         .merge(restricted)
         .with_state(state)
@@ -275,8 +269,25 @@ async fn block_handler(
 
 const WALLET_HTML: &str = include_str!("../../../apps/imoney-wallet/index.html");
 
+// The wallet signs in the browser: the page loads this WebAssembly build of the core crate.
+const WALLET_WASM_JS: &str = include_str!("../../../apps/imoney-wallet/pkg/imoney_wasm.js");
+const WALLET_WASM: &[u8] = include_bytes!("../../../apps/imoney-wallet/pkg/imoney_wasm_bg.wasm");
+const SDK_JS: &str = include_str!("../../../packages/imoney-sdk/dist/imoney.js");
+
 async fn wallet_gui_handler() -> Html<&'static str> {
     Html(WALLET_HTML)
+}
+
+async fn wallet_wasm_js_handler() -> impl IntoResponse {
+    ([(axum::http::header::CONTENT_TYPE, "text/javascript")], WALLET_WASM_JS)
+}
+
+async fn wallet_wasm_handler() -> impl IntoResponse {
+    ([(axum::http::header::CONTENT_TYPE, "application/wasm")], WALLET_WASM)
+}
+
+async fn wallet_sdk_handler() -> impl IntoResponse {
+    ([(axum::http::header::CONTENT_TYPE, "text/javascript")], SDK_JS)
 }
 
 
@@ -326,6 +337,7 @@ async fn dashboard_handler(State(state): State<Arc<AppState>>) -> Html<String> {
             <b>🔌 Merchant & Wallet API Endpoints:</b><br><br>
             • GUI Wallet Interface: <code>GET /wallet</code><br>
             • Balance Lookup: <code>GET /api/v1/address/:addr/balance</code><br>
+            • Invoice Status: <code>GET /api/v1/invoice/:id?address=:addr</code><br>
             • Unspent Coins (UTXOs): <code>GET /api/v1/address/:addr/utxos</code><br>
             • Recent Blocks: <code>GET /api/v1/blocks?limit=50</code><br>
             • Mining Work: <code>GET /api/v1/mining/template?address=:addr</code><br>
@@ -426,18 +438,69 @@ async fn utxos_handler(
 ) -> Result<Json<Vec<UtxoItemResponse>>, StatusCode> {
     let address = Address::decode(&addr_str).map_err(|_| StatusCode::BAD_REQUEST)?;
     let ledger = state.ledger.read().await;
-    let utxos = ledger.get_utxos(&address).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let utxos = ledger.get_utxos_with_status(&address).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let response = utxos
         .into_iter()
-        .map(|(outpoint, output)| UtxoItemResponse {
+        .map(|(outpoint, output, spendable)| UtxoItemResponse {
             transaction_id: outpoint.transaction_id.to_hex(),
             index: outpoint.index,
             value_atoms: output.value_atoms,
             value_imn: (output.value_atoms as f64) / (imoney_core::constants::ATOMS_PER_IMN as f64),
+            spendable,
         })
         .collect();
 
+    Ok(Json(response))
+}
+
+/// Reports every payment that names this invoice and pays the given address.
+async fn invoice_handler(
+    State(state): State<Arc<AppState>>,
+    Path(invoice_id): Path<String>,
+    Query(query): Query<InvoiceQuery>,
+) -> Result<Json<InvoiceResponse>, StatusCode> {
+    if !imoney_core::transaction::is_valid_invoice_id(&invoice_id) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let address = Address::decode(&query.address).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let ledger = state.ledger.read().await;
+    let payments = ledger.invoice_payments(&invoice_id, &address).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let network_alert = ledger.network_alert();
+    let final_confirmations = ledger.final_confirmations;
+
+    let mut response = InvoiceResponse {
+        invoice_id,
+        address: query.address,
+        payments: Vec::new(),
+        seen_atoms: 0,
+        included_atoms: 0,
+        final_atoms: 0,
+        final_confirmations,
+        network_alert,
+    };
+    for payment in payments {
+        let level = if payment.confirmations == 0 {
+            "seen"
+        } else if payment.confirmations >= final_confirmations && !network_alert {
+            "final"
+        } else {
+            "included"
+        };
+        response.seen_atoms = response.seen_atoms.saturating_add(payment.amount_atoms);
+        if level != "seen" {
+            response.included_atoms = response.included_atoms.saturating_add(payment.amount_atoms);
+        }
+        if level == "final" {
+            response.final_atoms = response.final_atoms.saturating_add(payment.amount_atoms);
+        }
+        response.payments.push(InvoicePaymentResponse {
+            tx_id: payment.tx_id.to_hex(),
+            amount_atoms: payment.amount_atoms,
+            confirmations: payment.confirmations,
+            level,
+        });
+    }
     Ok(Json(response))
 }
 
@@ -511,215 +574,6 @@ async fn tx_status_handler(
     }
 }
 
-async fn wallet_generate_handler() -> (StatusCode, Json<WalletGenerateResponse>) {
-    let mut csprng = rand::rngs::OsRng;
-    let signing_key = ed25519_dalek::SigningKey::generate(&mut csprng);
-    let verifying_key = signing_key.verifying_key();
-
-    let addr = Address::from_public_key(
-        imoney_core::Network::Testnet,
-        imoney_core::AddressType::PubKeyHash,
-        verifying_key.as_bytes(),
-    );
-
-    let address_str = addr.to_string();
-    let private_key_hex = hex::encode(signing_key.to_bytes());
-    let public_key_hex = hex::encode(verifying_key.as_bytes());
-
-    (
-        StatusCode::OK,
-        Json(WalletGenerateResponse {
-            address: address_str,
-            private_key_hex,
-            public_key_hex,
-        }),
-    )
-}
-
-async fn wallet_send_handler(
-    State(state): State<Arc<AppState>>,
-    Json(payload): Json<WalletSendRequest>,
-) -> (StatusCode, Json<WalletSendResponse>) {
-    let priv_bytes = match hex::decode(&payload.private_key_hex) {
-        Ok(b) if b.len() == 32 => {
-            let mut arr = [0u8; 32];
-            arr.copy_from_slice(&b);
-            arr
-        }
-        _ => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(WalletSendResponse {
-                    success: false,
-                    tx_id: None,
-                    fee_atoms: 0,
-                    error: Some("Invalid 32-byte hex private key".to_string()),
-                }),
-            );
-        }
-    };
-
-    let signing_key = ed25519_dalek::SigningKey::from_bytes(&priv_bytes);
-    let verifying_key = signing_key.verifying_key();
-    let sender_addr = Address::from_public_key(
-        imoney_core::Network::Testnet,
-        imoney_core::AddressType::PubKeyHash,
-        verifying_key.as_bytes(),
-    );
-
-    let recipient_addr = match Address::decode(&payload.recipient_address) {
-        Ok(a) => a,
-        Err(e) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(WalletSendResponse {
-                    success: false,
-                    tx_id: None,
-                    fee_atoms: 0,
-                    error: Some(format!("Invalid recipient address: {}", e)),
-                }),
-            );
-        }
-    };
-
-    let fee_atoms = payload.fee_atoms.unwrap_or(10_000); // 0.0001 IMN fee
-    let amount_atoms = (payload.amount_imn * imoney_core::constants::ATOMS_PER_IMN as f64).round() as u64;
-
-    let (available_utxos, service_address) = {
-        let ledger = state.ledger.read().await;
-        match ledger.get_spendable_utxos(&sender_addr) {
-            Ok(u) => (u, ledger.service_address.clone()),
-            Err(e) => {
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(WalletSendResponse {
-                        success: false,
-                        tx_id: None,
-                        fee_atoms,
-                        error: Some(format!("Failed to retrieve UTXOs: {}", e)),
-                    }),
-                );
-            }
-        }
-    };
-
-    let tx = match Transaction::build_payment(
-        &signing_key,
-        imoney_core::Network::Testnet,
-        &recipient_addr,
-        amount_atoms,
-        fee_atoms,
-        available_utxos,
-        service_address.as_ref(),
-    ) {
-        Ok(t) => t,
-        Err(e) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(WalletSendResponse {
-                    success: false,
-                    tx_id: None,
-                    fee_atoms,
-                    error: Some(e),
-                }),
-            );
-        }
-    };
-
-    let mut ledger = state.ledger.write().await;
-    match ledger.broadcast_transaction(tx.clone()) {
-        Ok(tx_id) => {
-            state.p2p.broadcast_transaction(tx);
-            (
-                StatusCode::OK,
-                Json(WalletSendResponse {
-                    success: true,
-                    tx_id: Some(tx_id.to_hex()),
-                    fee_atoms,
-                    error: None,
-                }),
-            )
-        }
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(WalletSendResponse {
-                success: false,
-                tx_id: None,
-                fee_atoms,
-                error: Some(e.to_string()),
-            }),
-        ),
-    }
-}
-
-
-
-/// Merges the address's smallest spendable outputs (up to 300) into a single output.
-async fn wallet_consolidate_handler(
-    State(state): State<Arc<AppState>>,
-    Json(payload): Json<WalletConsolidateRequest>,
-) -> (StatusCode, Json<WalletConsolidateResponse>) {
-    let fail = |status: StatusCode, fee_atoms: u64, error: String| {
-        (
-            status,
-            Json(WalletConsolidateResponse { success: false, tx_id: None, outputs_merged: 0, fee_atoms, error: Some(error) }),
-        )
-    };
-    let priv_bytes: [u8; 32] = match hex::decode(&payload.private_key_hex).ok().and_then(|b| b.try_into().ok()) {
-        Some(bytes) => bytes,
-        None => return fail(StatusCode::BAD_REQUEST, 0, "Invalid 32-byte hex private key".to_string()),
-    };
-    let signing_key = ed25519_dalek::SigningKey::from_bytes(&priv_bytes);
-    let owner = Address::from_public_key(
-        imoney_core::Network::Testnet,
-        imoney_core::AddressType::PubKeyHash,
-        signing_key.verifying_key().as_bytes(),
-    );
-
-    let mut ledger = state.ledger.write().await;
-    let mut utxos = match ledger.get_spendable_utxos(&owner) {
-        Ok(utxos) => utxos,
-        Err(e) => return fail(StatusCode::INTERNAL_SERVER_ERROR, 0, format!("Failed to retrieve UTXOs: {}", e)),
-    };
-    // Smallest first: those are the ones worth sweeping up
-    utxos.sort_by_key(|(_, output)| output.value_atoms);
-    utxos.truncate(imoney_core::transaction::MAX_CONSOLIDATION_INPUTS);
-    let outputs_merged = utxos.len();
-
-    // About 144 bytes per input plus a fixed part
-    let estimated_bytes = 150 + 144 * outputs_merged as u64;
-    let fee_atoms = payload.fee_atoms.unwrap_or(2 * estimated_bytes * crate::mempool::MIN_RELAY_FEE_PER_BYTE);
-
-    let service_address = ledger.service_address.clone();
-    let tx = match Transaction::build_consolidation(
-        &signing_key,
-        imoney_core::Network::Testnet,
-        fee_atoms,
-        utxos,
-        service_address.as_ref(),
-    ) {
-        Ok(tx) => tx,
-        Err(e) => return fail(StatusCode::BAD_REQUEST, fee_atoms, e),
-    };
-
-    match ledger.broadcast_transaction(tx.clone()) {
-        Ok(tx_id) => {
-            state.p2p.broadcast_transaction(tx);
-            (
-                StatusCode::OK,
-                Json(WalletConsolidateResponse {
-                    success: true,
-                    tx_id: Some(tx_id.to_hex()),
-                    outputs_merged,
-                    fee_atoms,
-                    error: None,
-                }),
-            )
-        }
-        Err(e) => fail(StatusCode::BAD_REQUEST, fee_atoms, e.to_string()),
-    }
-}
-
 async fn ws_address_handler(
     ws: WebSocketUpgrade,
     Path(addr_str): Path<String>,
@@ -763,7 +617,7 @@ async fn handle_address_socket(mut socket: WebSocket, addr_str: String, state: A
             event = events.recv() => {
                 let message = match event {
                     // A payment to this address reached the mempool: seen, not yet in a block
-                    Ok(LedgerEvent::PendingTx { tx_id, outputs }) => {
+                    Ok(LedgerEvent::PendingTx { tx_id, outputs, invoice_id }) => {
                         let amount_atoms: u64 = outputs
                             .iter()
                             .filter(|o| o.script_public_key == script)
@@ -773,6 +627,7 @@ async fn handle_address_socket(mut socket: WebSocket, addr_str: String, state: A
                             "event": "payment_seen",
                             "address": addr_str,
                             "tx_id": tx_id.to_hex(),
+                            "invoice_id": invoice_id,
                             "amount_atoms": amount_atoms,
                             "amount_imn": (amount_atoms as f64) / atoms_per_imn,
                             "timestamp_ms": chrono::Utc::now().timestamp_millis()

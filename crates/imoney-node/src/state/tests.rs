@@ -502,7 +502,8 @@ fn ledger_announces_pending_transactions_and_new_blocks() {
     let payment = pay(&ledger, &miner, &alice, 9_000, 500);
     let payment_id = ledger.broadcast_transaction(payment).unwrap();
     match events.try_recv().expect("pending event") {
-        LedgerEvent::PendingTx { tx_id, outputs } => {
+        LedgerEvent::PendingTx { tx_id, outputs, invoice_id } => {
+            assert_eq!(invoice_id, None);
             assert_eq!(tx_id, payment_id);
             assert_eq!(outputs[0].value_atoms, 9_000);
             assert_eq!(outputs[0].script_public_key, ScriptPublicKey::pay_to_address(&alice));
@@ -656,4 +657,49 @@ fn heavier_chain_forking_above_the_finality_point_wins_and_raises_the_reorg_alar
     assert_eq!(depth, 4);
     assert_eq!(ledger.get_info().last_reorg_depth, Some(4));
     assert_eq!(ledger.storage.total_utxo_atoms().unwrap(), expected_supply(&ledger));
+}
+
+#[test]
+fn invoice_payment_is_tracked_from_seen_to_buried_and_undone_by_a_reorg() {
+    let payer = key(140);
+    let (shop, other_shop) = (address_of(&key(141)), address_of(&key(142)));
+    let (mut ledger, pow) = funded_ledger("invoice", &payer);
+    let miner = address_of(&key(200));
+    let fork_point = ledger.virtual_selected_parent;
+
+    let utxos = ledger.get_spendable_utxos(&address_of(&payer)).unwrap();
+    let payment =
+        Transaction::build_invoice_payment(&payer, Network::Testnet, &shop, 75_000, 1_000, utxos, None, Some("INV-1042")).unwrap();
+    let payment_id = payment.id();
+    // The payer's attempt to take the money back: the same coin sent elsewhere
+    let double_spend = pay(&ledger, &payer, &other_shop, 75_000, 1_000);
+    assert!(ledger.invoice_payments("INV-1042", &shop).unwrap().is_empty());
+
+    // Seen: in the mempool, no confirmations
+    ledger.broadcast_transaction(payment.clone()).unwrap();
+    let seen = ledger.invoice_payments("INV-1042", &shop).unwrap();
+    assert_eq!(seen.len(), 1);
+    assert_eq!((seen[0].tx_id, seen[0].amount_atoms, seen[0].confirmations), (payment_id, 75_000, 0));
+    // Another invoice, or the same invoice at another shop's address, sees nothing
+    assert!(ledger.invoice_payments("INV-1043", &shop).unwrap().is_empty());
+    assert!(ledger.invoice_payments("INV-1042", &other_shop).unwrap().is_empty());
+
+    // Included, then buried deeper with each block
+    let carrying = mine_on(&ledger, &pow, &[fork_point], &miner, vec![payment]);
+    let carrying_hash = ledger.add_block(carrying, &pow).unwrap();
+    assert_eq!(ledger.invoice_payments("INV-1042", &shop).unwrap()[0].confirmations, 1);
+    extend(&mut ledger, &pow, carrying_hash, 2, &miner);
+    let buried = ledger.invoice_payments("INV-1042", &shop).unwrap();
+    assert_eq!(buried.len(), 1);
+    assert_eq!(buried[0].confirmations, 3);
+
+    // A heavier branch that spends the same coin elsewhere replaces the chain
+    let rival = mine_on(&ledger, &pow, &[fork_point], &miner, vec![double_spend]);
+    let rival_hash = ledger.add_block(rival, &pow).unwrap();
+    extend(&mut ledger, &pow, rival_hash, 4, &miner);
+    assert_eq!(balance(&ledger, &other_shop), 75_000);
+    assert_eq!(balance(&ledger, &shop), 0);
+    assert!(ledger.get_transaction(&payment_id).unwrap().is_none());
+    assert!(ledger.invoice_payments("INV-1042", &shop).unwrap().is_empty());
+    assert!(ledger.network_alert(), "a 3-block reorganisation raises the alert");
 }

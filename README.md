@@ -71,13 +71,14 @@ The codebase is structured as a modular mono-repository:
   - [`crates/imoney-consensus`](crates/imoney-consensus): GHOSTDAG ordering rules ($k=8$), blue scores, and rolling DAA window.
   - [`crates/imoney-node`](crates/imoney-node): Full node daemon with embedded pure-Rust `redb` ACID storage, REST/WebSocket API, and TCP P2P gossip sync.
   - [`crates/imoney-miner`](crates/imoney-miner): Reference multi-threaded miner CLI and benchmark.
+  - [`crates/imoney-wasm`](crates/imoney-wasm): WebAssembly build of key handling and signing, so wallets sign in the browser.
 - **Ecosystem Apps (`apps/`):**
   - [`apps/imoney-explorer`](apps/imoney-explorer): Real-time BlockDAG visualizer, network metrics, and address/tx search.
-  - [`apps/imoney-wallet`](apps/imoney-wallet): Testnet web wallet. Keys are currently generated and used for signing by your own node; client-side signing is planned.
+  - [`apps/imoney-wallet`](apps/imoney-wallet): Web wallet served by the node at `/wallet`. Keys are created and kept in the browser, with a 12-word recovery phrase; the node only ever receives signed transactions.
   - [`apps/imoney-website`](apps/imoney-website): Official portal website for `internetmoneynetwork.org`.
 - **Developer Tools & Plugins:**
-  - [`packages/imoney-sdk`](packages/imoney-sdk): Universal TypeScript/JavaScript SDK and CDN-ready bundle (`imoney.js`).
-  - [`plugins/imoney-payments-for-woocommerce`](plugins/imoney-payments-for-woocommerce): 1-click WooCommerce payment gateway.
+  - [`packages/imoney-sdk`](packages/imoney-sdk): TypeScript/JavaScript SDK and browser bundle (`imoney.js`): invoices, payment levels, checkout window, QR codes.
+  - [`plugins/imoney-payments-for-woocommerce`](plugins/imoney-payments-for-woocommerce): WooCommerce gateway. Each order gets an invoice number and the store's server confirms payment with the merchant's node.
 
 
 ---
@@ -107,6 +108,19 @@ cargo run --release --bin imoney-node -- --auto-mine
 
 # Hashrate benchmark
 cargo run --release --bin imoney-miner -- --benchmark
+```
+
+---
+
+### Rebuilding the browser pieces
+The wallet's signing module and the SDK bundles are committed, so the node builds without extra tools. To regenerate them after changing `crates/imoney-wasm` or `packages/imoney-sdk`:
+```bash
+# Signing module (needs: rustup target add wasm32-unknown-unknown, cargo install wasm-bindgen-cli)
+cargo build -p imoney-wasm --target wasm32-unknown-unknown --release
+wasm-bindgen --target web --no-typescript --out-dir apps/imoney-wallet/pkg target/wasm32-unknown-unknown/release/imoney_wasm.wasm
+
+# SDK bundles, and the copy shipped in the WooCommerce plugin
+cd packages/imoney-sdk && npm install && npm test
 ```
 
 ---

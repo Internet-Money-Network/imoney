@@ -34,6 +34,8 @@ const UTXO_TABLE: TableDefinition<&[u8], &[u8]> = TableDefinition::new("v3/utxos
 const TRANSACTIONS_TABLE: TableDefinition<&[u8; 32], &[u8]> = TableDefinition::new("v3/transactions");
 /// Index of unspent outputs by locking script: key is `script key ++ outpoint`, with no value.
 const SCRIPT_UTXO_TABLE: TableDefinition<&[u8], ()> = TableDefinition::new("v3/script_utxos");
+/// Index of accepted payments by invoice: key is `invoice id ++ 0x00 ++ transaction id`.
+const INVOICE_TABLE: TableDefinition<&[u8], ()> = TableDefinition::new("v3/invoices");
 
 /// Index key prefix shared by every output locked to `script`.
 /// The script length is part of the prefix so one script can never be a prefix of another.
@@ -48,6 +50,13 @@ fn script_index_prefix(script: &ScriptPublicKey) -> Vec<u8> {
 fn script_index_key(script: &ScriptPublicKey, outpoint: &Outpoint) -> Vec<u8> {
     let mut key = script_index_prefix(script);
     outpoint.encode(&mut key);
+    key
+}
+
+fn invoice_index_key(invoice_id: &str, tx_id: &Hash) -> Vec<u8> {
+    let mut key = invoice_id.as_bytes().to_vec();
+    key.push(0);
+    key.extend_from_slice(&tx_id.0);
     key
 }
 
@@ -122,6 +131,8 @@ pub struct AcceptedTx {
     pub tx_id: Hash,
     pub block_hash: Hash,
     pub tx_index: u32,
+    /// The invoice the transaction settles, if it names one.
+    pub invoice_id: Option<String>,
 }
 
 impl Encode for AcceptedTx {
@@ -129,6 +140,7 @@ impl Encode for AcceptedTx {
         self.tx_id.encode(out);
         self.block_hash.encode(out);
         out.extend_from_slice(&self.tx_index.to_be_bytes());
+        put_bytes(out, self.invoice_id.as_deref().unwrap_or("").as_bytes());
     }
 }
 
@@ -138,6 +150,11 @@ impl Decode for AcceptedTx {
             tx_id: reader.hash()?,
             block_hash: reader.hash()?,
             tx_index: reader.u32()?,
+            invoice_id: {
+                let bytes = reader.bytes(64)?;
+                let id = String::from_utf8(bytes).map_err(|_| DecodeError::Invalid("invoice id"))?;
+                (!id.is_empty()).then_some(id)
+            },
         })
     }
 }
@@ -224,6 +241,8 @@ pub struct WriteBatch {
     pub utxo_deletes: HashSet<Outpoint>,
     pub record_puts: HashMap<Hash, TxRecord>,
     pub record_deletes: HashSet<Hash>,
+    pub invoice_puts: HashSet<(String, Hash)>,
+    pub invoice_deletes: HashSet<(String, Hash)>,
 }
 
 /// Persistent embedded ACID database for Internet Money.
@@ -247,6 +266,7 @@ impl Storage {
             let _ = write_tx.open_table(UTXO_TABLE)?;
             let _ = write_tx.open_table(TRANSACTIONS_TABLE)?;
             let _ = write_tx.open_table(SCRIPT_UTXO_TABLE)?;
+            let _ = write_tx.open_table(INVOICE_TABLE)?;
         }
         write_tx.commit()?;
 
@@ -299,6 +319,14 @@ impl Storage {
             }
             for (tx_id, record) in &batch.record_puts {
                 tx_table.insert(&tx_id.0, record.to_bytes().as_slice())?;
+            }
+
+            let mut invoice_table = write_tx.open_table(INVOICE_TABLE)?;
+            for (invoice_id, tx_id) in &batch.invoice_deletes {
+                invoice_table.remove(invoice_index_key(invoice_id, tx_id).as_slice())?;
+            }
+            for (invoice_id, tx_id) in &batch.invoice_puts {
+                invoice_table.insert(invoice_index_key(invoice_id, tx_id).as_slice(), ())?;
             }
         }
         write_tx.commit()?;
@@ -389,6 +417,23 @@ impl Storage {
         }
 
         Ok(results)
+    }
+
+    /// IDs of the accepted transactions that name `invoice_id`.
+    pub fn get_invoice_tx_ids(&self, invoice_id: &str) -> Result<Vec<Hash>, StorageError> {
+        let read_tx = self.db.begin_read()?;
+        let table = read_tx.open_table(INVOICE_TABLE)?;
+        let mut start = invoice_id.as_bytes().to_vec();
+        start.push(0);
+        let mut end = start.clone();
+        end.extend_from_slice(&[0xff; 32]);
+
+        let mut tx_ids = Vec::new();
+        for item in table.range::<&[u8]>(start.as_slice()..=end.as_slice())? {
+            let (key, _) = item?;
+            tx_ids.push(<Hash as Decode>::from_bytes(&key.value()[start.len()..])?);
+        }
+        Ok(tx_ids)
     }
 
     /// Sum of every unspent output: the circulating supply in atoms.

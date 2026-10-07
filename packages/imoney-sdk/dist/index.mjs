@@ -1,4 +1,3 @@
-"use strict";
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -7,10 +6,6 @@ var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __commonJS = (cb, mod) => function __require() {
   return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
-};
-var __export = (target, all) => {
-  for (var name in all)
-    __defProp(target, name, { get: all[name], enumerable: true });
 };
 var __copyProps = (to, from, except, desc) => {
   if (from && typeof from === "object" || typeof from === "function") {
@@ -28,11 +23,10 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
   mod
 ));
-var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
 // node_modules/qrcode-generator/qrcode.js
 var require_qrcode = __commonJS({
-  "node_modules/qrcode-generator/qrcode.js"(exports, module2) {
+  "node_modules/qrcode-generator/qrcode.js"(exports, module) {
     var qrcode2 = function() {
       var qrcode3 = function(typeNumber, errorCorrectionLevel) {
         var PAD0 = 236;
@@ -1709,7 +1703,7 @@ var require_qrcode = __commonJS({
       if (typeof define === "function" && define.amd) {
         define([], factory);
       } else if (typeof exports === "object") {
-        module2.exports = factory();
+        module.exports = factory();
       }
     })(function() {
       return qrcode2;
@@ -1718,19 +1712,6 @@ var require_qrcode = __commonJS({
 });
 
 // src/index.ts
-var index_exports = {};
-__export(index_exports, {
-  ATOMS_PER_IMN: () => ATOMS_PER_IMN,
-  IMoneyClient: () => IMoneyClient,
-  atomsToImn: () => atomsToImn,
-  imnToAtoms: () => imnToAtoms,
-  isValidInvoiceId: () => isValidInvoiceId,
-  newInvoiceId: () => newInvoiceId,
-  parsePaymentUri: () => parsePaymentUri,
-  paymentUri: () => paymentUri,
-  qrSvg: () => qrSvg
-});
-module.exports = __toCommonJS(index_exports);
 var import_qrcode_generator = __toESM(require_qrcode());
 var ATOMS_PER_IMN = 1e8;
 var INVOICE_ID_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
@@ -2039,4 +2020,15 @@ var IMoneyClient = class {
     );
     return { invoice, close };
   }
+};
+export {
+  ATOMS_PER_IMN,
+  IMoneyClient,
+  atomsToImn,
+  imnToAtoms,
+  isValidInvoiceId,
+  newInvoiceId,
+  parsePaymentUri,
+  paymentUri,
+  qrSvg
 };

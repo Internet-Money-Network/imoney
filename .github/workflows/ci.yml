@@ -64,11 +64,16 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
-      - name: Verify SDK Distribution Bundle
+      - name: Build & Test SDK
+        working-directory: packages/imoney-sdk
         run: |
-          node -e "const { IMoneyClient } = require('./packages/imoney-sdk/dist/index.js'); const c = new IMoneyClient(); console.log('Client nodeUrl:', c.nodeUrl);"
+          npm ci
+          npm test
+
+      - name: Check committed SDK bundles are up to date
+        run: git diff --exit-code -- packages/imoney-sdk/dist plugins/imoney-payments-for-woocommerce/imoney.js
 
       - name: Upload Packaged WooCommerce Gateway
         uses: actions/upload-artifact@v4

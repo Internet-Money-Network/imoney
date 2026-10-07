@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Internet Money (IMN) - Testnet Wallet</title>
+  <title>Internet Money (IMN) Wallet</title>
   <style>
     :root {
       --bg: #090d13;
@@ -206,7 +206,7 @@
 
         <div>
           <h1>Internet Money Wallet</h1>
-          <div style="font-size: 12px; color: #8b949e;">Testnet wallet • keys handled by your own node</div>
+          <div style="font-size: 12px; color: #8b949e;">Keys stay in this browser • transactions are signed here</div>
         </div>
       </div>
       <span class="badge">TESTNET-1</span>
@@ -216,10 +216,10 @@
     <div class="card" style="background: #11161d; border-color: #21262d; padding: 16px 20px;">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
         <div style="display: flex; align-items: center; gap: 8px;">
-          <span id="node-status-dot" style="width: 10px; height: 10px; border-radius: 50%; background: #39d353; display: inline-block; box-shadow: 0 0 8px #39d353;"></span>
-          <span style="font-size: 13px; font-weight: bold; color: var(--text-bright);" id="node-status-text">Node Daemon Online</span>
+          <span id="node-status-dot" style="width: 10px; height: 10px; border-radius: 50%; background: #8b949e; display: inline-block;"></span>
+          <span style="font-size: 13px; font-weight: bold; color: var(--text-bright);" id="node-status-text">Connecting to node...</span>
         </div>
-        <div style="font-size: 12px; color: #8b949e;">GHOSTDAG • 0.2 BPS (5s Blocks)</div>
+        <div style="font-size: 12px; color: #8b949e;">GHOSTDAG • 5s Blocks</div>
       </div>
       <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; text-align: center; border-top: 1px solid #21262d; padding-top: 12px;">
         <div>
@@ -235,284 +235,405 @@
           <div style="font-size: 17px; font-weight: bold; color: var(--accent-green);" id="node-peers">--</div>
         </div>
       </div>
-    </div>
-
-    <!-- Main Balance Card -->
-    <div class="card">
-      <div class="balance-box">
-        <div class="balance-label">Total Spendable Balance</div>
-        <div class="balance-val" id="wallet-balance">0.0000 IMN</div>
-        <div style="font-size: 12px; color: #8b949e;" id="wallet-atoms">0 atoms • Low Network Fee</div>
+      <div id="network-alert" class="status-msg" style="background: #3d2e12; color: #e3b341;">
+        The network is unsettled right now. Wait longer than usual before treating a payment as final.
       </div>
     </div>
 
-    <!-- Actions Container -->
-    <div class="card">
-      <div class="tabs">
-        <button class="tab-btn active" onclick="switchTab('receive')">Receive</button>
-        <button class="tab-btn" onclick="switchTab('send')">Send</button>
-        <button class="tab-btn" onclick="switchTab('settings')">Keys & Settings</button>
-      </div>
+    <!-- First run: create or restore a wallet -->
+    <div class="card" id="setup-card" style="display: none;">
+      <h2 style="margin: 0 0 8px; font-size: 18px; color: var(--text-bright);">Set up your wallet</h2>
+      <p style="font-size: 13px; color: #8b949e; margin: 0 0 16px;">
+        Your keys are created and kept in this browser. Nothing secret is sent to the node.
+      </p>
+      <button class="btn" id="create-wallet-btn">Create a new wallet</button>
 
-      <!-- Tab: Receive -->
-      <div id="tab-receive" class="tab-content active">
-        <label>Your Receiving Address (Bech32):</label>
-        <div class="address-card">
-          <span id="current-address">…</span>
-          <button class="copy-btn" id="copy-addr-btn">Copy</button>
-        </div>
-
-        <div class="qr-container">
-          <div class="qr-img">
-            <img id="qr-code-img" src="data:," alt="QR" style="display: block; width: 180px; height: 180px;" />
-          </div>
-        </div>
-        <p style="text-align: center; font-size: 12px; color: #8b949e; margin: 0;">
-          Share this address or scan the QR code to receive instant 5-second payments.
+      <div id="new-phrase-box" style="display: none; margin-top: 16px;">
+        <label>Your recovery phrase. Write these 12 words down, in order:</label>
+        <div class="address-card" style="font-size: 15px; line-height: 1.7;"><span id="new-phrase"></span></div>
+        <p style="font-size: 12px; color: #e3b341; margin: 8px 0 12px;">
+          Anyone with these words can spend your money, and without them a lost browser means lost money.
+          This is the only time they are shown.
         </p>
+        <button class="btn" id="confirm-phrase-btn" style="background: #1f6feb;">I have written it down</button>
       </div>
 
-      <!-- Tab: Send -->
-      <div id="tab-send" class="tab-content">
+      <div style="border-top: 1px solid var(--border); margin-top: 20px; padding-top: 16px;">
         <div class="form-group">
-          <label>Recipient Address (imn: or imntest:):</label>
-          <input type="text" id="send-recipient" placeholder="imntest:q..." />
+          <label for="restore-phrase">Or restore from a recovery phrase:</label>
+          <input type="text" id="restore-phrase" autocomplete="off" spellcheck="false" placeholder="twelve words separated by spaces" />
         </div>
-        <div class="form-group">
-          <label>Amount (IMN):</label>
-          <input type="number" step="0.0001" id="send-amount" placeholder="0.00" />
+        <button class="btn" id="restore-wallet-btn" style="background: #21262d; border: 1px solid var(--border);">Restore wallet</button>
+      </div>
+      <div id="setup-status" class="status-msg"></div>
+    </div>
+
+    <div id="wallet-main" style="display: none;">
+      <!-- Main Balance Card -->
+      <div class="card">
+        <div class="balance-box">
+          <div class="balance-label">Spendable Balance</div>
+          <div class="balance-val" id="wallet-balance">0 IMN</div>
+          <div style="font-size: 12px; color: #8b949e;" id="wallet-atoms">&nbsp;</div>
         </div>
-        <button class="btn" id="send-btn">⚡ Sign & Broadcast Transaction</button>
-        <div id="send-status" class="status-msg"></div>
       </div>
 
-      <!-- Tab: Settings -->
-      <div id="tab-settings" class="tab-content">
-        <div class="form-group">
-          <label>Connected Node Endpoint:</label>
-          <input type="text" id="node-endpoint" value="http://127.0.0.1:18556" />
+      <!-- Actions Container -->
+      <div class="card">
+        <div class="tabs">
+          <button class="tab-btn active" data-tab="receive">Receive</button>
+          <button class="tab-btn" data-tab="send">Send</button>
+          <button class="tab-btn" data-tab="settings">Settings</button>
         </div>
-        <div class="form-group">
-          <label>Node RPC Token (only if your node was started with --rpc-token):</label>
-          <input type="password" id="rpc-token" autocomplete="off" />
-        </div>
-        <button class="btn" style="background: #21262d; border: 1px solid var(--border); margin-bottom: 16px;" onclick="refreshBalance()">
-          🔄 Reconnect & Refresh Balance
-        </button>
 
-        <div style="border-top: 1px solid var(--border); padding-top: 16px; margin-bottom: 16px;">
-          <label>Local Keypair (Stored in Browser LocalStorage):</label>
-          <div class="form-group">
-            <label style="font-size: 11px;">Private Key (Hex):</label>
-            <input type="password" id="current-privkey" readonly style="font-size: 11px;" />
+        <!-- Tab: Receive -->
+        <div id="tab-receive" class="tab-content active">
+          <label>Your receiving address:</label>
+          <div class="address-card">
+            <span id="current-address">…</span>
+            <button class="copy-btn" id="copy-addr-btn">Copy</button>
           </div>
-          <button class="btn" style="background: #1f6feb; font-size: 13px;" onclick="generateNewKeypair()">
-            🔑 Generate New Random Keypair
-          </button>
+
+          <div class="form-group" style="margin-top: 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+            <div>
+              <label for="request-amount">Request an amount (optional):</label>
+              <input type="text" inputmode="decimal" id="request-amount" placeholder="0.00" />
+            </div>
+            <div>
+              <label for="request-invoice">Invoice number (optional):</label>
+              <input type="text" id="request-invoice" placeholder="INV-1042" maxlength="64" />
+            </div>
+          </div>
+
+          <div class="qr-container">
+            <div class="qr-img" id="qr-code" style="width: 200px; height: 200px; background: white; padding: 8px; box-sizing: border-box;"></div>
+          </div>
+          <p style="text-align: center; font-size: 12px; color: #8b949e; margin: 0; word-break: break-all;" id="request-uri"></p>
         </div>
 
-        <div style="margin-top: 16px; border-top: 1px solid #21262d; padding-top: 14px;">
-          <label>Testnet Notice:</label>
-          <p style="font-size: 12px; color: #8b949e; margin: 0;">
-            Keys are generated by the node you are connected to and stored in this browser's localStorage. The private key is sent to that node for signing, so connect only to a node you run yourself.
-          </p>
+        <!-- Tab: Send -->
+        <div id="tab-send" class="tab-content">
+          <div class="form-group">
+            <label for="send-recipient">Recipient address, or a pasted payment request:</label>
+            <input type="text" id="send-recipient" placeholder="imntest:q..." autocomplete="off" spellcheck="false" />
+          </div>
+          <div class="form-group" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+            <div>
+              <label for="send-amount">Amount (IMN):</label>
+              <input type="text" inputmode="decimal" id="send-amount" placeholder="0.00" />
+            </div>
+            <div>
+              <label for="send-invoice">Invoice number (if the shop gave one):</label>
+              <input type="text" id="send-invoice" placeholder="optional" maxlength="64" />
+            </div>
+          </div>
+          <p style="font-size: 12px; color: #8b949e; margin: 0 0 12px;">Network fee: 0.0001 IMN</p>
+          <button class="btn" id="send-btn">Sign &amp; send</button>
+          <div id="send-status" class="status-msg"></div>
+        </div>
+
+        <!-- Tab: Settings -->
+        <div id="tab-settings" class="tab-content">
+          <div class="form-group">
+            <label for="node-endpoint">Node to use:</label>
+            <input type="text" id="node-endpoint" value="http://127.0.0.1:18556" />
+          </div>
+          <button class="btn" id="reconnect-btn" style="background: #21262d; border: 1px solid var(--border); margin-bottom: 16px;">
+            Reconnect &amp; refresh
+          </button>
+
+          <div style="border-top: 1px solid var(--border); padding-top: 16px; margin-bottom: 16px;">
+            <label>Tidy up small coins:</label>
+            <p style="font-size: 12px; color: #8b949e; margin: 0 0 10px;">
+              You hold <span id="coin-count">0</span> spendable coins. Merging them into one keeps future payments small.
+            </p>
+            <button class="btn" id="consolidate-btn" style="background: #21262d; border: 1px solid var(--border);">Merge coins</button>
+            <div id="consolidate-status" class="status-msg"></div>
+          </div>
+
+          <div style="border-top: 1px solid var(--border); padding-top: 16px;">
+            <label>Remove this wallet from this browser:</label>
+            <p style="font-size: 12px; color: #8b949e; margin: 0 0 10px;">
+              You will need your recovery phrase to get it back.
+            </p>
+            <button class="btn" id="forget-btn" style="background: #3e1b1e; color: #f85149;">Forget wallet</button>
+          </div>
         </div>
       </div>
     </div>
   </div>
 
-  <script>
+  <script type="module">
+    const TESTNET = true;
+    const ATOMS_PER_IMN = 100000000;
+    const FEE_ATOMS = 10000;
+    const $ = (id) => document.getElementById(id);
 
-    // Auto-detect endpoint if served directly by imoney-node
-    const defaultNodeUrl = (window.location.protocol.startsWith('http') && window.location.port) 
-      ? window.location.origin 
-      : 'http://127.0.0.1:18556';
-    document.getElementById('node-endpoint').value = defaultNodeUrl;
+    // When served by a node the page lives at /wallet and its files under /wallet/
+    const servedByNode = window.location.protocol.startsWith('http');
+    const assetBase = servedByNode ? '/wallet/' : './';
+    $('node-endpoint').value = servedByNode ? window.location.origin : 'http://127.0.0.1:18556';
+    const nodeUrl = () => $('node-endpoint').value.trim().replace(/\/$/, '');
 
-    let currentAddress = localStorage.getItem('imoney_addr') || '';
-    let currentPrivKey = localStorage.getItem('imoney_priv') || '';
+    // The signing module (WebAssembly build of the node's own transaction code)
+    const wasm = await import(assetBase + 'pkg/imoney_wasm.js');
+    await wasm.default();
+    // The SDK provides QR codes and payment-request parsing
+    await new Promise((resolve) => {
+      const script = document.createElement('script');
+      script.src = assetBase + 'sdk.js';
+      script.onload = resolve;
+      script.onerror = resolve;
+      document.head.appendChild(script);
+    });
+    const sdk = window.IMoney;
+
+    let wallet = null; // { private_key_hex, address }
+    let spendable = [];
+    let serviceAddress = null;
     let ws = null;
 
-    // Sent with calls that handle keys; the token is kept for this browser session only
-    function authHeaders() {
-      const token = document.getElementById('rpc-token').value.trim();
-      return token ? { 'Authorization': 'Bearer ' + token } : {};
+    function show(el, text, ok) {
+      el.style.display = 'block';
+      el.style.background = ok ? '#162b1b' : '#3e1b1e';
+      el.style.color = ok ? '#39d353' : '#f85149';
+      el.innerText = text;
     }
 
-    function initKeys() {
-      if (!currentAddress) {
-        document.getElementById('current-address').innerText = 'No wallet yet. Generate a keypair under "Keys & Settings".';
-        return;
+    function formatImn(atoms) {
+      return sdk ? sdk.atomsToImn(atoms) : (atoms / ATOMS_PER_IMN).toString();
+    }
+
+    function toAtoms(text) {
+      if (sdk) return sdk.imnToAtoms(text);
+      return Math.round(parseFloat(text) * ATOMS_PER_IMN);
+    }
+
+    // ---------------------------------------------------------------- wallet setup
+    function loadWallet() {
+      const key = localStorage.getItem('imoney_priv');
+      if (!key) return null;
+      try {
+        return JSON.parse(wasm.keys_from_private_key(key, TESTNET));
+      } catch {
+        return null;
       }
-      document.getElementById('current-address').innerText = currentAddress;
-      document.getElementById('current-privkey').value = currentPrivKey;
-      document.getElementById('qr-code-img').src = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(currentAddress)}`;
+    }
+
+    function openWallet(keys) {
+      wallet = keys;
+      localStorage.setItem('imoney_priv', keys.private_key_hex);
+      $('setup-card').style.display = 'none';
+      $('wallet-main').style.display = 'block';
+      $('current-address').innerText = wallet.address;
+      renderRequest();
       connectWs();
+      refreshBalance();
     }
 
-    async function generateNewKeypair() {
-      const nodeUrl = document.getElementById('node-endpoint').value.trim();
+    let pendingPhrase = null;
+    $('create-wallet-btn').addEventListener('click', () => {
+      pendingPhrase = wasm.new_mnemonic();
+      $('new-phrase').innerText = pendingPhrase;
+      $('new-phrase-box').style.display = 'block';
+    });
+    $('confirm-phrase-btn').addEventListener('click', () => {
+      const keys = JSON.parse(wasm.keys_from_mnemonic(pendingPhrase, TESTNET));
+      pendingPhrase = null;
+      $('new-phrase').innerText = '';
+      $('new-phrase-box').style.display = 'none';
+      openWallet(keys);
+    });
+    $('restore-wallet-btn').addEventListener('click', () => {
       try {
-        const res = await fetch(`${nodeUrl}/api/v1/wallet/generate`, { method: 'POST', headers: authHeaders() });
-        if (res.ok) {
-          const data = await res.json();
-          currentAddress = data.address;
-          currentPrivKey = data.private_key_hex;
-          localStorage.setItem('imoney_addr', currentAddress);
-          localStorage.setItem('imoney_priv', currentPrivKey);
-          initKeys();
-          refreshBalance();
-          alert('New keypair generated!\nAddress: ' + currentAddress);
-        } else {
-          alert('Failed to generate keypair from node.');
-        }
-      } catch (e) {
-        alert('Could not connect to node: ' + e);
+        const keys = JSON.parse(wasm.keys_from_mnemonic($('restore-phrase').value, TESTNET));
+        $('restore-phrase').value = '';
+        openWallet(keys);
+      } catch (err) {
+        show($('setup-status'), err.message || String(err), false);
       }
-    }
+    });
+    $('forget-btn').addEventListener('click', () => {
+      localStorage.removeItem('imoney_priv');
+      localStorage.removeItem('imoney_addr');
+      wallet = null;
+      if (ws) ws.close();
+      $('wallet-main').style.display = 'none';
+      $('setup-card').style.display = 'block';
+    });
 
-    function switchTab(name) {
-      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-      event.target.classList.add('active');
-      document.getElementById('tab-' + name).classList.add('active');
-    }
+    // ---------------------------------------------------------------- tabs
+    document.querySelectorAll('.tab-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach((c) => c.classList.remove('active'));
+        btn.classList.add('active');
+        $('tab-' + btn.dataset.tab).classList.add('active');
+      });
+    });
 
-    async function refreshBalance() {
-      if (!currentAddress) return;
-      const nodeUrl = document.getElementById('node-endpoint').value.trim();
+    // ---------------------------------------------------------------- receive
+    function renderRequest() {
+      if (!wallet) return;
+      let uri = wallet.address;
+      const amount = $('request-amount').value.trim();
+      const invoice = $('request-invoice').value.trim();
       try {
-        const res = await fetch(`${nodeUrl}/api/v1/address/${encodeURIComponent(currentAddress)}/balance`);
-        if (res.ok) {
-          const bal = await res.json();
-          document.getElementById('wallet-balance').innerText = bal.balance_imn.toFixed(4) + ' IMN';
-          document.getElementById('wallet-atoms').innerText = bal.balance_atoms.toLocaleString() + ' atoms • Low Network Fee';
+        if (amount && sdk) {
+          uri = sdk.paymentUri(wallet.address, sdk.atomsToImn(sdk.imnToAtoms(amount)), invoice && sdk.isValidInvoiceId(invoice) ? invoice : undefined);
         }
-      } catch (e) {
-        console.warn('Balance query error:', e);
+      } catch {
+        // Keep showing the plain address until the amount is valid
+      }
+      $('request-uri').innerText = uri === wallet.address ? 'Share this address or let the payer scan the code.' : uri;
+      if (sdk) $('qr-code').innerHTML = sdk.qrSvg(uri);
+    }
+    $('request-amount').addEventListener('input', renderRequest);
+    $('request-invoice').addEventListener('input', renderRequest);
+    $('copy-addr-btn').addEventListener('click', () => {
+      navigator.clipboard.writeText(wallet.address);
+      $('copy-addr-btn').innerText = 'Copied!';
+      setTimeout(() => ($('copy-addr-btn').innerText = 'Copy'), 2000);
+    });
+
+    // ---------------------------------------------------------------- balance and node status
+    async function refreshBalance() {
+      if (!wallet) return;
+      try {
+        const res = await fetch(`${nodeUrl()}/api/v1/address/${encodeURIComponent(wallet.address)}/utxos`);
+        if (!res.ok) return;
+        const utxos = await res.json();
+        spendable = utxos.filter((u) => u.spendable !== false);
+        const spendableAtoms = spendable.reduce((sum, u) => sum + u.value_atoms, 0);
+        const maturingAtoms = utxos.reduce((sum, u) => sum + u.value_atoms, 0) - spendableAtoms;
+        $('wallet-balance').innerText = formatImn(spendableAtoms) + ' IMN';
+        $('wallet-atoms').innerText = maturingAtoms > 0 ? `+ ${formatImn(maturingAtoms)} IMN in mining rewards still maturing` : ' ';
+        $('coin-count').innerText = spendable.length;
+      } catch (err) {
+        console.warn('Balance refresh failed:', err);
       }
     }
 
     async function refreshNodeStats() {
-      const nodeUrl = document.getElementById('node-endpoint').value.trim();
       try {
-        const infoRes = await fetch(`${nodeUrl}/api/v1/info`);
-        if (infoRes.ok) {
-          const info = await infoRes.json();
-          document.getElementById('node-status-dot').style.background = '#39d353';
-          document.getElementById('node-status-dot').style.boxShadow = '0 0 8px #39d353';
-          document.getElementById('node-status-text').innerText = 'Node Daemon Online';
-          document.getElementById('node-blue-score').innerText = info.virtual_blue_score.toLocaleString();
-          document.getElementById('node-total-blocks').innerText = info.total_blocks.toLocaleString();
-        }
-
-        const peersRes = await fetch(`${nodeUrl}/api/v1/peers`);
-        if (peersRes.ok) {
-          const peers = await peersRes.json();
-          document.getElementById('node-peers').innerText = peers.total_connected;
-        }
-      } catch (e) {
-        document.getElementById('node-status-dot').style.background = '#f85149';
-        document.getElementById('node-status-dot').style.boxShadow = 'none';
-        document.getElementById('node-status-text').innerText = 'Daemon Disconnected';
+        const info = await (await fetch(`${nodeUrl()}/api/v1/info`)).json();
+        serviceAddress = info.service_address || null;
+        $('node-status-dot').style.background = '#39d353';
+        $('node-status-text').innerText = 'Node online';
+        $('node-blue-score').innerText = info.virtual_blue_score;
+        $('node-total-blocks').innerText = info.total_blocks;
+        $('network-alert').style.display = info.network_alert ? 'block' : 'none';
+        const peers = await (await fetch(`${nodeUrl()}/api/v1/peers`)).json();
+        $('node-peers').innerText = peers.total_connected;
+      } catch {
+        $('node-status-dot').style.background = '#f85149';
+        $('node-status-text').innerText = 'Node unreachable';
       }
     }
 
     function connectWs() {
-      if (ws) {
-        ws.close();
-      }
+      if (ws) ws.close();
+      if (!wallet) return;
       try {
-        const nodeUrl = document.getElementById('node-endpoint').value.trim();
-        const wsUrl = nodeUrl.replace(/^http/, 'ws') + `/api/v1/ws/address/${encodeURIComponent(currentAddress)}`;
-        ws = new WebSocket(wsUrl);
-        ws.onmessage = (event) => {
-          try {
-            const data = JSON.parse(event.data);
-            if (data.type === 'payment_received') {
-              document.getElementById('wallet-balance').innerText = data.balance_imn.toFixed(4) + ' IMN';
-              document.getElementById('wallet-atoms').innerText = data.balance_atoms.toLocaleString() + ' atoms • Low Network Fee';
-              const receivedCoins = (data.change_atoms / 100000000).toFixed(4);
-              alert(`⚡ Instant Payment Received! +${receivedCoins} IMN`);
-            }
-          } catch (e) {}
-        };
-      } catch (e) {
-        console.warn('WebSocket connection error:', e);
+        ws = new WebSocket(nodeUrl().replace(/^http/, 'ws') + `/api/v1/ws/address/${encodeURIComponent(wallet.address)}`);
+        ws.onmessage = () => refreshBalance();
+        ws.onerror = () => {};
+      } catch (err) {
+        console.warn('Live updates unavailable:', err);
       }
     }
-
-    // Copy Address Button
-    document.getElementById('copy-addr-btn').addEventListener('click', () => {
-      navigator.clipboard.writeText(currentAddress);
-      const btn = document.getElementById('copy-addr-btn');
-      btn.innerText = 'Copied!';
-      setTimeout(() => btn.innerText = 'Copy', 2000);
+    $('reconnect-btn').addEventListener('click', () => {
+      connectWs();
+      refreshBalance();
+      refreshNodeStats();
     });
 
-    // Send Button Integration
-    document.getElementById('send-btn').addEventListener('click', async () => {
-      const recipient = document.getElementById('send-recipient').value.trim();
-      const amount = parseFloat(document.getElementById('send-amount').value);
-      const statusEl = document.getElementById('send-status');
-      const nodeUrl = document.getElementById('node-endpoint').value.trim();
-
-      if (!recipient || isNaN(amount) || amount <= 0) {
-        statusEl.style.display = 'block';
-        statusEl.style.background = '#3e1b1e';
-        statusEl.style.color = '#f85149';
-        statusEl.innerText = 'Please enter a valid recipient address and amount.';
-        return;
-      }
-
-      statusEl.style.display = 'block';
-      statusEl.style.background = '#162b1b';
-      statusEl.style.color = '#39d353';
-      statusEl.innerText = 'Signing Ed25519 transaction and broadcasting to BlockDAG...';
-
+    // ---------------------------------------------------------------- send
+    // Pasting a payment request fills in the amount and invoice number
+    $('send-recipient').addEventListener('change', () => {
+      const text = $('send-recipient').value.trim();
+      if (!sdk || !text.includes('?')) return;
       try {
-        const res = await fetch(`${nodeUrl}/api/v1/wallet/send`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...authHeaders() },
-          body: JSON.stringify({
-            private_key_hex: currentPrivKey,
-            recipient_address: recipient,
-            amount_imn: amount
-          })
-        });
-
-        if (res.status === 401) {
-          statusEl.style.background = '#3e1b1e';
-          statusEl.style.color = '#f85149';
-          statusEl.innerText = 'This node requires an RPC token. Enter it under "Keys & Settings".';
-          return;
-        }
-        const data = await res.json();
-        if (data.success) {
-          statusEl.style.background = '#162b1b';
-          statusEl.style.color = '#39d353';
-          statusEl.innerText = `✓ Transaction Sent! TxID: ${data.tx_id.slice(0, 16)}... Expect block inclusion in ~5s`;
-          document.getElementById('send-recipient').value = '';
-          document.getElementById('send-amount').value = '';
-          setTimeout(refreshBalance, 1500);
-        } else {
-          statusEl.style.background = '#3e1b1e';
-          statusEl.style.color = '#f85149';
-          statusEl.innerText = `Send Error: ${data.error || 'Failed to broadcast'}`;
-        }
+        const request = sdk.parsePaymentUri(text);
+        $('send-recipient').value = request.address;
+        if (request.amountImn) $('send-amount').value = request.amountImn;
+        if (request.invoiceId) $('send-invoice').value = request.invoiceId;
       } catch (err) {
-        statusEl.style.background = '#3e1b1e';
-        statusEl.style.color = '#f85149';
-        statusEl.innerText = `Network Error: ${err}`;
+        show($('send-status'), err.message, false);
       }
     });
 
-    initKeys();
-    refreshBalance();
+    async function broadcast(signedJson) {
+      const signed = JSON.parse(signedJson);
+      const res = await fetch(`${nodeUrl()}/api/v1/tx/broadcast`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transaction: signed.transaction }),
+      });
+      const result = await res.json();
+      if (!result.success) throw new Error(result.error || 'The node rejected the transaction');
+      return signed;
+    }
+
+    $('send-btn').addEventListener('click', async () => {
+      const statusEl = $('send-status');
+      try {
+        const recipient = $('send-recipient').value.trim();
+        const invoice = $('send-invoice').value.trim();
+        if (!wasm.is_valid_address(recipient, TESTNET)) throw new Error('That is not a valid testnet address.');
+        const amountAtoms = toAtoms($('send-amount').value);
+        if (!(amountAtoms > 0)) throw new Error('Enter an amount greater than zero.');
+
+        await refreshBalance();
+        const signed = await broadcast(
+          wasm.build_payment(
+            wallet.private_key_hex,
+            TESTNET,
+            recipient,
+            BigInt(amountAtoms),
+            BigInt(FEE_ATOMS),
+            JSON.stringify(spendable),
+            serviceAddress || undefined,
+            invoice || undefined
+          )
+        );
+        show(statusEl, `Sent. Transaction ${signed.tx_id.slice(0, 16)}… should be in a block in about 5 seconds.`, true);
+        $('send-recipient').value = '';
+        $('send-amount').value = '';
+        $('send-invoice').value = '';
+        setTimeout(refreshBalance, 1500);
+      } catch (err) {
+        show(statusEl, err.message || String(err), false);
+      }
+    });
+
+    $('consolidate-btn').addEventListener('click', async () => {
+      const statusEl = $('consolidate-status');
+      try {
+        await refreshBalance();
+        // About 144 bytes per coin plus a fixed part, at twice the minimum fee rate
+        const coins = Math.min(spendable.length, 300);
+        const feeAtoms = 2 * (150 + 144 * coins);
+        const signed = await broadcast(
+          wasm.build_consolidation(wallet.private_key_hex, TESTNET, BigInt(feeAtoms), JSON.stringify(spendable), serviceAddress || undefined)
+        );
+        show(statusEl, `Merging ${signed.inputs_used} coins into one for a fee of ${formatImn(feeAtoms)} IMN.`, true);
+        setTimeout(refreshBalance, 1500);
+      } catch (err) {
+        show(statusEl, err.message || String(err), false);
+      }
+    });
+
+    // ---------------------------------------------------------------- start
+    const existing = loadWallet();
+    if (existing) {
+      openWallet(existing);
+    } else {
+      $('setup-card').style.display = 'block';
+    }
     refreshNodeStats();
     setInterval(refreshNodeStats, 3000);
     setInterval(refreshBalance, 6000);
   </script>
 </body>
 </html>
-

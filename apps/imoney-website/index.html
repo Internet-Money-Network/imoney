@@ -274,7 +274,7 @@
             <hr>
             <div class="small center">verified by the merchant's own node<br>no processor · no chargeback · no account</div>
           </div>
-          <p class="caption">Illustration of the invoice flow being built. Timings shown are design targets, not measurements.</p>
+          <p class="caption">Illustration of the invoice flow. Timings shown are typical on the test network, not guarantees.</p>
         </div>
       </div>
 
@@ -338,8 +338,9 @@
           <div class="split">
             <div>
               <p>
-                The JavaScript SDK opens a checkout window, shows a QR code, and listens to your node for the
-                payment. Funds go straight to an address you control. Nobody holds them on the way.
+                Every order gets an invoice number that the payer's wallet signs into the payment, so your
+                node can tell you exactly which order was paid and how settled it is. Funds go straight to an
+                address you control. Nobody holds them on the way.
               </p>
               <ul class="plain">
                 <li>SDK for the browser and Node.js</li>
@@ -359,10 +360,11 @@ const client = new IMoneyClient({
 
 client.openCheckoutModal({
   merchantAddress: <span class="s">'imntest:q...'</span>,
-  amountImn: 12.5,
-  orderId: <span class="s">'INV-1042'</span>,
+  amountImn: <span class="s">'12.5'</span>,
+  invoiceId: <span class="s">'INV-1042'</span>,
+  level: <span class="s">'included'</span>,
   onSuccess: (payment) =&gt; {
-    markOrderPaid(payment);
+    markOrderPaid(payment.invoiceId);
   }
 });</pre>
             </div>
@@ -432,13 +434,17 @@ client.openCheckoutModal({
                 <li>Network sync, peer discovery and bans for misbehaving peers</li>
                 <li>FishHash proof of work, verified by nodes from a small cache</li>
                 <li>CPU miner that works for any node</li>
+                <li>Wallet that signs in your browser, with a recovery phrase</li>
+                <li>Invoice numbers with seen, in-a-block and final levels</li>
+                <li>12-hour finality: older payments cannot be rewritten</li>
               </ul>
             </div>
             <div class="doing">
               <h3><i></i>Being built</h3>
               <ul>
-                <li>Wallet that signs on your own device</li>
-                <li>Invoice IDs and confirmation levels</li>
+                <li>Seed nodes for a public test network</li>
+                <li>Pruning old block data</li>
+                <li>Explorer showing the live block graph</li>
               </ul>
             </div>
             <div class="todo">

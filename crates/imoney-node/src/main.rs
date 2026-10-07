@@ -44,7 +44,11 @@ struct Args {
     #[arg(long)]
     service_address: Option<String>,
 
-    /// Require this bearer token for block submission and the wallet's key-handling calls
+    /// Confirmations after which a payment is reported as final (default 60, about 5 minutes)
+    #[arg(long)]
+    final_confirmations: Option<u64>,
+
+    /// Require this bearer token for block submission
     #[arg(long)]
     rpc_token: Option<String>,
 
@@ -115,6 +119,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("[*] Opening persistent database at {:?}...", db_path);
     let mut ledger_instance = DagLedger::open(&db_path, mining_address)?;
+    if let Some(confirmations) = args.final_confirmations {
+        ledger_instance.final_confirmations = confirmations;
+    }
     if let Some(s) = &args.service_address {
         ledger_instance.service_address = Some(Address::decode(s)?);
     }

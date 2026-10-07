@@ -10,6 +10,18 @@ const TX_ID_CONTEXT: &str = "IMN 2026 transaction id";
 const TX_HASH_CONTEXT: &str = "IMN 2026 transaction hash";
 const SIG_HASH_CONTEXT: &str = "IMN 2026 signature hash";
 
+/// Payload prefix that marks a payment as settling an invoice.
+pub const INVOICE_TAG: &[u8] = b"imn-invoice:";
+/// Longest invoice ID, in bytes.
+pub const MAX_INVOICE_ID_BYTES: usize = 64;
+
+/// An invoice ID is 1 to 64 characters from `A-Z a-z 0-9 - _ .`
+pub fn is_valid_invoice_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= MAX_INVOICE_ID_BYTES
+        && id.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
+}
+
 /// Most outputs one consolidation transaction may merge; keeps it under `MAX_TX_BYTES`.
 pub const MAX_CONSOLIDATION_INPUTS: usize = 300;
 
@@ -106,6 +118,13 @@ impl Transaction {
 
     pub fn is_coinbase(&self) -> bool {
         self.inputs.is_empty()
+    }
+
+    /// The invoice this payment settles, if its payload names one. The payload is covered by
+    /// the signature, so the payer has committed to this invoice and nobody can relabel it.
+    pub fn invoice_id(&self) -> Option<&str> {
+        let id = std::str::from_utf8(self.payload.strip_prefix(INVOICE_TAG)?).ok()?;
+        is_valid_invoice_id(id).then_some(id)
     }
 
     fn encode_with(&self, out: &mut Vec<u8>, include_signatures: bool) {
@@ -291,6 +310,26 @@ impl Transaction {
         available_utxos: Vec<(Outpoint, TxOutput)>,
         service: Option<&Address>,
     ) -> Result<Self, String> {
+        Self::build_invoice_payment(signing_key, network, recipient_addr, amount_atoms, fee_atoms, available_utxos, service, None)
+    }
+
+    /// Like `build_payment`, and marks the payment as settling `invoice_id` when one is given.
+    #[allow(clippy::too_many_arguments)]
+    pub fn build_invoice_payment(
+        signing_key: &SigningKey,
+        network: Network,
+        recipient_addr: &Address,
+        amount_atoms: u64,
+        fee_atoms: u64,
+        available_utxos: Vec<(Outpoint, TxOutput)>,
+        service: Option<&Address>,
+        invoice_id: Option<&str>,
+    ) -> Result<Self, String> {
+        let payload = match invoice_id {
+            Some(id) if is_valid_invoice_id(id) => [INVOICE_TAG, id.as_bytes()].concat(),
+            Some(_) => return Err("Invoice ID must be 1-64 characters of A-Z a-z 0-9 - _ .".to_string()),
+            None => Vec::new(),
+        };
         let verifying_key = signing_key.verifying_key();
         let sender_addr = Address::from_public_key(network, AddressType::PubKeyHash, verifying_key.as_bytes());
 
@@ -347,7 +386,7 @@ impl Transaction {
             lock_time: 0,
             subnetwork_id: [0u8; 20],
             gas: 0,
-            payload: Vec::new(),
+            payload,
             service: service.map(ScriptPublicKey::pay_to_address),
         };
 
@@ -633,5 +672,34 @@ mod tests {
         assert!(Transaction::build_consolidation(&key, Network::Testnet, 100, utxos(1), None).is_err());
         assert!(Transaction::build_consolidation(&key, Network::Testnet, 2_000, utxos(2), None).is_err());
         assert!(Transaction::build_consolidation(&key, Network::Testnet, 100, utxos(MAX_CONSOLIDATION_INPUTS + 1), None).is_err());
+    }
+
+    #[test]
+    fn invoice_id_is_carried_in_the_payload_and_signed() {
+        let key = SigningKey::from_bytes(&[8u8; 32]);
+        let me = Address::from_public_key(Network::Testnet, AddressType::PubKeyHash, key.verifying_key().as_bytes());
+        let script = ScriptPublicKey::pay_to_address(&me);
+        let utxo = || {
+            vec![(
+                Outpoint { transaction_id: Hash([7u8; 32]), index: 0 },
+                TxOutput { value_atoms: 50_000, script_public_key: script.clone() },
+            )]
+        };
+        let build = |invoice: Option<&str>| {
+            Transaction::build_invoice_payment(&key, Network::Testnet, &me, 10_000, 1_000, utxo(), None, invoice)
+        };
+
+        let mut tx = build(Some("INV-1042")).unwrap();
+        assert_eq!(tx.invoice_id(), Some("INV-1042"));
+        assert_eq!(build(None).unwrap().invoice_id(), None);
+        assert_eq!(Transaction::from_bytes(&tx.to_bytes()).unwrap().invoice_id(), Some("INV-1042"));
+        assert!(build(Some("")).is_err());
+        assert!(build(Some("has space")).is_err());
+        assert!(build(Some(&"x".repeat(65))).is_err());
+
+        // Relabelling the payment for another invoice breaks the signature
+        assert!(tx.verify_input(Network::Testnet, 0, &script).is_ok());
+        tx.payload = [INVOICE_TAG, b"INV-9999"].concat();
+        assert!(tx.verify_input(Network::Testnet, 0, &script).is_err());
     }
 }

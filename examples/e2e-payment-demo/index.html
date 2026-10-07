@@ -104,13 +104,13 @@
       <span class="badge">TESTNET-1</span>
     </h1>
     <p style="color: #8b949e; margin-bottom: 24px;">
-      Demonstrating the 100% non-custodial, ~5-second BlockDAG inclusion with <code>@imoney/sdk</code>.
+      A shop page taking one payment with <code>@imoney/sdk</code>: an invoice number per order, matched by your own node.
     </p>
 
     <div class="product-card">
       <div>
         <h3 style="margin: 0 0 6px 0; color: #f0f6fc;">Hardware Miner T-Shirt</h3>
-        <p style="margin: 0; color: #8b949e; font-size: 13px;">Official 100% Cotton ASIC-Resistant Tee</p>
+        <p style="margin: 0; color: #8b949e; font-size: 13px;">Official 100% cotton tee</p>
       </div>
       <div style="text-align: right;">
         <div class="price">2.50 IMN</div>
@@ -123,25 +123,26 @@
     </button>
 
     <div id="receipt">
-      <h3 style="margin: 0 0 8px 0;">🎉 Payment Verified Instantly!</h3>
+      <h3 style="margin: 0 0 8px 0;">Payment received</h3>
       <p style="margin: 0; font-size: 14px;" id="receipt-text"></p>
     </div>
 
     <div class="code-box">
-      // Integration in 2 lines of code:<br>
       const client = new IMoneyClient({ nodeUrl: "http://127.0.0.1:18556" });<br>
-      client.openCheckoutModal({ merchantAddress: "imntest:q...", amountImn: 2.5 });
+      client.openCheckoutModal({ merchantAddress: "imntest:q...", amountImn: "2.5",<br>
+      &nbsp;&nbsp;invoiceId: "ORDER-1042", level: "included", onSuccess: markOrderPaid });
     </div>
 
     <div class="specs">
-      • <b>BlockDAG Confirmation</b>: ~5 seconds (0.2 BPS, k=8 GHOSTDAG)<br>
-      • <b>Zero Intermediary</b>: Customer funds go directly to your non-custodial wallet<br>
-      • <b>Anti-Double Spend</b>: Validated in real-time by pure-Rust persistent nodes
+      • <b>Matched by invoice number</b>: only a payment naming this order's invoice counts<br>
+      • <b>Three levels</b>: seen (under a second), in a block (~5 seconds), final<br>
+      • <b>No intermediary</b>: funds go straight to your own address<br>
+      • For real orders, confirm on your server too: a browser page can be tampered with
     </div>
   </div>
 
   <!-- Include bundled Internet Money SDK -->
-  <script src="../../packages/imoney-sdk/dist/index.js"></script>
+  <script src="../../packages/imoney-sdk/dist/imoney.js"></script>
   <script>
     const payBtn = document.getElementById('pay-btn');
     const receiptBox = document.getElementById('receipt');
@@ -163,12 +164,13 @@
       client.openCheckoutModal({
         merchantAddress: MERCHANT_ADDRESS,
         amountImn: 2.5,
-        orderId: 'DEMO-' + Math.floor(1000 + Math.random() * 9000),
+        invoiceId: IMoney.newInvoiceId('demo'),
+        level: 'included',
         memo: 'T-Shirt Purchase',
         timeoutSeconds: 300,
         onSuccess: (payment) => {
           receiptBox.style.display = 'block';
-          receiptText.innerText = `Received ${payment.imn} IMN (${payment.atoms} atomic units). Included in the BlockDAG.`;
+          receiptText.innerText = `Received ${payment.imn} IMN for invoice ${payment.invoiceId}. The payment is in a block.`;
           payBtn.innerText = '✓ Paid';
           payBtn.style.background = '#1f6feb';
         },

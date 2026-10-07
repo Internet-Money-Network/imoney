@@ -21,3 +21,4 @@ dist_release/
 
 # Cloudflare wrangler local cache
 .wrangler/
+node_modules/

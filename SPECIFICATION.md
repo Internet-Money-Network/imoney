@@ -134,3 +134,28 @@ Nodes talk over TCP. Every message travels in a frame of a 4-byte network magic,
 * **Sync.** A node sends a *locator*: selected-chain hashes from its tip back to genesis, dense near the tip and exponentially sparser further back. The peer finds the newest block they share and returns blocks above it in `(level, hash)` order, in which parents always precede children, in batches of at most 200 blocks or 2 MB with a cursor for the next batch. A block that arrives before its parents waits in an orphan pool while the parents are requested.
 * **Discovery.** Peers exchange the addresses of nodes that accept connections (`GetAddr`, `Addr`). A node keeps up to 8 outbound connections and accepts up to 64 inbound.
 * **Misbehaviour.** Bytes that are not this protocol, and repeated invalid blocks, raise a peer's score; at the threshold the peer is disconnected and its IP refused for 10 minutes.
+
+---
+
+## 8. Invoices and Payment Levels
+
+### 8.1 Invoice ID
+A payment may name the invoice it settles. The transaction's payload is then the ASCII bytes `imn-invoice:` followed by the invoice ID: 1 to 64 characters from `A-Z a-z 0-9 - _ .`. The payload is covered by the signature, so the payer commits to that invoice and nobody else can relabel the payment.
+
+A payment request is the receiving address with the amount and invoice ID attached: `imn:q...?amount=12.5&invoice=INV-1042`.
+
+### 8.2 Tracking
+A node indexes accepted transactions by invoice ID and removes the entry if a reorganisation un-accepts the transaction. `GET /api/v1/invoice/:id?address=:addr` returns every payment naming that invoice and paying that address, pending or accepted, with three totals:
+
+| Level | Meaning |
+| :--- | :--- |
+| `seen` | The node has the payment (in its mempool or accepted). It may still be replaced. |
+| `included` | The payment has been accepted into the ledger (1 or more confirmations). |
+| `final` | The payment has at least the node's `final_confirmations` (default 60, about 5 minutes) and the node is not reporting `network_alert`. |
+
+`network_alert` is set while the node is refusing a heavier chain for finality, or for 30 minutes after a reorganisation of 3 or more blocks. Nothing is reported as final while it is set.
+
+The number of confirmations to require is a judgement about value at risk: reversing a payment costs an attacker roughly the hashpower to out-mine the network for that many blocks. The default is a starting point, not a guarantee.
+
+### 8.3 Keys
+Nodes do not create, store or receive private keys. Wallets sign locally; the reference wallet uses a WebAssembly build of the same transaction code the node runs. A wallet's key is derived from a 12-word BIP-39 recovery phrase as `Blake3-derive-key("IMN 2026 wallet key 0", BIP-39 seed)`.

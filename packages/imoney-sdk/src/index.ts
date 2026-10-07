@@ -1,12 +1,26 @@
 /**
- * Internet Money (IMN) Official Web & Node.js SDK
- * Ultra-fast, zero-custody, 5-second merchant payment checkout & BlockDAG API client.
+ * Internet Money (IMN) SDK for the browser and Node.js.
+ *
+ * Talks to an Internet Money node, creates invoices, and tells you when an invoice has been
+ * paid and how settled the payment is. It never handles private keys.
  */
 
-export const ATOMS_PER_IMN = 100_000_000n; // 1 IMN = 10^8 atoms (like satoshis)
+import qrcode from 'qrcode-generator';
+
+/** 1 IMN = 10^8 atoms. */
+export const ATOMS_PER_IMN = 100_000_000;
+
+/**
+ * How settled a payment is:
+ * - `seen`: the node has received it (under a second). It can still be replaced.
+ * - `included`: it is in a block (about 5 seconds).
+ * - `final`: it is buried under the number of blocks the node requires, and the network is calm.
+ */
+export type PaymentLevel = 'seen' | 'included' | 'final';
 
 export interface IMoneyClientConfig {
-  nodeUrl?: string; // Default: 'http://127.0.0.1:18556'
+  /** Address of the node to talk to. Default: 'http://127.0.0.1:18556' */
+  nodeUrl?: string;
   network?: 'mainnet' | 'testnet';
 }
 
@@ -21,6 +35,13 @@ export interface NodeInfo {
   current_bits: string;
   current_block_reward_imn: number;
   target_block_interval_sec: number;
+  finality_depth: number;
+  finality_conflict: boolean;
+  last_reorg_depth?: number;
+  last_reorg_at_ms?: number;
+  /** True while the network looks unsettled; nothing is reported as final while it is set. */
+  network_alert: boolean;
+  final_confirmations: number;
   mining_address?: string;
   /** Name this as a payment's service address to give this node half of the fee. */
   service_address?: string;
@@ -38,6 +59,8 @@ export interface UtxoItem {
   index: number;
   value_atoms: number;
   value_imn: number;
+  /** False for a block reward that has not matured yet. */
+  spendable: boolean;
 }
 
 export interface TxStatus {
@@ -53,15 +76,128 @@ export interface TxStatus {
   total_output_imn: number;
 }
 
-export interface PaymentInvoiceOptions {
+export interface InvoicePayment {
+  tx_id: string;
+  amount_atoms: number;
+  confirmations: number;
+  level: PaymentLevel;
+}
+
+/** What has been paid towards an invoice. `seen_atoms >= included_atoms >= final_atoms`. */
+export interface InvoiceStatus {
+  invoice_id: string;
+  address: string;
+  payments: InvoicePayment[];
+  seen_atoms: number;
+  included_atoms: number;
+  final_atoms: number;
+  final_confirmations: number;
+  network_alert: boolean;
+}
+
+/** A request for one payment. Create it with `IMoneyClient.createInvoice`. */
+export interface Invoice {
+  invoiceId: string;
+  address: string;
+  amountAtoms: number;
+  amountImn: string;
+  /** What a wallet scans or pastes: the address with the amount and invoice ID attached. */
+  uri: string;
+}
+
+export interface WaitOptions {
+  /** How settled the payment must be before the promise resolves. Default: 'included'. */
+  level?: PaymentLevel;
+  /** Give up after this long. Default: 10 minutes. */
+  timeoutMs?: number;
+  /** How often to ask the node when no push arrives. Default: 2 seconds. */
+  pollMs?: number;
+  /** Called with every status read, so a page can show progress. */
+  onProgress?: (status: InvoiceStatus) => void;
+  /** Abort the wait from outside. */
+  signal?: AbortSignal;
+}
+
+export interface CheckoutOptions {
   merchantAddress: string;
-  amountImn: number;
+  amountImn: number | string;
+  /** Your order reference. Used as the invoice ID, so it must be unique per order. */
+  invoiceId?: string;
+  /** Alias of `invoiceId`, kept for older integrations. */
   orderId?: string;
   memo?: string;
   timeoutSeconds?: number;
-  onSuccess?: (payment: { txId?: string; atoms: number; imn: number }) => void;
+  /** How settled the payment must be before `onSuccess` fires. Default: 'included'. */
+  level?: PaymentLevel;
+  onSeen?: (status: InvoiceStatus) => void;
+  onSuccess?: (payment: { invoiceId: string; txIds: string[]; atoms: number; imn: number; level: PaymentLevel }) => void;
   onExpire?: () => void;
   onCancel?: () => void;
+}
+
+const INVOICE_ID_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
+
+/** An invoice ID is 1 to 64 characters from `A-Z a-z 0-9 - _ .` */
+export function isValidInvoiceId(id: string): boolean {
+  return INVOICE_ID_PATTERN.test(id);
+}
+
+/** Converts an IMN amount to atoms exactly, without floating-point rounding. */
+export function imnToAtoms(amount: number | string): number {
+  const text = typeof amount === 'number' ? amount.toFixed(8) : amount.trim();
+  const match = /^(\d+)(?:\.(\d{1,8}))?$/.exec(text);
+  if (!match) throw new Error(`Invalid IMN amount: ${amount}`);
+  const atoms = BigInt(match[1]) * BigInt(ATOMS_PER_IMN) + BigInt((match[2] || '').padEnd(8, '0'));
+  if (atoms > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error('Amount is too large');
+  return Number(atoms);
+}
+
+/** Formats atoms as an IMN amount with trailing zeros removed. */
+export function atomsToImn(atoms: number): string {
+  const whole = Math.floor(atoms / ATOMS_PER_IMN);
+  const fraction = String(atoms % ATOMS_PER_IMN).padStart(8, '0').replace(/0+$/, '');
+  return fraction ? `${whole}.${fraction}` : String(whole);
+}
+
+/** A random invoice ID. Prefer your own order number when you have one. */
+export function newInvoiceId(prefix = 'inv'): string {
+  const bytes = new Uint8Array(8);
+  globalThis.crypto.getRandomValues(bytes);
+  return `${prefix}-${Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')}`;
+}
+
+/** Builds the text a wallet scans: `imn:q...?amount=12.5&invoice=INV-1042`. */
+export function paymentUri(address: string, amountImn: string, invoiceId?: string): string {
+  const query = [`amount=${amountImn}`];
+  if (invoiceId) query.push(`invoice=${encodeURIComponent(invoiceId)}`);
+  return `${address}?${query.join('&')}`;
+}
+
+/** Reads a payment URI back into its parts. A bare address is accepted too. */
+export function parsePaymentUri(uri: string): { address: string; amountImn?: string; invoiceId?: string } {
+  const [address, query = ''] = uri.trim().split('?');
+  const params = new URLSearchParams(query);
+  const amountImn = params.get('amount') || undefined;
+  const invoiceId = params.get('invoice') || undefined;
+  if (amountImn !== undefined) imnToAtoms(amountImn);
+  if (invoiceId !== undefined && !isValidInvoiceId(invoiceId)) throw new Error('Invalid invoice ID in payment URI');
+  return { address, amountImn, invoiceId };
+}
+
+/** Renders text as a QR code, returned as an SVG string. Generated locally; nothing is sent anywhere. */
+export function qrSvg(text: string, cellSize = 4, margin = 2): string {
+  const qr = qrcode(0, 'M');
+  qr.addData(text);
+  qr.make();
+  return qr.createSvgTag({ cellSize, margin, scalable: true });
+}
+
+function escapeHtml(text: string): string {
+  return text.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string);
+}
+
+function atomsAt(status: InvoiceStatus, level: PaymentLevel): number {
+  return level === 'seen' ? status.seen_atoms : level === 'included' ? status.included_atoms : status.final_atoms;
 }
 
 export class IMoneyClient {
@@ -73,223 +209,280 @@ export class IMoneyClient {
     this.network = config.network || 'testnet';
   }
 
-  /**
-   * Fetch current network status and blockDAG metrics.
-   */
-  async getInfo(): Promise<NodeInfo> {
-    const res = await fetch(`${this.nodeUrl}/api/v1/info`);
-    if (!res.ok) throw new Error(`Failed to fetch node info: ${res.statusText}`);
+  private async get<T>(path: string, what: string): Promise<T> {
+    const res = await fetch(`${this.nodeUrl}${path}`);
+    if (!res.ok) throw new Error(`Failed to ${what}: ${res.status} ${res.statusText}`);
+    return res.json() as Promise<T>;
+  }
+
+  /** Fetch current network status and blockDAG metrics. */
+  getInfo(): Promise<NodeInfo> {
+    return this.get('/api/v1/info', 'fetch node info');
+  }
+
+  /** Retrieve the balance of any IMN address. */
+  getBalance(address: string): Promise<AddressBalance> {
+    return this.get(`/api/v1/address/${encodeURIComponent(address)}/balance`, 'get balance');
+  }
+
+  /** Retrieve the unspent outputs of an address. */
+  getUtxos(address: string): Promise<UtxoItem[]> {
+    return this.get(`/api/v1/address/${encodeURIComponent(address)}/utxos`, 'get UTXOs');
+  }
+
+  /** Query a transaction's status and confirmations. */
+  getTxStatus(txId: string): Promise<TxStatus> {
+    return this.get(`/api/v1/tx/${encodeURIComponent(txId)}`, 'get transaction status');
+  }
+
+  /** Submit a signed transaction (as produced by the wallet's signing module). */
+  async broadcastTransaction(transaction: unknown): Promise<{ success: boolean; tx_id?: string; error?: string }> {
+    const res = await fetch(`${this.nodeUrl}/api/v1/tx/broadcast`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ transaction }),
+    });
     return res.json();
   }
 
   /**
-   * Retrieve current unspent balance for any IMN address.
+   * Describes a payment you expect. Nothing is sent to the node: an invoice exists once a
+   * payment naming its ID arrives. Use an ID that is unique per order.
    */
-  async getBalance(address: string): Promise<AddressBalance> {
-    const res = await fetch(`${this.nodeUrl}/api/v1/address/${encodeURIComponent(address)}/balance`);
-    if (!res.ok) throw new Error(`Failed to get balance: ${res.statusText}`);
-    return res.json();
-  }
-
-  /**
-   * Retrieve spendable UTXOs for an address.
-   */
-  async getUtxos(address: string): Promise<UtxoItem[]> {
-    const res = await fetch(`${this.nodeUrl}/api/v1/address/${encodeURIComponent(address)}/utxos`);
-    if (!res.ok) throw new Error(`Failed to get UTXOs: ${res.statusText}`);
-    return res.json();
-  }
-
-  /**
-   * Query transaction confirmation status and receipt details.
-   */
-  async getTxStatus(txId: string): Promise<TxStatus> {
-    const res = await fetch(`${this.nodeUrl}/api/v1/tx/${encodeURIComponent(txId)}`);
-    if (!res.ok) throw new Error(`Failed to get transaction status: ${res.statusText}`);
-    return res.json();
-  }
-
-  /**
-   * Listen in real-time via WebSocket for incoming payments to an address.
-   * Resolves immediately upon receiving new coins matching or exceeding expected atoms.
-   */
-
-  subscribeAddressPayments(
-    address: string,
-    onPayment: (data: { change_atoms: number; balance_atoms: number; balance_imn: number }) => void
-  ): () => void {
-    const wsUrl = this.nodeUrl.replace(/^http/, 'ws') + `/api/v1/ws/address/${encodeURIComponent(address)}`;
-    let ws: any;
-    let isClosed = false;
-
-    if (typeof WebSocket !== 'undefined') {
-      ws = new WebSocket(wsUrl);
-    } else {
-      // Node.js support fallback
-      const NodeWs = require('ws');
-      ws = new NodeWs(wsUrl);
+  createInvoice(options: { address: string; amountImn: number | string; invoiceId?: string }): Invoice {
+    const invoiceId = options.invoiceId ?? newInvoiceId();
+    if (!isValidInvoiceId(invoiceId)) {
+      throw new Error('Invoice ID must be 1-64 characters of A-Z a-z 0-9 - _ .');
     }
+    const amountAtoms = imnToAtoms(options.amountImn);
+    if (amountAtoms <= 0) throw new Error('Invoice amount must be positive');
+    const amountImn = atomsToImn(amountAtoms);
+    return { invoiceId, address: options.address, amountAtoms, amountImn, uri: paymentUri(options.address, amountImn, invoiceId) };
+  }
 
-    ws.onmessage = (event: any) => {
-      try {
-        const payload = JSON.parse(event.data);
-        if (payload.event === 'payment_received') {
-          onPayment(payload);
+  /** What has been paid towards an invoice so far. */
+  getInvoice(invoiceId: string, address: string): Promise<InvoiceStatus> {
+    return this.get(
+      `/api/v1/invoice/${encodeURIComponent(invoiceId)}?address=${encodeURIComponent(address)}`,
+      'get invoice status'
+    );
+  }
+
+  /**
+   * Resolves once the invoice has been paid in full at the requested level, and rejects on
+   * timeout or abort. The node's own records decide; a push from the node only makes the next
+   * check happen sooner.
+   */
+  waitForPayment(invoice: Invoice, options: WaitOptions = {}): Promise<InvoiceStatus> {
+    const { level = 'included', timeoutMs = 600_000, pollMs = 2_000, onProgress, signal } = options;
+
+    return new Promise((resolve, reject) => {
+      let finished = false;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      let checking = false;
+
+      const finish = (settle: () => void) => {
+        if (finished) return;
+        finished = true;
+        if (timer) clearTimeout(timer);
+        clearTimeout(deadline);
+        unsubscribe();
+        signal?.removeEventListener('abort', onAbort);
+        settle();
+      };
+      const onAbort = () => finish(() => reject(new Error('Payment wait was cancelled')));
+      const deadline = setTimeout(() => finish(() => reject(new Error('Timed out waiting for payment'))), timeoutMs);
+
+      const check = async () => {
+        if (finished || checking) return;
+        checking = true;
+        try {
+          const status = await this.getInvoice(invoice.invoiceId, invoice.address);
+          if (finished) return;
+          onProgress?.(status);
+          if (atomsAt(status, level) >= invoice.amountAtoms) {
+            finish(() => resolve(status));
+            return;
+          }
+        } catch {
+          // The node may be briefly unreachable; keep trying until the deadline
+        } finally {
+          checking = false;
         }
-      } catch (err) {
-        console.error('Error parsing IMN payment WS message:', err);
+        if (!finished) {
+          if (timer) clearTimeout(timer);
+          timer = setTimeout(check, pollMs);
+        }
+      };
+
+      const unsubscribe = this.subscribeAddressPayments(invoice.address, () => void check());
+      if (signal?.aborted) {
+        onAbort();
+        return;
+      }
+      signal?.addEventListener('abort', onAbort);
+      void check();
+    });
+  }
+
+  /**
+   * Listens for activity on an address over WebSocket. `onEvent` receives `payment_seen` when a
+   * payment reaches the node and `payment_received` when the balance changes. Returns a function
+   * that stops listening. Where WebSocket is unavailable it does nothing; polling still works.
+   */
+  subscribeAddressPayments(address: string, onEvent: (data: any) => void): () => void {
+    if (typeof WebSocket === 'undefined') return () => {};
+    const wsUrl = this.nodeUrl.replace(/^http/, 'ws') + `/api/v1/ws/address/${encodeURIComponent(address)}`;
+    let ws: WebSocket;
+    try {
+      ws = new WebSocket(wsUrl);
+    } catch {
+      return () => {};
+    }
+    ws.onmessage = (event: MessageEvent) => {
+      try {
+        const payload = JSON.parse(String(event.data));
+        if (payload.event === 'payment_seen' || payload.event === 'payment_received') onEvent(payload);
+      } catch {
+        // Ignore anything that is not one of the node's JSON messages
       }
     };
-
+    ws.onerror = () => {};
     return () => {
-      isClosed = true;
-      if (ws && ws.readyState === ws.OPEN) {
+      try {
         ws.close();
+      } catch {
+        // Already closed
       }
     };
   }
 
   /**
-   * Launches an embeddable, responsive 1-click modal checkout widget.
-   * Works on any website, CMS, or WebApp directly from JavaScript.
+   * Opens a checkout window for one invoice: amount, QR code, address and live status.
+   * Browser only. The payment is matched by invoice ID and amount, never by balance alone.
    */
-  openCheckoutModal(options: PaymentInvoiceOptions) {
+  openCheckoutModal(options: CheckoutOptions): { invoice: Invoice; close: () => void } {
     if (typeof document === 'undefined') {
       throw new Error('openCheckoutModal can only be run in a browser environment');
     }
+    const { merchantAddress, timeoutSeconds = 600, level = 'included', memo, onSeen, onSuccess, onExpire, onCancel } = options;
+    const invoice = this.createInvoice({
+      address: merchantAddress,
+      amountImn: options.amountImn,
+      invoiceId: options.invoiceId ?? options.orderId,
+    });
 
-    const {
-      merchantAddress,
-      amountImn,
-      orderId = 'ORD-' + Math.floor(100000 + Math.random() * 900000),
-      memo = 'Store Purchase',
-      timeoutSeconds = 600,
-      onSuccess,
-      onExpire,
-      onCancel,
-    } = options;
-
-    const atomsRequired = Math.round(amountImn * 100_000_000);
-    const paymentUri = `${merchantAddress}?amount=${amountImn}&label=${encodeURIComponent(memo)}`;
-
-    // Create modal backdrop and overlay
     const overlay = document.createElement('div');
     overlay.id = 'imoney-modal-overlay';
     overlay.setAttribute(
       'style',
       'position: fixed; inset: 0; background: rgba(0,0,0,0.75); display: flex; align-items: center; justify-content: center; z-index: 999999; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;'
     );
-
     overlay.innerHTML = `
-      <div style="background: #161b22; border: 1px solid #30363d; border-radius: 12px; width: 90%; max-width: 440px; padding: 24px; color: #f0f6fc; box-shadow: 0 10px 30px rgba(0,0,0,0.8); text-align: center; position: relative;">
-        <button id="imoney-close-btn" style="position: absolute; top: 14px; right: 14px; background: none; border: none; color: #8b949e; font-size: 20px; cursor: pointer;">&times;</button>
-        <div style="display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 8px;">
-          <div style="width: 28px; height: 28px; background: #238636; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 16px;">⚡</div>
-          <h2 style="margin: 0; font-size: 20px; color: #58a6ff;">Internet Money</h2>
-        </div>
-        <p style="margin: 4px 0 16px; color: #8b949e; font-size: 13px;">~5-Second BlockDAG Inclusion</p>
-        
+      <div style="background: #161b22; border: 1px solid #30363d; border-radius: 12px; width: 90%; max-width: 440px; max-height: 94vh; overflow-y: auto; padding: 24px; color: #f0f6fc; box-shadow: 0 10px 30px rgba(0,0,0,0.8); text-align: center; position: relative;">
+        <button data-imoney="close" aria-label="Close" style="position: absolute; top: 14px; right: 14px; background: none; border: none; color: #8b949e; font-size: 20px; cursor: pointer;">&times;</button>
+        <h2 style="margin: 0 0 4px; font-size: 20px; color: #58a6ff;">Pay with Internet Money</h2>
+        <p style="margin: 0 0 16px; color: #8b949e; font-size: 13px;">${escapeHtml(memo || 'Scan with your IMN wallet, or copy the payment request')}</p>
+
         <div style="background: #0d1117; border: 1px solid #21262d; border-radius: 8px; padding: 12px; margin-bottom: 16px;">
-          <div style="font-size: 12px; color: #8b949e;">Amount to Send:</div>
-          <div style="font-size: 26px; font-weight: bold; color: #39d353; margin: 4px 0;">${amountImn} IMN</div>
-          <div style="font-size: 11px; color: #8b949e;">Order #${orderId} • Low Network Fee</div>
+          <div style="font-size: 12px; color: #8b949e;">Amount</div>
+          <div style="font-size: 26px; font-weight: bold; color: #39d353; margin: 4px 0;">${escapeHtml(invoice.amountImn)} IMN</div>
+          <div style="font-size: 11px; color: #8b949e;">Invoice ${escapeHtml(invoice.invoiceId)}</div>
         </div>
 
-        <!-- QR Code Placeholder -->
-        <div style="background: white; border-radius: 8px; padding: 12px; display: inline-block; margin-bottom: 16px;">
-          <img src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(
-            paymentUri
-          )}" alt="Scan to pay" style="display: block; width: 180px; height: 180px;" />
-        </div>
+        <div style="background: white; border-radius: 8px; padding: 10px; display: inline-block; margin-bottom: 16px; width: 200px; height: 200px; box-sizing: border-box;">${qrSvg(invoice.uri)}</div>
 
         <div style="margin-bottom: 16px; text-align: left;">
-          <label style="font-size: 11px; color: #8b949e; display: block; margin-bottom: 4px;">Merchant Receiving Address:</label>
-          <div style="background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 8px 10px; font-family: monospace; font-size: 11px; word-break: break-all; color: #79c0ff; display: flex; align-items: center; justify-content: space-between;">
-            <span id="imoney-address-text">${merchantAddress}</span>
-            <button id="imoney-copy-btn" style="background: #21262d; border: 1px solid #30363d; color: #c9d1d9; border-radius: 4px; padding: 2px 6px; font-size: 10px; cursor: pointer; margin-left: 6px;">Copy</button>
+          <label style="font-size: 11px; color: #8b949e; display: block; margin-bottom: 4px;">Payment request (includes the invoice number)</label>
+          <div style="background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 8px 10px; font-family: monospace; font-size: 11px; word-break: break-all; color: #79c0ff; display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+            <span>${escapeHtml(invoice.uri)}</span>
+            <button data-imoney="copy" style="background: #21262d; border: 1px solid #30363d; color: #c9d1d9; border-radius: 4px; padding: 2px 6px; font-size: 10px; cursor: pointer; flex: none;">Copy</button>
           </div>
         </div>
 
-        <div id="imoney-status-box" style="display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 13px; color: #db61a2; font-weight: 500;">
-          <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #db61a2; animation: imoney-pulse 1.5s infinite;"></span>
-          <span id="imoney-status-text">Listening on BlockDAG... (<span id="imoney-countdown">${timeoutSeconds}</span>s)</span>
-        </div>
+        <div data-imoney="status" role="status" style="font-size: 13px; color: #db61a2; font-weight: 500;">Waiting for payment (<span data-imoney="countdown">${timeoutSeconds}</span>s)</div>
       </div>
-      <style>
-        @keyframes imoney-pulse {
-          0% { transform: scale(0.9); opacity: 0.6; }
-          50% { transform: scale(1.3); opacity: 1; }
-          100% { transform: scale(0.9); opacity: 0.6; }
-        }
-      </style>
     `;
-
     document.body.appendChild(overlay);
+    const part = (name: string) => overlay.querySelector(`[data-imoney="${name}"]`) as HTMLElement | null;
 
-    // Copy to clipboard
-    const copyBtn = document.getElementById('imoney-copy-btn');
+    const abort = new AbortController();
+    let remaining = timeoutSeconds;
+    const countdown = setInterval(() => {
+      remaining -= 1;
+      const el = part('countdown');
+      if (el) el.innerText = String(Math.max(remaining, 0));
+    }, 1000);
+    let closed = false;
+    const close = () => {
+      if (closed) return;
+      closed = true;
+      clearInterval(countdown);
+      abort.abort();
+      overlay.remove();
+    };
+
+    const copyBtn = part('copy');
     if (copyBtn) {
       copyBtn.onclick = () => {
-        navigator.clipboard.writeText(merchantAddress);
+        void navigator.clipboard.writeText(invoice.uri);
         copyBtn.innerText = 'Copied!';
         setTimeout(() => (copyBtn.innerText = 'Copy'), 2000);
       };
     }
+    const closeBtn = part('close');
+    if (closeBtn) {
+      closeBtn.onclick = () => {
+        close();
+        onCancel?.();
+      };
+    }
 
-    let remaining = timeoutSeconds;
-    const countdownEl = document.getElementById('imoney-countdown');
-    const timer = setInterval(() => {
-      remaining -= 1;
-      if (countdownEl) countdownEl.innerText = remaining.toString();
-      if (remaining <= 0) {
-        clearInterval(timer);
-        cleanup();
-        if (onExpire) onExpire();
-      }
-    }, 1000);
-
-    const cleanup = () => {
-      clearInterval(timer);
-      unsubscribe();
-      if (document.getElementById('imoney-modal-overlay')) {
-        document.body.removeChild(overlay);
-      }
-    };
-
-    // Close on cancel
-    document.getElementById('imoney-close-btn')!.onclick = () => {
-      cleanup();
-      if (onCancel) onCancel();
-    };
-
-    // WebSocket live confirmation
-    const unsubscribe = this.subscribeAddressPayments(merchantAddress, (data) => {
-      if (data.change_atoms >= atomsRequired) {
-        clearInterval(timer);
-        const statusBox = document.getElementById('imoney-status-box');
-        if (statusBox) {
-          statusBox.innerHTML = `
-            <div style="color: #39d353; font-weight: bold; font-size: 15px;">
-              ✓ Payment received and included in the BlockDAG
-            </div>
-          `;
+    let seenReported = false;
+    this.waitForPayment(invoice, {
+      level,
+      timeoutMs: timeoutSeconds * 1000,
+      signal: abort.signal,
+      onProgress: (status) => {
+        const statusEl = part('status');
+        if (status.seen_atoms >= invoice.amountAtoms && !seenReported) {
+          seenReported = true;
+          onSeen?.(status);
         }
-
+        if (!statusEl || !seenReported) return;
+        statusEl.style.color = '#e3b341';
+        statusEl.innerText = status.network_alert
+          ? 'Payment seen. The network is unsettled, so confirmation is taking longer.'
+          : status.included_atoms >= invoice.amountAtoms
+            ? 'Payment is in a block. Waiting for it to be buried deeper.'
+            : 'Payment seen. Waiting for it to enter a block.';
+      },
+    }).then(
+      (status) => {
+        const statusEl = part('status');
+        if (statusEl) {
+          statusEl.style.color = '#39d353';
+          statusEl.innerText = level === 'seen' ? 'Payment seen.' : level === 'final' ? 'Payment is final.' : 'Payment received.';
+        }
         setTimeout(() => {
-          cleanup();
-          if (onSuccess) {
-            onSuccess({
-              atoms: data.change_atoms,
-              imn: data.change_atoms / 100_000_000,
-            });
-          }
-        }, 1500);
+          close();
+          const atoms = atomsAt(status, level);
+          onSuccess?.({
+            invoiceId: invoice.invoiceId,
+            txIds: status.payments.map((p) => p.tx_id),
+            atoms,
+            imn: atoms / ATOMS_PER_IMN,
+            level,
+          });
+        }, 1200);
+      },
+      (error: Error) => {
+        if (closed) return;
+        close();
+        if (/Timed out/.test(error.message)) onExpire?.();
       }
-    });
-  }
-}
+    );
 
-// Global browser window export for simple CDN drop-in <script src="imoney.js">
-if (typeof window !== 'undefined') {
-  (window as any).IMoneyClient = IMoneyClient;
+    return { invoice, close };
+  }
 }

@@ -75,6 +75,11 @@ impl Mempool {
         self.entries.get(tx_id).map(|entry| &entry.tx)
     }
 
+    /// Every pending transaction, in no particular order.
+    pub fn transactions(&self) -> impl Iterator<Item = &Transaction> {
+        self.entries.values().map(|entry| &entry.tx)
+    }
+
     /// Admits a transaction that has already been checked against the UTXO set.
     /// When the pool is full, the lowest-paying transactions are evicted to make room.
     pub fn insert(&mut self, tx: Transaction, fee: u64) -> Result<Hash, MempoolError> {

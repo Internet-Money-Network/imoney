@@ -21,6 +21,11 @@ use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::{broadcast, RwLock};
 
+/// Confirmations after which this node reports a payment as final, unless configured otherwise.
+pub const DEFAULT_FINAL_CONFIRMATIONS: u64 = 60;
+/// How long after a reorganisation the node keeps warning that the network is unsettled.
+pub const NETWORK_ALERT_WINDOW_MS: u64 = 30 * 60 * 1000;
+
 /// A selected-chain switch that undoes at least this many blocks is recorded as a warning sign.
 pub const REORG_ALARM_DEPTH: usize = 3;
 
@@ -58,7 +63,7 @@ pub enum StateError {
 #[derive(Clone, Debug)]
 pub enum LedgerEvent {
     /// A transaction entered the mempool. Carries its outputs so listeners can match addresses.
-    PendingTx { tx_id: Hash, outputs: Vec<TxOutput> },
+    PendingTx { tx_id: Hash, outputs: Vec<TxOutput>, invoice_id: Option<String> },
     /// A block was added and the ledger moved to a new virtual state.
     BlockAdded { hash: Hash, blue_score: u64 },
 }
@@ -112,6 +117,11 @@ pub struct NodeInfo {
     /// Depth and time of the most recent selected-chain switch that undid several blocks.
     pub last_reorg_depth: Option<usize>,
     pub last_reorg_at_ms: Option<u64>,
+    /// True while the network looks unsettled (a finality conflict, or a recent reorganisation).
+    /// Payments are not reported as final while this is set.
+    pub network_alert: bool,
+    /// Confirmations after which this node reports a payment as final.
+    pub final_confirmations: u64,
     pub mining_address: Option<String>,
     /// Name this as a payment's service address to give this node half of the fee.
     pub service_address: Option<String>,
@@ -142,6 +152,15 @@ pub struct TxInfo {
     /// The block carrying the transaction, once it has been accepted.
     pub block_hash: Option<Hash>,
     /// 0 while pending; grows as blue blocks are added after acceptance.
+    pub confirmations: u64,
+}
+
+/// One payment towards an invoice, as the ledger currently sees it.
+pub struct InvoicePayment {
+    pub tx_id: Hash,
+    /// Atoms this transaction pays to the invoice's address.
+    pub amount_atoms: u64,
+    /// 0 while pending; 1 once accepted, then one more per blue block added on top.
     pub confirmations: u64,
 }
 
@@ -192,6 +211,20 @@ impl LedgerView {
         self.batch.record_deletes.insert(*tx_id);
     }
 
+    fn put_invoice(&mut self, accepted: &AcceptedTx) {
+        if let Some(invoice_id) = &accepted.invoice_id {
+            self.batch.invoice_puts.insert((invoice_id.clone(), accepted.tx_id));
+        }
+    }
+
+    fn delete_invoice(&mut self, accepted: &AcceptedTx) {
+        if let Some(invoice_id) = &accepted.invoice_id {
+            let entry = (invoice_id.clone(), accepted.tx_id);
+            self.batch.invoice_puts.remove(&entry);
+            self.batch.invoice_deletes.insert(entry);
+        }
+    }
+
     /// Reverses a previously applied acceptance.
     fn undo(&mut self, acceptance: &AcceptanceData) {
         for (outpoint, _) in &acceptance.created {
@@ -202,6 +235,7 @@ impl LedgerView {
         }
         for accepted in &acceptance.accepted {
             self.delete_record(&accepted.tx_id);
+            self.delete_invoice(accepted);
         }
     }
 
@@ -214,6 +248,7 @@ impl LedgerView {
             self.create(outpoint.clone(), entry.clone());
         }
         for accepted in &acceptance.accepted {
+            self.put_invoice(accepted);
             self.put_record(
                 accepted.tx_id,
                 TxRecord {
@@ -265,6 +300,8 @@ pub struct DagLedger {
     pub events: broadcast::Sender<LedgerEvent>,
     pub genesis_hash: Hash,
     pub finality_conflict: bool,
+    /// Confirmations after which this node reports a payment as final.
+    pub final_confirmations: u64,
     /// Depth and local time (ms) of the last selected-chain switch of `REORG_ALARM_DEPTH` or more.
     pub last_reorg: Option<(usize, u64)>,
     /// Every block ordered by `(level, hash)`: an order in which parents precede children,
@@ -307,6 +344,7 @@ impl DagLedger {
             events: broadcast::channel(1024).0,
             genesis_hash: create_testnet_genesis().hash(),
             finality_conflict: false,
+            final_confirmations: DEFAULT_FINAL_CONFIRMATIONS,
             last_reorg: None,
             level_index: BTreeSet::new(),
             virtual_acceptance: AcceptanceData::default(),
@@ -532,7 +570,14 @@ impl DagLedger {
                     tx_id,
                     TxRecord { block_hash, tx_index: index as u32, accepting_blue_score: blue_score },
                 );
-                acceptance.accepted.push(AcceptedTx { tx_id, block_hash, tx_index: index as u32 });
+                let accepted = AcceptedTx {
+                    tx_id,
+                    block_hash,
+                    tx_index: index as u32,
+                    invoice_id: tx.invoice_id().map(str::to_string),
+                };
+                view.put_invoice(&accepted);
+                acceptance.accepted.push(accepted);
             }
 
             if is_blue {
@@ -830,8 +875,9 @@ impl DagLedger {
 
         // The mempool applies relay policy: minimum fee, no conflicting spends, size cap
         let outputs = tx.outputs.clone();
+        let invoice_id = tx.invoice_id().map(str::to_string);
         self.mempool.insert(tx, fee)?;
-        let _ = self.events.send(LedgerEvent::PendingTx { tx_id, outputs });
+        let _ = self.events.send(LedgerEvent::PendingTx { tx_id, outputs, invoice_id });
         Ok(tx_id)
     }
 
@@ -922,6 +968,57 @@ impl DagLedger {
             .filter(|(_, entry)| !entry.is_coinbase || entry.blue_score + maturity <= self.virtual_blue_score)
             .map(|(outpoint, entry)| (outpoint, entry.output))
             .collect())
+    }
+
+    /// Queries the UTXOs of an address with a flag saying whether each can be spent right now.
+    pub fn get_utxos_with_status(&self, address: &Address) -> Result<Vec<(Outpoint, TxOutput, bool)>, StorageError> {
+        let maturity = self.params.coinbase_maturity;
+        Ok(self
+            .storage
+            .get_utxos(address)?
+            .into_iter()
+            .map(|(outpoint, entry)| {
+                let spendable = !entry.is_coinbase || entry.blue_score + maturity <= self.virtual_blue_score;
+                (outpoint, entry.output, spendable)
+            })
+            .collect())
+    }
+
+    /// True while the network looks unsettled: this node is refusing a heavier chain, or the
+    /// selected chain was reorganised several blocks deep within the last half hour.
+    pub fn network_alert(&self) -> bool {
+        let now_ms = chrono::Utc::now().timestamp_millis() as u64;
+        self.finality_conflict
+            || self.last_reorg.is_some_and(|(_, at)| now_ms.saturating_sub(at) < NETWORK_ALERT_WINDOW_MS)
+    }
+
+    /// Every payment that names `invoice_id`, pending or accepted, with how much each pays `address`.
+    pub fn invoice_payments(&self, invoice_id: &str, address: &Address) -> Result<Vec<InvoicePayment>, StorageError> {
+        let script = ScriptPublicKey::pay_to_address(address);
+        let paid_to_address = |tx: &Transaction| -> u64 {
+            tx.outputs
+                .iter()
+                .filter(|o| o.script_public_key == script)
+                .fold(0u64, |sum, o| sum.saturating_add(o.value_atoms))
+        };
+
+        let mut payments: Vec<InvoicePayment> = self
+            .mempool
+            .transactions()
+            .filter(|tx| tx.invoice_id() == Some(invoice_id))
+            .map(|tx| InvoicePayment { tx_id: tx.id(), amount_atoms: paid_to_address(tx), confirmations: 0 })
+            .collect();
+        for tx_id in self.storage.get_invoice_tx_ids(invoice_id)? {
+            if let Some(info) = self.get_transaction(&tx_id)? {
+                payments.push(InvoicePayment {
+                    tx_id,
+                    amount_atoms: paid_to_address(&info.tx),
+                    confirmations: info.confirmations,
+                });
+            }
+        }
+        payments.retain(|payment| payment.amount_atoms > 0);
+        Ok(payments)
     }
 
     /// Queries a transaction by ID, checking the pending mempool first, then accepted transactions.
@@ -1031,6 +1128,8 @@ impl DagLedger {
             finality_conflict: self.finality_conflict,
             last_reorg_depth: self.last_reorg.map(|(depth, _)| depth),
             last_reorg_at_ms: self.last_reorg.map(|(_, at)| at),
+            network_alert: self.network_alert(),
+            final_confirmations: self.final_confirmations,
             mining_address: self.mining_address.as_ref().map(|a| a.to_string()),
             service_address: self.service_address.as_ref().map(|a| a.to_string()),
             mempool_size: self.mempool.len(),

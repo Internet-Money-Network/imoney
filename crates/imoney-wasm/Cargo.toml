@@ -1,0 +1,23 @@
+[package]
+name = "imoney-wasm"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "WebAssembly build of Internet Money key handling and transaction signing, for wallets that sign in the browser"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+imoney-core = { path = "../imoney-core" }
+wasm-bindgen = "0.2"
+serde.workspace = true
+serde_json.workspace = true
+hex.workspace = true
+blake3.workspace = true
+rand.workspace = true
+ed25519-dalek.workspace = true
+bip39 = "2"
+# Randomness in the browser comes from the Web Crypto API
+getrandom = { version = "0.2", features = ["js"] }
