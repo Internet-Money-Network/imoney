@@ -1,11 +1,15 @@
 @echo off
 setlocal
-title Internet Money (IMN) Testnet Node
+title Internet Money (IMN) All-in-One Node & GUI Wallet
 cd /d "%~dp0"
 echo ============================================================
-echo   Internet Money (IMN) Testnet-1 Node
+echo   Internet Money (IMN) Testnet-1 All-in-One Node & Wallet
 echo   Consensus: GHOSTDAG @ 5s Block Interval (0.2 BPS)
-echo   Web Dashboard & RPC: http://127.0.0.1:18556
+echo   Proof of Work: Money Printer (GPU/CPU Memory-Hard)
+echo   GUI Wallet & Dashboard: http://127.0.0.1:18556/wallet
 echo ============================================================
+
+start http://127.0.0.1:18556/wallet
+
 "%~dp0target\release\imoney-node.exe" --rpc-bind 127.0.0.1:18556 --auto-mine
 pause

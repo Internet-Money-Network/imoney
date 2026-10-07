@@ -212,6 +212,31 @@
       <span class="badge">TESTNET-1</span>
     </header>
 
+    <!-- Live Node Daemon & BlockDAG Status Card (Kaspad Style) -->
+    <div class="card" style="background: #11161d; border-color: #21262d; padding: 16px 20px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span id="node-status-dot" style="width: 10px; height: 10px; border-radius: 50%; background: #39d353; display: inline-block; box-shadow: 0 0 8px #39d353;"></span>
+          <span style="font-size: 13px; font-weight: bold; color: var(--text-bright);" id="node-status-text">Node Daemon Online</span>
+        </div>
+        <div style="font-size: 12px; color: #8b949e;">GHOSTDAG • 0.2 BPS (5s Blocks)</div>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; text-align: center; border-top: 1px solid #21262d; padding-top: 12px;">
+        <div>
+          <div style="font-size: 11px; color: #8b949e; text-transform: uppercase;">DAG Blue Score</div>
+          <div style="font-size: 17px; font-weight: bold; color: var(--accent-blue);" id="node-blue-score">--</div>
+        </div>
+        <div>
+          <div style="font-size: 11px; color: #8b949e; text-transform: uppercase;">Total DAG Blocks</div>
+          <div style="font-size: 17px; font-weight: bold; color: var(--text-bright);" id="node-total-blocks">--</div>
+        </div>
+        <div>
+          <div style="font-size: 11px; color: #8b949e; text-transform: uppercase;">Connected Peers</div>
+          <div style="font-size: 17px; font-weight: bold; color: var(--accent-green);" id="node-peers">--</div>
+        </div>
+      </div>
+    </div>
+
     <!-- Main Balance Card -->
     <div class="card">
       <div class="balance-box">
@@ -292,19 +317,25 @@
     </div>
   </div>
 
-  <!-- Include official @imoney/sdk bundled client -->
-  <script src="../../packages/imoney-sdk/dist/index.js"></script>
   <script>
     const DEFAULT_ADDR = 'imntest:qpm2qsznhks23z7629mms6s4cwef74vcwvy22gd6aedxrr66r20';
     const DEFAULT_KEY = '7777777777777777777777777777777777777777777777777777777777777777';
 
+    // Auto-detect endpoint if served directly by imoney-node
+    const defaultNodeUrl = (window.location.protocol.startsWith('http') && window.location.port) 
+      ? window.location.origin 
+      : 'http://127.0.0.1:18556';
+    document.getElementById('node-endpoint').value = defaultNodeUrl;
+
     let currentAddress = localStorage.getItem('imoney_addr') || DEFAULT_ADDR;
     let currentPrivKey = localStorage.getItem('imoney_priv') || DEFAULT_KEY;
+    let ws = null;
 
     function initKeys() {
       document.getElementById('current-address').innerText = currentAddress;
       document.getElementById('current-privkey').value = currentPrivKey;
       document.getElementById('qr-code-img').src = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(currentAddress)}`;
+      connectWs();
     }
 
     async function generateNewKeypair() {
@@ -319,7 +350,7 @@
           localStorage.setItem('imoney_priv', currentPrivKey);
           initKeys();
           refreshBalance();
-          alert('New keypair generated! Address: ' + currentAddress);
+          alert('New keypair generated!\nAddress: ' + currentAddress);
         } else {
           alert('Failed to generate keypair from node.');
         }
@@ -337,14 +368,64 @@
 
     async function refreshBalance() {
       const nodeUrl = document.getElementById('node-endpoint').value.trim();
-      const client = new IMoneyClient({ nodeUrl });
-
       try {
-        const bal = await client.getBalance(currentAddress);
-        document.getElementById('wallet-balance').innerText = bal.balance_im.toFixed(4) + ' IMN';
-        document.getElementById('wallet-atoms').innerText = bal.balance_atoms + ' atoms • Zero Network Fees';
+        const res = await fetch(`${nodeUrl}/api/v1/address/${encodeURIComponent(currentAddress)}/balance`);
+        if (res.ok) {
+          const bal = await res.json();
+          document.getElementById('wallet-balance').innerText = bal.balance_im.toFixed(4) + ' IMN';
+          document.getElementById('wallet-atoms').innerText = bal.balance_atoms.toLocaleString() + ' atoms • Zero Network Fees';
+        }
       } catch (e) {
         console.warn('Balance query error:', e);
+      }
+    }
+
+    async function refreshNodeStats() {
+      const nodeUrl = document.getElementById('node-endpoint').value.trim();
+      try {
+        const infoRes = await fetch(`${nodeUrl}/api/v1/info`);
+        if (infoRes.ok) {
+          const info = await infoRes.json();
+          document.getElementById('node-status-dot').style.background = '#39d353';
+          document.getElementById('node-status-dot').style.boxShadow = '0 0 8px #39d353';
+          document.getElementById('node-status-text').innerText = 'Node Daemon Online';
+          document.getElementById('node-blue-score').innerText = info.virtual_blue_score.toLocaleString();
+          document.getElementById('node-total-blocks').innerText = info.total_blocks.toLocaleString();
+        }
+
+        const peersRes = await fetch(`${nodeUrl}/api/v1/peers`);
+        if (peersRes.ok) {
+          const peers = await peersRes.json();
+          document.getElementById('node-peers').innerText = peers.total_connected;
+        }
+      } catch (e) {
+        document.getElementById('node-status-dot').style.background = '#f85149';
+        document.getElementById('node-status-dot').style.boxShadow = 'none';
+        document.getElementById('node-status-text').innerText = 'Daemon Disconnected';
+      }
+    }
+
+    function connectWs() {
+      if (ws) {
+        ws.close();
+      }
+      try {
+        const nodeUrl = document.getElementById('node-endpoint').value.trim();
+        const wsUrl = nodeUrl.replace(/^http/, 'ws') + `/api/v1/ws/address/${encodeURIComponent(currentAddress)}`;
+        ws = new WebSocket(wsUrl);
+        ws.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.type === 'payment_received') {
+              document.getElementById('wallet-balance').innerText = data.balance_im.toFixed(4) + ' IMN';
+              document.getElementById('wallet-atoms').innerText = data.balance_atoms.toLocaleString() + ' atoms • Zero Network Fees';
+              const receivedCoins = (data.change_atoms / 100000000).toFixed(4);
+              alert(`⚡ Instant Payment Received! +${receivedCoins} IMN`);
+            }
+          } catch (e) {}
+        };
+      } catch (e) {
+        console.warn('WebSocket connection error:', e);
       }
     }
 
@@ -394,7 +475,7 @@
           statusEl.innerText = `✓ Transaction Sent! TxID: ${data.tx_id.slice(0, 16)}... Confirmed on BlockDAG in ~5s`;
           document.getElementById('send-recipient').value = '';
           document.getElementById('send-amount').value = '';
-          setTimeout(refreshBalance, 2000);
+          setTimeout(refreshBalance, 1500);
         } else {
           statusEl.style.background = '#3e1b1e';
           statusEl.style.color = '#f85149';
@@ -407,16 +488,11 @@
       }
     });
 
-    // Live WebSocket Subscription
-    const client = new IMoneyClient({ nodeUrl: 'http://127.0.0.1:18556' });
-    client.subscribeAddressPayments(currentAddress, (data) => {
-      document.getElementById('wallet-balance').innerText = data.balance_im.toFixed(4) + ' IMN';
-      document.getElementById('wallet-atoms').innerText = data.balance_atoms + ' atoms • Zero Network Fees';
-      alert(`⚡ Instant Payment Received! +${(data.change_atoms / 100000000).toFixed(4)} IMN`);
-    });
-
     initKeys();
     refreshBalance();
+    refreshNodeStats();
+    setInterval(refreshNodeStats, 3000);
+    setInterval(refreshBalance, 6000);
   </script>
 </body>
 </html>
