@@ -44,6 +44,12 @@ struct Args {
     #[arg(long)]
     service_address: Option<String>,
 
+    /// Delete the transactions of blocks buried deeper than three times the finality depth
+    /// (36 hours). The node keeps headers and the current ledger, uses far less disk, and can
+    /// no longer serve old history to nodes that are syncing.
+    #[arg(long, default_value_t = false)]
+    prune: bool,
+
     /// Confirmations after which a payment is reported as final (default 60, about 5 minutes)
     #[arg(long)]
     final_confirmations: Option<u64>,
@@ -119,6 +125,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("[*] Opening persistent database at {:?}...", db_path);
     let mut ledger_instance = DagLedger::open(&db_path, mining_address)?;
+    if args.prune {
+        let depth = 3 * ledger_instance.params.finality_depth;
+        let pruned = ledger_instance.enable_pruning(depth)?;
+        println!("[*] Pruning enabled: block contents deeper than {} blue score are deleted ({} blocks pruned now).", depth, pruned);
+    }
     if let Some(confirmations) = args.final_confirmations {
         ledger_instance.final_confirmations = confirmations;
     }
@@ -216,12 +227,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+    let shutdown_peers = p2p_manager.clone();
     let app = create_router(ledger, pow, p2p_manager, args.rpc_token);
     let addr: SocketAddr = args.rpc_bind.parse()?;
     let listener = tokio::net::TcpListener::bind(addr).await?;
     println!("[+] HTTP RPC & Web Dashboard listening on http://{}", addr);
 
-    axum::serve(listener, app).await?;
+    // On Ctrl-C: stop taking requests and save what has been learned about peers. The ledger
+    // needs no special handling: every block is written in one atomic database transaction.
+    axum::serve(listener, app)
+        .with_graceful_shutdown(async {
+            let _ = tokio::signal::ctrl_c().await;
+            println!("[*] Shutting down...");
+        })
+        .await?;
+    shutdown_peers.save_peers();
     Ok(())
 }
 

@@ -112,6 +112,7 @@ fn every_message_round_trips() {
             node_id: 77,
             listen_port: 18555,
             user_agent: "/imoney:0.1.0/".to_string(),
+            archival: true,
         },
         Message::GetTips,
         Message::Tips(vec![Hash([1u8; 32]), Hash([2u8; 32])]),
@@ -280,6 +281,7 @@ async fn peer_sending_invalid_blocks_is_banned() {
         node_id: 12345,
         listen_port: 0,
         user_agent: "/test/".to_string(),
+        archival: true,
     };
     write_frame(&mut stream, MAGIC, &version).await.unwrap();
     eventually!("handshake completes", a.peer_count().await == 1);

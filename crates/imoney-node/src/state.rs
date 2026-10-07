@@ -1,8 +1,8 @@
 use crate::genesis::create_testnet_genesis;
 use crate::mempool::{Mempool, MempoolError};
 use crate::storage::{
-    AcceptanceData, AcceptedTx, BlockMeta, Storage, StorageError, TxRecord, UtxoEntry, WriteBatch, META_SINK,
-    META_VIRTUAL_ACCEPTANCE,
+    AcceptanceData, AcceptedTx, BlockMeta, Storage, StorageError, TxRecord, UtxoEntry, WriteBatch, META_PRUNED_FLOOR,
+    META_SINK, META_VIRTUAL_ACCEPTANCE,
 };
 use imoney_consensus::{work_from_bits, DaaParams, Dag, DagBlock, GhostdagData, GhostdagError, GhostdagParams};
 use imoney_core::constants::{ATOMS_PER_IMN, MAX_BLOCK_BYTES, MAX_BLOCK_PARENTS, MAX_TX_BYTES, TARGET_TIME_PER_BLOCK_MS};
@@ -20,6 +20,9 @@ use std::path::Path;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::{broadcast, RwLock};
+
+/// Selected-chain blocks pruned per database transaction.
+const PRUNE_CHUNK: usize = 500;
 
 /// Confirmations after which this node reports a payment as final, unless configured otherwise.
 pub const DEFAULT_FINAL_CONFIRMATIONS: u64 = 60;
@@ -111,6 +114,10 @@ pub struct NodeInfo {
     pub target_block_interval_sec: u64,
     /// Blocks below this depth can no longer be reorganised away.
     pub finality_depth: u64,
+    /// True when this node keeps every block and can serve the full history to others.
+    pub archival: bool,
+    /// Selected-chain blocks at or below this blue score have had their transactions deleted.
+    pub pruned_below_blue_score: u64,
     /// True when a heavier chain exists that this node refuses because it forks below the
     /// finality point. The network may be split; operators should investigate.
     pub finality_conflict: bool,
@@ -299,6 +306,11 @@ pub struct DagLedger {
     /// Ledger change notifications. Sending never blocks; slow subscribers skip events.
     pub events: broadcast::Sender<LedgerEvent>,
     pub genesis_hash: Hash,
+    /// When set, block bodies deeper than this blue-score depth are deleted. Headers and the
+    /// current ledger are kept, so the node still validates everything new.
+    pub prune_depth: Option<u64>,
+    /// Selected-chain blocks at or below this blue score have been pruned.
+    pub pruned_floor: u64,
     pub finality_conflict: bool,
     /// Confirmations after which this node reports a payment as final.
     pub final_confirmations: u64,
@@ -343,6 +355,8 @@ impl DagLedger {
             mempool: Mempool::default(),
             events: broadcast::channel(1024).0,
             genesis_hash: create_testnet_genesis().hash(),
+            prune_depth: None,
+            pruned_floor: 0,
             finality_conflict: false,
             final_confirmations: DEFAULT_FINAL_CONFIRMATIONS,
             last_reorg: None,
@@ -396,6 +410,9 @@ impl DagLedger {
 
             let sink_bytes = ledger.storage.get_metadata(META_SINK)?.expect("Metadata must exist if blocks exist");
             ledger.virtual_selected_parent = <Hash as Decode>::from_bytes(&sink_bytes).map_err(StorageError::from)?;
+            if let Some(bytes) = ledger.storage.get_metadata(META_PRUNED_FLOOR)? {
+                ledger.pruned_floor = bytes.try_into().map(u64::from_be_bytes).unwrap_or(0);
+            }
             if let Some(bytes) = ledger.storage.get_metadata(META_VIRTUAL_ACCEPTANCE)? {
                 ledger.virtual_acceptance = AcceptanceData::from_bytes(&bytes).map_err(StorageError::from)?;
             }
@@ -860,9 +877,88 @@ impl DagLedger {
 
         let _ = self.events.send(LedgerEvent::BlockAdded { hash: block_hash, blue_score: self.virtual_blue_score });
 
+        // The block is committed; a pruning failure must not turn that into an error
+        if let Err(e) = self.prune() {
+            eprintln!("[-] Pruning failed: {}", e);
+        }
+
         Ok(block_hash)
     }
 
+
+    /// Turns on pruning and prunes whatever is already deep enough. The depth must exceed the
+    /// finality depth, so nothing that a reorganisation could still need is ever deleted.
+    pub fn enable_pruning(&mut self, depth: u64) -> Result<usize, StateError> {
+        if depth <= self.params.finality_depth {
+            return Err(StateError::Header(format!(
+                "Prune depth {} must be greater than the finality depth {}",
+                depth, self.params.finality_depth
+            )));
+        }
+        self.prune_depth = Some(depth);
+        self.prune()
+    }
+
+    /// Deletes the transactions of blocks buried deeper than the prune depth, along with the
+    /// stored ledger changes and transaction lookups that go with them. Returns the number of
+    /// selected-chain blocks processed.
+    ///
+    /// Only blocks merged by a selected-chain block below the finality point are touched. Every
+    /// chain the node could still switch to passes through that point, so those blocks are in
+    /// its past and their contents are never needed again. Headers are kept.
+    pub fn prune(&mut self) -> Result<usize, StateError> {
+        let Some(depth) = self.prune_depth else {
+            return Ok(0);
+        };
+        let sink = self.virtual_selected_parent;
+        let target = self.dag.get(&sink).ghostdag.blue_score.saturating_sub(depth);
+        if target <= self.pruned_floor {
+            return Ok(0);
+        }
+
+        // Selected-chain blocks with floor < blue score <= target, highest first
+        let mut chain = Vec::new();
+        let mut cursor = self.chain_ancestor_at_or_below(sink, target);
+        loop {
+            let data = &self.dag.get(&cursor).ghostdag;
+            if data.blue_score <= self.pruned_floor || data.is_genesis() {
+                break;
+            }
+            chain.push(cursor);
+            cursor = data.selected_parent;
+        }
+
+        // Lowest first, so the floor only ever rises past blocks that are fully pruned
+        for chunk in chain.rchunks(PRUNE_CHUNK) {
+            let mut batch = WriteBatch::default();
+            let mut floor = self.pruned_floor;
+            for hash in chunk {
+                let data = &self.dag.get(hash).ghostdag;
+                floor = floor.max(data.blue_score);
+                for merged in data.mergeset_blues.iter().chain(&data.mergeset_reds) {
+                    // Genesis keeps its body: it is how a network is identified
+                    let Some(header) = self.blocks.get(merged).filter(|h| !h.parents.is_empty()) else {
+                        continue;
+                    };
+                    let stub = Block { header: header.clone(), transactions: Vec::new() };
+                    batch.blocks.push((*merged, stub.to_bytes()));
+                }
+                if let Some(acceptance) = self.storage.get_acceptance(hash)? {
+                    for accepted in &acceptance.accepted {
+                        batch.record_deletes.insert(accepted.tx_id);
+                        if let Some(invoice_id) = &accepted.invoice_id {
+                            batch.invoice_deletes.insert((invoice_id.clone(), accepted.tx_id));
+                        }
+                    }
+                    batch.acceptance_deletes.push(*hash);
+                }
+            }
+            batch.metadata.push((META_PRUNED_FLOOR, floor.to_be_bytes().to_vec()));
+            self.storage.commit(&batch)?;
+            self.pruned_floor = floor;
+        }
+        Ok(chain.len())
+    }
 
     /// Validates and admits a signed transaction into the mempool.
     pub fn broadcast_transaction(&mut self, tx: Transaction) -> Result<Hash, StateError> {
@@ -1125,6 +1221,8 @@ impl DagLedger {
             current_block_reward_imn: block_subsidy_imn(self.virtual_daa_score),
             target_block_interval_sec: TARGET_TIME_PER_BLOCK_MS / 1000,
             finality_depth: self.params.finality_depth,
+            archival: self.prune_depth.is_none(),
+            pruned_below_blue_score: self.pruned_floor,
             finality_conflict: self.finality_conflict,
             last_reorg_depth: self.last_reorg.map(|(depth, _)| depth),
             last_reorg_at_ms: self.last_reorg.map(|(_, at)| at),

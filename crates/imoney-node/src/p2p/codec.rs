@@ -7,7 +7,7 @@ use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 /// Bumped whenever the wire format changes incompatibly.
-pub const PROTOCOL_VERSION: u32 = 2;
+pub const PROTOCOL_VERSION: u32 = 3;
 
 /// Largest frame payload accepted from a peer.
 pub const MAX_FRAME_BYTES: usize = 4 * 1024 * 1024;
@@ -30,6 +30,8 @@ pub enum Message {
         node_id: u64,
         listen_port: u16,
         user_agent: String,
+        /// True when the sender keeps every block and can serve the full history.
+        archival: bool,
     },
     /// Request current tips from peer
     GetTips,
@@ -85,7 +87,7 @@ fn read_cursor(reader: &mut Reader<'_>) -> Result<Option<SyncCursor>, DecodeErro
 impl Encode for Message {
     fn encode(&self, out: &mut Vec<u8>) {
         match self {
-            Message::Version { protocol, network, genesis, node_id, listen_port, user_agent } => {
+            Message::Version { protocol, network, genesis, node_id, listen_port, user_agent, archival } => {
                 out.push(0);
                 out.extend_from_slice(&protocol.to_be_bytes());
                 out.push(*network);
@@ -93,6 +95,7 @@ impl Encode for Message {
                 out.extend_from_slice(&node_id.to_be_bytes());
                 out.extend_from_slice(&listen_port.to_be_bytes());
                 put_bytes(out, user_agent.as_bytes());
+                out.push(*archival as u8);
             }
             Message::GetTips => out.push(1),
             Message::Tips(hashes) => {
@@ -169,6 +172,11 @@ impl Decode for Message {
                 node_id: reader.u64()?,
                 listen_port: reader.u16()?,
                 user_agent: String::from_utf8(reader.bytes(256)?).map_err(|_| DecodeError::Invalid("user agent"))?,
+                archival: match reader.u8()? {
+                    0 => false,
+                    1 => true,
+                    _ => return Err(DecodeError::Invalid("archival flag")),
+                },
             },
             1 => Message::GetTips,
             2 => Message::Tips(reader.list(MAX_LIST_ITEMS)?),

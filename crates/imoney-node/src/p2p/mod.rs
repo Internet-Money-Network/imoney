@@ -325,9 +325,9 @@ impl PeerManager {
         });
 
         // Send Initial Handshake
-        let (network, genesis) = {
+        let (network, genesis, archival) = {
             let ledger = self.ledger.read().await;
-            (ledger.network.id(), ledger.genesis_hash)
+            (ledger.network.id(), ledger.genesis_hash, ledger.prune_depth.is_none())
         };
         let _ = sender.try_send(Message::Version {
             protocol: PROTOCOL_VERSION,
@@ -336,6 +336,7 @@ impl PeerManager {
             node_id: self.node_id,
             listen_port: self.listen_port.load(Ordering::SeqCst),
             user_agent: "/imoney:0.1.0/".to_string(),
+            archival,
         });
 
         let mut frames = FrameReader::default();
@@ -400,7 +401,7 @@ impl PeerManager {
 
     /// Checks the peer's first message. Returns false when the connection must be dropped.
     async fn on_version(&self, peer_addr: SocketAddr, is_outbound: bool, sender: &mpsc::Sender<Message>, message: Message) -> bool {
-        let Message::Version { protocol, network, genesis, node_id, listen_port, .. } = message else {
+        let Message::Version { protocol, network, genesis, node_id, listen_port, archival, .. } = message else {
             return false;
         };
         let (our_network, our_genesis, locator) = {
@@ -443,7 +444,12 @@ impl PeerManager {
 
         // Learn about other nodes, and fetch whatever this peer has that we lack
         let _ = sender.try_send(Message::GetAddr);
-        let _ = sender.try_send(Message::GetBlocksAfter { locator, cursor: None });
+        if archival {
+            let _ = sender.try_send(Message::GetBlocksAfter { locator, cursor: None });
+        } else {
+            // A pruned peer cannot serve history; it can still tell us the current tips
+            let _ = sender.try_send(Message::GetTips);
+        }
         true
     }
 

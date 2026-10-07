@@ -62,6 +62,8 @@ fn invoice_index_key(invoice_id: &str, tx_id: &Hash) -> Vec<u8> {
 
 /// Metadata key: hash of the tip the selected chain ends in.
 pub const META_SINK: &str = "sink";
+/// Metadata key: selected-chain blocks at or below this blue score have been pruned.
+pub const META_PRUNED_FLOOR: &str = "pruned_floor";
 /// Metadata key: the acceptance data of the virtual block.
 pub const META_VIRTUAL_ACCEPTANCE: &str = "virtual_acceptance";
 
@@ -236,6 +238,7 @@ pub struct WriteBatch {
     pub blocks: Vec<(Hash, Vec<u8>)>,
     pub block_meta: Vec<(Hash, Vec<u8>)>,
     pub acceptance: Vec<(Hash, Vec<u8>)>,
+    pub acceptance_deletes: Vec<Hash>,
     pub metadata: Vec<(&'static str, Vec<u8>)>,
     pub utxo_puts: HashMap<Outpoint, UtxoEntry>,
     pub utxo_deletes: HashSet<Outpoint>,
@@ -290,6 +293,9 @@ impl Storage {
             let mut acceptance_table = write_tx.open_table(ACCEPTANCE_TABLE)?;
             for (hash, bytes) in &batch.acceptance {
                 acceptance_table.insert(&hash.0, bytes.as_slice())?;
+            }
+            for hash in &batch.acceptance_deletes {
+                acceptance_table.remove(&hash.0)?;
             }
 
             let mut metadata_table = write_tx.open_table(METADATA_TABLE)?;
@@ -353,12 +359,16 @@ impl Storage {
         Ok(loaded)
     }
 
-    /// Returns a full block (header and transactions) by its hash.
+    /// Returns a full block (header and transactions) by its hash. A block whose transactions
+    /// have been pruned is reported as absent: every real block has at least a coinbase.
     pub fn get_block(&self, hash: &Hash) -> Result<Option<Block>, StorageError> {
         let read_tx = self.db.begin_read()?;
         let blocks_table = read_tx.open_table(BLOCKS_TABLE)?;
         match blocks_table.get(&hash.0)? {
-            Some(val) => Ok(Some(Block::from_bytes(val.value())?)),
+            Some(val) => {
+                let block = Block::from_bytes(val.value())?;
+                Ok((!block.transactions.is_empty()).then_some(block))
+            }
             None => Ok(None),
         }
     }

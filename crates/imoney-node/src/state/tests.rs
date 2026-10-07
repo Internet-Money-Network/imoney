@@ -711,3 +711,77 @@ fn invoice_payment_is_tracked_from_seen_to_buried_and_undone_by_a_reorg() {
     assert!(ledger.invoice_payments("INV-1042", &shop).unwrap().is_empty());
     assert!(ledger.network_alert(), "a 3-block reorganisation raises the alert");
 }
+
+#[test]
+fn pruning_deletes_old_block_contents_but_not_the_ledger() {
+    let payer = key(150);
+    let shop = address_of(&key(151));
+    let miner = address_of(&key(200));
+    let path = fresh_db("prune");
+    let pow = test_pow();
+    let mut params = test_params();
+    params.finality_depth = 5;
+
+    let (old_block, old_payment, supply, balances) = {
+        let mut ledger = DagLedger::open_with_params(&path, None, params.clone()).unwrap();
+        ledger.mempool = test_mempool();
+        mine_tip(&mut ledger, &pow, &address_of(&payer));
+        for _ in 0..=MATURITY {
+            mine_tip(&mut ledger, &pow, &miner);
+        }
+        // An early invoice payment, then a long stretch of blocks on top
+        let utxos = ledger.get_spendable_utxos(&address_of(&payer)).unwrap();
+        let payment =
+            Transaction::build_invoice_payment(&payer, Network::Testnet, &shop, 30_000, 1_000, utxos, None, Some("OLD-1")).unwrap();
+        let payment_id = ledger.broadcast_transaction(payment).unwrap();
+        let carrying = mine_tip(&mut ledger, &pow, &miner);
+        for _ in 0..40 {
+            mine_tip(&mut ledger, &pow, &miner);
+        }
+        assert!(ledger.storage.get_block(&carrying).unwrap().is_some());
+        assert_eq!(ledger.invoice_payments("OLD-1", &shop).unwrap().len(), 1);
+
+        // A depth inside the finality window is refused
+        assert!(ledger.enable_pruning(5).is_err());
+        let pruned = ledger.enable_pruning(10).unwrap();
+        assert!(pruned > 20, "{}", pruned);
+        assert!(!ledger.get_info().archival);
+        assert_eq!(ledger.pruned_floor, ledger.virtual_blue_score - 1 - 10);
+
+        // Old contents and lookups are gone; the header and every balance remain
+        assert!(ledger.storage.get_block(&carrying).unwrap().is_none());
+        assert!(ledger.blocks.contains_key(&carrying));
+        assert!(ledger.get_transaction(&payment_id).unwrap().is_none());
+        assert!(ledger.invoice_payments("OLD-1", &shop).unwrap().is_empty());
+        assert_eq!(balance(&ledger, &shop), 30_000);
+        assert_eq!(ledger.storage.total_utxo_atoms().unwrap(), expected_supply(&ledger));
+        // Recent blocks are untouched
+        let tip = ledger.virtual_selected_parent;
+        assert!(ledger.storage.get_block(&tip).unwrap().is_some());
+
+        // The node keeps working, pruning as it goes
+        let floor = ledger.pruned_floor;
+        for _ in 0..5 {
+            mine_tip(&mut ledger, &pow, &miner);
+        }
+        assert_eq!(ledger.pruned_floor, floor + 5);
+        let recent = pay(&ledger, &payer, &shop, 5_000, 1_000);
+        ledger.broadcast_transaction(recent).unwrap();
+        mine_tip(&mut ledger, &pow, &miner);
+        assert_eq!(balance(&ledger, &shop), 35_000);
+
+        let balances = (balance(&ledger, &shop), balance(&ledger, &address_of(&payer)), balance(&ledger, &miner));
+        (carrying, payment_id, ledger.storage.total_utxo_atoms().unwrap(), balances)
+    };
+
+    // A pruned database reopens and carries on
+    let mut reopened = DagLedger::open_with_params(&path, None, params).unwrap();
+    assert!(reopened.pruned_floor > 0);
+    assert!(reopened.storage.get_block(&old_block).unwrap().is_none());
+    assert!(reopened.get_transaction(&old_payment).unwrap().is_none());
+    assert_eq!(reopened.storage.total_utxo_atoms().unwrap(), supply);
+    assert_eq!((balance(&reopened, &shop), balance(&reopened, &address_of(&payer)), balance(&reopened, &miner)), balances);
+    reopened.enable_pruning(10).unwrap();
+    mine_tip(&mut reopened, &pow, &miner);
+    assert_eq!(reopened.storage.total_utxo_atoms().unwrap(), expected_supply(&reopened));
+}
