@@ -26,12 +26,30 @@ pub enum StorageError {
 }
 
 // Table names carry a schema version: records are in the canonical binary encoding.
-const BLOCKS_TABLE: TableDefinition<&[u8; 32], &[u8]> = TableDefinition::new("v2/blocks");
-const BLOCK_META_TABLE: TableDefinition<&[u8; 32], &[u8]> = TableDefinition::new("v2/block_meta");
-const ACCEPTANCE_TABLE: TableDefinition<&[u8; 32], &[u8]> = TableDefinition::new("v2/acceptance");
-const METADATA_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("v2/metadata");
-const UTXO_TABLE: TableDefinition<&[u8], &[u8]> = TableDefinition::new("v2/utxos");
-const TRANSACTIONS_TABLE: TableDefinition<&[u8; 32], &[u8]> = TableDefinition::new("v2/transactions");
+const BLOCKS_TABLE: TableDefinition<&[u8; 32], &[u8]> = TableDefinition::new("v3/blocks");
+const BLOCK_META_TABLE: TableDefinition<&[u8; 32], &[u8]> = TableDefinition::new("v3/block_meta");
+const ACCEPTANCE_TABLE: TableDefinition<&[u8; 32], &[u8]> = TableDefinition::new("v3/acceptance");
+const METADATA_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("v3/metadata");
+const UTXO_TABLE: TableDefinition<&[u8], &[u8]> = TableDefinition::new("v3/utxos");
+const TRANSACTIONS_TABLE: TableDefinition<&[u8; 32], &[u8]> = TableDefinition::new("v3/transactions");
+/// Index of unspent outputs by locking script: key is `script key ++ outpoint`, with no value.
+const SCRIPT_UTXO_TABLE: TableDefinition<&[u8], ()> = TableDefinition::new("v3/script_utxos");
+
+/// Index key prefix shared by every output locked to `script`.
+/// The script length is part of the prefix so one script can never be a prefix of another.
+fn script_index_prefix(script: &ScriptPublicKey) -> Vec<u8> {
+    let mut key = Vec::with_capacity(3 + script.script.len() + 36);
+    key.push(script.version);
+    key.extend_from_slice(&(script.script.len() as u16).to_be_bytes());
+    key.extend_from_slice(&script.script);
+    key
+}
+
+fn script_index_key(script: &ScriptPublicKey, outpoint: &Outpoint) -> Vec<u8> {
+    let mut key = script_index_prefix(script);
+    outpoint.encode(&mut key);
+    key
+}
 
 /// Metadata key: hash of the tip the selected chain ends in.
 pub const META_SINK: &str = "sink";
@@ -228,6 +246,7 @@ impl Storage {
             let _ = write_tx.open_table(METADATA_TABLE)?;
             let _ = write_tx.open_table(UTXO_TABLE)?;
             let _ = write_tx.open_table(TRANSACTIONS_TABLE)?;
+            let _ = write_tx.open_table(SCRIPT_UTXO_TABLE)?;
         }
         write_tx.commit()?;
 
@@ -259,11 +278,19 @@ impl Storage {
             }
 
             let mut utxo_table = write_tx.open_table(UTXO_TABLE)?;
+            let mut script_table = write_tx.open_table(SCRIPT_UTXO_TABLE)?;
             for outpoint in &batch.utxo_deletes {
-                utxo_table.remove(outpoint.to_bytes().as_slice())?;
+                let removed = match utxo_table.remove(outpoint.to_bytes().as_slice())? {
+                    Some(old) => Some(UtxoEntry::from_bytes(old.value())?),
+                    None => None,
+                };
+                if let Some(entry) = removed {
+                    script_table.remove(script_index_key(&entry.output.script_public_key, outpoint).as_slice())?;
+                }
             }
             for (outpoint, entry) in &batch.utxo_puts {
                 utxo_table.insert(outpoint.to_bytes().as_slice(), entry.to_bytes().as_slice())?;
+                script_table.insert(script_index_key(&entry.output.script_public_key, outpoint).as_slice(), ())?;
             }
 
             let mut tx_table = write_tx.open_table(TRANSACTIONS_TABLE)?;
@@ -342,18 +369,22 @@ impl Storage {
             .fold(0u64, |total, (_, entry)| total.saturating_add(entry.output.value_atoms)))
     }
 
-    /// Returns list of all UTXOs belonging to an address.
+    /// Returns list of all UTXOs belonging to an address, found through the script index.
     pub fn get_utxos(&self, address: &Address) -> Result<Vec<(Outpoint, UtxoEntry)>, StorageError> {
         let read_tx = self.db.begin_read()?;
+        let script_table = read_tx.open_table(SCRIPT_UTXO_TABLE)?;
         let utxo_table = read_tx.open_table(UTXO_TABLE)?;
-        let script = ScriptPublicKey::pay_to_address(address);
-        let mut results = Vec::new();
 
-        for entry in utxo_table.iter()? {
-            let (k, val) = entry?;
-            let utxo = UtxoEntry::from_bytes(val.value())?;
-            if utxo.output.script_public_key == script {
-                results.push((Outpoint::from_bytes(k.value())?, utxo));
+        let prefix = script_index_prefix(&ScriptPublicKey::pay_to_address(address));
+        let mut end = prefix.clone();
+        end.extend_from_slice(&[0xff; 36]);
+
+        let mut results = Vec::new();
+        for item in script_table.range::<&[u8]>(prefix.as_slice()..=end.as_slice())? {
+            let (key, _) = item?;
+            let outpoint_bytes = &key.value()[prefix.len()..];
+            if let Some(val) = utxo_table.get(outpoint_bytes)? {
+                results.push((Outpoint::from_bytes(outpoint_bytes)?, UtxoEntry::from_bytes(val.value())?));
             }
         }
 

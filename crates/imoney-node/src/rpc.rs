@@ -1,22 +1,26 @@
 use crate::p2p::PeerManager;
-use crate::state::{MiningTemplate, SharedLedger};
+use crate::state::{LedgerEvent, MiningTemplate, SharedLedger};
 use axum::extract::ws::{Message as WsMessage, WebSocket, WebSocketUpgrade};
-use axum::extract::{Path, Query, State};
+use axum::extract::{Path, Query, Request, State};
+use axum::middleware::{self, Next};
+use axum::response::Response;
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Json};
 use axum::routing::{get, post};
 use axum::Router;
-use imoney_core::{Address, Block, Hash, Transaction};
+use imoney_core::{Address, Block, Hash, ScriptPublicKey, Transaction};
 use imoney_pow::MoneyPrinterPow;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use std::time::Duration;
+use tokio::sync::broadcast::error::RecvError;
 use tower_http::cors::{Any, CorsLayer};
 
 pub struct AppState {
     pub ledger: SharedLedger,
     pub pow: Arc<MoneyPrinterPow>,
     pub p2p: Arc<PeerManager>,
+    /// When set, mining submission and wallet calls require `Authorization: Bearer <token>`.
+    pub rpc_token: Option<String>,
 }
 
 
@@ -103,37 +107,153 @@ pub struct TxStatusResponse {
     pub total_output_imn: f64,
 }
 
+#[derive(Deserialize)]
+pub struct BlocksQuery {
+    pub limit: Option<usize>,
+}
+
+/// A block as shown in listings: enough to draw the DAG.
+#[derive(Serialize)]
+pub struct BlockSummary {
+    pub hash: String,
+    pub parents: Vec<String>,
+    pub selected_parent: Option<String>,
+    pub timestamp_ms: u64,
+    pub bits: String,
+    pub daa_score: u64,
+    pub blue_score: u64,
+    pub is_tip: bool,
+}
+
+#[derive(Serialize)]
+pub struct BlockDetailResponse {
+    #[serde(flatten)]
+    pub summary: BlockSummary,
+    /// Blue and red blocks this block merges, in consensus order.
+    pub mergeset_blues: Vec<String>,
+    pub mergeset_reds: Vec<String>,
+    pub transaction_ids: Vec<String>,
+}
+
 #[derive(Serialize)]
 pub struct PeersResponse {
     pub total_connected: usize,
     pub peers: Vec<String>,
 }
 
-pub fn create_router(ledger: SharedLedger, pow: Arc<MoneyPrinterPow>, p2p: Arc<PeerManager>) -> Router {
+pub fn create_router(
+    ledger: SharedLedger,
+    pow: Arc<MoneyPrinterPow>,
+    p2p: Arc<PeerManager>,
+    rpc_token: Option<String>,
+) -> Router {
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
         .allow_headers(Any);
 
-    let state = Arc::new(AppState { ledger, pow, p2p });
+    let state = Arc::new(AppState { ledger, pow, p2p, rpc_token });
 
-    Router::new()
-        .route("/", get(dashboard_handler))
+    // Read-only queries and broadcasting an already-signed transaction: callable from any website,
+    // which is what lets a merchant's checkout page talk to the merchant's node.
+    let public = Router::new()
         .route("/api/v1/info", get(info_handler))
         .route("/api/v1/tips", get(tips_handler))
         .route("/api/v1/peers", get(peers_handler))
+        .route("/api/v1/blocks", get(blocks_handler))
+        .route("/api/v1/block/:hash", get(block_handler))
         .route("/api/v1/mining/template", get(template_handler))
-        .route("/api/v1/mining/submit", post(submit_handler))
         .route("/api/v1/tx/broadcast", post(broadcast_handler))
         .route("/api/v1/tx/:txid", get(tx_status_handler))
         .route("/api/v1/address/:addr/balance", get(balance_handler))
         .route("/api/v1/address/:addr/utxos", get(utxos_handler))
+        .route("/api/v1/ws/address/:addr", get(ws_address_handler))
+        .layer(cors);
+
+    // Calls that handle private keys or add blocks get no cross-origin access, so another
+    // website open in the operator's browser cannot reach them, and an optional token.
+    let restricted = Router::new()
+        .route("/api/v1/mining/submit", post(submit_handler))
         .route("/api/v1/wallet/generate", post(wallet_generate_handler))
         .route("/api/v1/wallet/send", post(wallet_send_handler))
-        .route("/api/v1/ws/address/:addr", get(ws_address_handler))
+        .layer(middleware::from_fn_with_state(state.clone(), require_token));
+
+    Router::new()
+        .route("/", get(dashboard_handler))
         .route("/wallet", get(wallet_gui_handler))
-        .layer(cors)
+        .merge(public)
+        .merge(restricted)
         .with_state(state)
+}
+
+/// Rejects the request unless it carries the configured bearer token. No token configured: allowed.
+async fn require_token(State(state): State<Arc<AppState>>, request: Request, next: Next) -> Response {
+    if let Some(expected) = &state.rpc_token {
+        let presented = request
+            .headers()
+            .get(axum::http::header::AUTHORIZATION)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.strip_prefix("Bearer "))
+            .unwrap_or("");
+        // Compare without stopping at the first difference
+        let matches = presented.len() == expected.len()
+            && presented.bytes().zip(expected.bytes()).fold(0u8, |diff, (a, b)| diff | (a ^ b)) == 0;
+        if !matches {
+            return StatusCode::UNAUTHORIZED.into_response();
+        }
+    }
+    next.run(request).await
+}
+
+fn block_summary(ledger: &crate::state::DagLedger, hash: &Hash, header: &imoney_core::BlockHeader) -> BlockSummary {
+    let selected_parent = ledger.dag.get(hash).ghostdag.selected_parent;
+    BlockSummary {
+        hash: hash.to_hex(),
+        parents: header.parents.iter().map(|p| p.to_hex()).collect(),
+        selected_parent: (selected_parent != Hash::ZERO).then(|| selected_parent.to_hex()),
+        timestamp_ms: header.timestamp_ms,
+        bits: format!("0x{:08x}", header.bits),
+        daa_score: header.daa_score,
+        blue_score: header.blue_score,
+        is_tip: ledger.tips.contains(hash),
+    }
+}
+
+/// Most recent blocks, newest first. `limit` defaults to 50 and is capped at 500.
+async fn blocks_handler(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<BlocksQuery>,
+) -> Json<Vec<BlockSummary>> {
+    let ledger = state.ledger.read().await;
+    let limit = query.limit.unwrap_or(50).min(500);
+    let blocks = ledger
+        .recent_blocks(limit)
+        .into_iter()
+        .map(|(hash, header)| block_summary(&ledger, &hash, header))
+        .collect();
+    Json(blocks)
+}
+
+async fn block_handler(
+    State(state): State<Arc<AppState>>,
+    Path(hash_hex): Path<String>,
+) -> Result<Json<BlockDetailResponse>, StatusCode> {
+    let hash = Hash::from_hex(&hash_hex).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let ledger = state.ledger.read().await;
+    let header = ledger.blocks.get(&hash).ok_or(StatusCode::NOT_FOUND)?;
+    let block = ledger
+        .storage
+        .get_block(&hash)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let ghostdag = &ledger.dag.get(&hash).ghostdag;
+
+    Ok(Json(BlockDetailResponse {
+        summary: block_summary(&ledger, &hash, header),
+        mergeset_blues: ghostdag.mergeset_blues.iter().map(|h| h.to_hex()).collect(),
+        mergeset_reds: ghostdag.mergeset_reds.iter().map(|h| h.to_hex()).collect(),
+        transaction_ids: block.transactions.iter().map(|tx| tx.id().to_hex()).collect(),
+    }))
 }
 
 const WALLET_HTML: &str = include_str!("../../../apps/imoney-wallet/index.html");
@@ -190,6 +310,7 @@ async fn dashboard_handler(State(state): State<Arc<AppState>>) -> Html<String> {
             • GUI Wallet Interface: <code>GET /wallet</code><br>
             • Balance Lookup: <code>GET /api/v1/address/:addr/balance</code><br>
             • Unspent Coins (UTXOs): <code>GET /api/v1/address/:addr/utxos</code><br>
+            • Recent Blocks: <code>GET /api/v1/blocks?limit=50</code><br>
             • Mining Work: <code>GET /api/v1/mining/template?address=:addr</code><br>
             • Block Submission: <code>POST /api/v1/mining/submit</code>
         </div>
@@ -533,10 +654,13 @@ async fn handle_address_socket(mut socket: WebSocket, addr_str: String, state: A
             return;
         }
     };
+    let script = ScriptPublicKey::pay_to_address(&address);
+    let atoms_per_imn = imoney_core::constants::ATOMS_PER_IMN as f64;
 
-    let mut last_balance: u64 = {
+    // Subscribe before reading the balance so no change can fall between the two
+    let (mut events, mut last_balance) = {
         let ledger = state.ledger.read().await;
-        ledger.get_balance(&address).map(|(atoms, _)| atoms).unwrap_or(0)
+        (ledger.events.subscribe(), ledger.get_balance(&address).map(|(atoms, _)| atoms).unwrap_or(0))
     };
 
     // Send initial balance
@@ -544,37 +668,64 @@ async fn handle_address_socket(mut socket: WebSocket, addr_str: String, state: A
         "event": "connected",
         "address": addr_str,
         "balance_atoms": last_balance,
-        "balance_imn": (last_balance as f64) / (imoney_core::constants::ATOMS_PER_IMN as f64)
+        "balance_imn": (last_balance as f64) / atoms_per_imn
     });
-    let _ = socket.send(WsMessage::Text(init_msg.to_string())).await;
+    if socket.send(WsMessage::Text(init_msg.to_string())).await.is_err() {
+        return;
+    }
 
-    // Polling loop every 1 second pushing updates when balance changes
-    let mut ticker = tokio::time::interval(Duration::from_millis(1000));
     loop {
-        ticker.tick().await;
-
-        let current_balance = {
-            let ledger = state.ledger.read().await;
-            ledger.get_balance(&address).map(|(atoms, _)| atoms).unwrap_or(0)
-        };
-
-        if current_balance != last_balance {
-            let change_atoms = current_balance as i64 - last_balance as i64;
-            last_balance = current_balance;
-
-            let payment_msg = serde_json::json!({
-                "event": "payment_received",
-                "address": addr_str,
-                "change_atoms": change_atoms,
-                "balance_atoms": current_balance,
-                "balance_imn": (current_balance as f64) / (imoney_core::constants::ATOMS_PER_IMN as f64),
-                "timestamp_ms": chrono::Utc::now().timestamp_millis()
-            });
-
-            if socket.send(WsMessage::Text(payment_msg.to_string())).await.is_err() {
-                break;
+        tokio::select! {
+            event = events.recv() => {
+                let message = match event {
+                    // A payment to this address reached the mempool: seen, not yet in a block
+                    Ok(LedgerEvent::PendingTx { tx_id, outputs }) => {
+                        let amount_atoms: u64 = outputs
+                            .iter()
+                            .filter(|o| o.script_public_key == script)
+                            .map(|o| o.value_atoms)
+                            .sum();
+                        (amount_atoms > 0).then(|| serde_json::json!({
+                            "event": "payment_seen",
+                            "address": addr_str,
+                            "tx_id": tx_id.to_hex(),
+                            "amount_atoms": amount_atoms,
+                            "amount_imn": (amount_atoms as f64) / atoms_per_imn,
+                            "timestamp_ms": chrono::Utc::now().timestamp_millis()
+                        }))
+                    }
+                    // The ledger moved (or events were skipped): report a balance change if any
+                    Ok(LedgerEvent::BlockAdded { .. }) | Err(RecvError::Lagged(_)) => {
+                        let current_balance = {
+                            let ledger = state.ledger.read().await;
+                            ledger.get_balance(&address).map(|(atoms, _)| atoms).unwrap_or(last_balance)
+                        };
+                        let change_atoms = current_balance as i64 - last_balance as i64;
+                        last_balance = current_balance;
+                        (change_atoms != 0).then(|| serde_json::json!({
+                            "event": "payment_received",
+                            "address": addr_str,
+                            "change_atoms": change_atoms,
+                            "balance_atoms": current_balance,
+                            "balance_imn": (current_balance as f64) / atoms_per_imn,
+                            "timestamp_ms": chrono::Utc::now().timestamp_millis()
+                        }))
+                    }
+                    Err(RecvError::Closed) => break,
+                };
+                if let Some(message) = message {
+                    if socket.send(WsMessage::Text(message.to_string())).await.is_err() {
+                        break;
+                    }
+                }
+            }
+            // Notice when the client goes away instead of holding the subscription forever
+            incoming = socket.recv() => {
+                match incoming {
+                    Some(Ok(WsMessage::Close(_))) | Some(Err(_)) | None => break,
+                    Some(Ok(_)) => {}
+                }
             }
         }
     }
 }
-

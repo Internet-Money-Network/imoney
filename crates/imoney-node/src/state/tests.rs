@@ -104,8 +104,8 @@ fn mempool_rejects_double_spend_of_same_utxo() {
     let miner = key(3);
     let (mut ledger, _) = funded_ledger("double-spend", &miner);
 
-    let first = pay(&ledger, &miner, &address_of(&key(4)), 1_000, 100);
-    let second = pay(&ledger, &miner, &address_of(&key(5)), 1_000, 100);
+    let first = pay(&ledger, &miner, &address_of(&key(4)), 1_000, 500);
+    let second = pay(&ledger, &miner, &address_of(&key(5)), 1_000, 500);
 
     ledger.broadcast_transaction(first).expect("first spend is admitted");
     let err = ledger.broadcast_transaction(second).expect_err("second spend must be rejected");
@@ -151,7 +151,7 @@ fn block_rewards_cannot_be_spent_before_maturity() {
     assert!(ledger.get_spendable_utxos(&address_of(&miner)).unwrap().is_empty());
 
     let utxos = ledger.get_utxos(&address_of(&miner)).unwrap();
-    let early = Transaction::build_payment(&miner, Network::Testnet, &address_of(&key(8)), 1_000, 100, utxos).unwrap();
+    let early = Transaction::build_payment(&miner, Network::Testnet, &address_of(&key(8)), 1_000, 500, utxos).unwrap();
     let err = ledger.broadcast_transaction(early.clone()).expect_err("immature spend must be rejected");
     assert!(err.to_string().contains("immature"), "{}", err);
 
@@ -411,7 +411,7 @@ fn ledger_recovers_state_after_restart() {
         for _ in 0..=MATURITY {
             mine_tip(&mut ledger, &pow, &address_of(&key(200)));
         }
-        let payment = pay(&ledger, &miner, &alice, 7_000, 100);
+        let payment = pay(&ledger, &miner, &alice, 7_000, 500);
         ledger.broadcast_transaction(payment).unwrap();
         let tip = mine_tip(&mut ledger, &pow, &address_of(&key(200)));
         (tip, ledger.storage.total_utxo_atoms().unwrap(), balance(&ledger, &address_of(&miner)))
@@ -428,4 +428,79 @@ fn ledger_recovers_state_after_restart() {
     // The reopened ledger keeps working
     mine_tip(&mut reopened, &pow, &address_of(&key(200)));
     assert_eq!(reopened.storage.total_utxo_atoms().unwrap(), expected_supply(&reopened));
+}
+
+#[test]
+fn mempool_enforces_minimum_fee_and_template_prefers_higher_fees() {
+    let (alice, bob) = (key(70), key(71));
+    let mut ledger = open("fee-policy");
+    let pow = test_pow();
+    mine_tip(&mut ledger, &pow, &address_of(&alice));
+    mine_tip(&mut ledger, &pow, &address_of(&bob));
+    for _ in 0..=MATURITY {
+        mine_tip(&mut ledger, &pow, &address_of(&key(200)));
+    }
+
+    let too_cheap = pay(&ledger, &alice, &address_of(&key(72)), 1_000, 10);
+    let err = ledger.broadcast_transaction(too_cheap).expect_err("fee below the relay minimum");
+    assert!(err.to_string().contains("below the minimum"), "{}", err);
+
+    let modest = pay(&ledger, &alice, &address_of(&key(72)), 1_000, 400);
+    let generous = pay(&ledger, &bob, &address_of(&key(72)), 1_000, 4_000);
+    ledger.broadcast_transaction(modest.clone()).unwrap();
+    ledger.broadcast_transaction(generous.clone()).unwrap();
+
+    let template = ledger.get_mining_template(Some(&address_of(&key(200)))).block;
+    let ids: Vec<Hash> = template.transactions.iter().skip(1).map(|tx| tx.id()).collect();
+    assert_eq!(ids, vec![generous.id(), modest.id()]);
+}
+
+#[test]
+fn ledger_announces_pending_transactions_and_new_blocks() {
+    let miner = key(80);
+    let alice = address_of(&key(81));
+    let (mut ledger, pow) = funded_ledger("events", &miner);
+    let mut events = ledger.events.subscribe();
+
+    let payment = pay(&ledger, &miner, &alice, 9_000, 500);
+    let payment_id = ledger.broadcast_transaction(payment).unwrap();
+    match events.try_recv().expect("pending event") {
+        LedgerEvent::PendingTx { tx_id, outputs } => {
+            assert_eq!(tx_id, payment_id);
+            assert_eq!(outputs[0].value_atoms, 9_000);
+            assert_eq!(outputs[0].script_public_key, ScriptPublicKey::pay_to_address(&alice));
+        }
+        other => panic!("unexpected event {:?}", other),
+    }
+
+    let hash = mine_tip(&mut ledger, &pow, &address_of(&key(200)));
+    match events.try_recv().expect("block event") {
+        LedgerEvent::BlockAdded { hash: announced, blue_score } => {
+            assert_eq!(announced, hash);
+            assert_eq!(blue_score, ledger.virtual_blue_score);
+        }
+        other => panic!("unexpected event {:?}", other),
+    }
+}
+
+#[test]
+fn address_index_tracks_many_outputs_across_spends() {
+    let miner = key(90);
+    let (alice, bob) = (address_of(&key(91)), address_of(&key(92)));
+    let (mut ledger, pow) = funded_ledger("address-index", &miner);
+
+    // Three payments in a row, each spending the previous change
+    for (i, to) in [&alice, &bob, &alice].into_iter().enumerate() {
+        let payment = pay(&ledger, &miner, to, 1_000 * (i as u64 + 1), 500);
+        ledger.broadcast_transaction(payment).unwrap();
+        mine_tip(&mut ledger, &pow, &address_of(&key(200)));
+    }
+
+    assert_eq!(ledger.get_utxos(&alice).unwrap().len(), 2);
+    assert_eq!(balance(&ledger, &alice), 4_000);
+    assert_eq!(balance(&ledger, &bob), 2_000);
+    // The miner is left with exactly one change output
+    assert_eq!(ledger.get_utxos(&address_of(&miner)).unwrap().len(), 1);
+    assert_eq!(balance(&ledger, &address_of(&miner)), block_subsidy_atoms(1) - 6_000 - 1_500);
+    assert_eq!(balance(&ledger, &address_of(&key(93))), 0);
 }

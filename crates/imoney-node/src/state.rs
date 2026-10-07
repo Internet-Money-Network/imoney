@@ -1,4 +1,5 @@
 use crate::genesis::create_testnet_genesis;
+use crate::mempool::{Mempool, MempoolError};
 use crate::storage::{
     AcceptanceData, AcceptedTx, BlockMeta, Storage, StorageError, TxRecord, UtxoEntry, WriteBatch, META_SINK,
     META_VIRTUAL_ACCEPTANCE,
@@ -17,7 +18,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 use thiserror::Error;
-use tokio::sync::RwLock;
+use tokio::sync::{broadcast, RwLock};
 
 /// Bytes of a block template kept free for the header and coinbase.
 const TEMPLATE_RESERVED_BYTES: usize = 2_000;
@@ -42,6 +43,17 @@ pub enum StateError {
     Storage(#[from] StorageError),
     #[error("Transaction error: {0}")]
     Transaction(String),
+    #[error("Transaction not admitted: {0}")]
+    Mempool(#[from] MempoolError),
+}
+
+/// Something that changed in the ledger, pushed to subscribers such as WebSocket clients.
+#[derive(Clone, Debug)]
+pub enum LedgerEvent {
+    /// A transaction entered the mempool. Carries its outputs so listeners can match addresses.
+    PendingTx { tx_id: Hash, outputs: Vec<TxOutput> },
+    /// A block was added and the ledger moved to a new virtual state.
+    BlockAdded { hash: Hash, blue_score: u64 },
 }
 
 /// The consensus rules of a network.
@@ -218,7 +230,9 @@ pub struct DagLedger {
     pub difficulty_bits: u32,
     /// Default payout address for block templates.
     pub mining_address: Option<Address>,
-    pub mempool: HashMap<Hash, Transaction>,
+    pub mempool: Mempool,
+    /// Ledger change notifications. Sending never blocks; slow subscribers skip events.
+    pub events: broadcast::Sender<LedgerEvent>,
     virtual_acceptance: AcceptanceData,
 }
 
@@ -251,7 +265,8 @@ impl DagLedger {
             virtual_daa_score: 0,
             difficulty_bits: 0,
             mining_address,
-            mempool: HashMap::new(),
+            mempool: Mempool::default(),
+            events: broadcast::channel(1024).0,
             virtual_acceptance: AcceptanceData::default(),
         };
 
@@ -687,12 +702,13 @@ impl DagLedger {
         self.set_virtual(virtual_state);
 
         // Drop pending transactions that were accepted or can no longer be spent
-        let pending: Vec<(Hash, Transaction)> = self.mempool.drain().collect();
-        for (tx_id, tx) in pending {
-            if self.check_spend(&tx, |outpoint| self.storage.get_utxo(outpoint), self.virtual_blue_score).is_ok() {
-                self.mempool.insert(tx_id, tx);
-            }
-        }
+        let mut mempool = std::mem::take(&mut self.mempool);
+        mempool.retain(|tx| {
+            self.check_spend(tx, |outpoint| self.storage.get_utxo(outpoint), self.virtual_blue_score).is_ok()
+        });
+        self.mempool = mempool;
+
+        let _ = self.events.send(LedgerEvent::BlockAdded { hash: block_hash, blue_score: self.virtual_blue_score });
 
         Ok(block_hash)
     }
@@ -701,25 +717,16 @@ impl DagLedger {
     /// Validates and admits a signed transaction into the mempool.
     pub fn broadcast_transaction(&mut self, tx: Transaction) -> Result<Hash, StateError> {
         let tx_id = tx.id();
-        if self.mempool.contains_key(&tx_id) {
+        if self.mempool.contains(&tx_id) {
             return Ok(tx_id);
         }
 
-        self.check_spend(&tx, |outpoint| self.storage.get_utxo(outpoint), self.virtual_blue_score)?;
+        let fee = self.check_spend(&tx, |outpoint| self.storage.get_utxo(outpoint), self.virtual_blue_score)?;
 
-        // Reject a transaction that spends an outpoint already claimed by a pending transaction
-        for pending in self.mempool.values() {
-            for pending_input in &pending.inputs {
-                if tx.inputs.iter().any(|input| input.previous_outpoint == pending_input.previous_outpoint) {
-                    return Err(StateError::Transaction(format!(
-                        "Input already spent by pending transaction {}",
-                        pending.id()
-                    )));
-                }
-            }
-        }
-
-        self.mempool.insert(tx_id, tx);
+        // The mempool applies relay policy: minimum fee, no conflicting spends, size cap
+        let outputs = tx.outputs.clone();
+        self.mempool.insert(tx, fee)?;
+        let _ = self.events.send(LedgerEvent::PendingTx { tx_id, outputs });
         Ok(tx_id)
     }
 
@@ -766,19 +773,8 @@ impl DagLedger {
     /// Generates a candidate block for miners on top of the current tips. The coinbase pays
     /// `payout`, or the node's configured mining address when none is given.
     pub fn get_mining_template(&self, payout: Option<&Address>) -> MiningTemplate {
-        // Fill the block with pending transactions in a deterministic order
-        let mut pending: Vec<(&Hash, &Transaction)> = self.mempool.iter().collect();
-        pending.sort_by_key(|(id, _)| **id);
-        let mut transactions = Vec::new();
-        let mut used_bytes = TEMPLATE_RESERVED_BYTES;
-        for (_, tx) in pending {
-            let size = tx.to_bytes().len();
-            if used_bytes + size > MAX_BLOCK_BYTES {
-                continue;
-            }
-            used_bytes += size;
-            transactions.push(tx.clone());
-        }
+        // Fill the block with the best-paying pending transactions
+        let transactions = self.mempool.select_for_block(MAX_BLOCK_BYTES - TEMPLATE_RESERVED_BYTES);
 
         let block = self
             .build_block(&self.virtual_parents, payout.or(self.mining_address.as_ref()), transactions)
@@ -845,10 +841,22 @@ impl DagLedger {
         }))
     }
 
+    /// The most recent blocks by DAA score, newest first.
+    pub fn recent_blocks(&self, limit: usize) -> Vec<(Hash, &BlockHeader)> {
+        let mut blocks: Vec<(Hash, &BlockHeader)> = self.blocks.iter().map(|(hash, header)| (*hash, header)).collect();
+        blocks.sort_by_key(|(hash, header)| (std::cmp::Reverse(header.daa_score), *hash));
+        blocks.truncate(limit);
+        blocks
+    }
+
     /// Node diagnostic overview.
     pub fn get_info(&self) -> NodeInfo {
         NodeInfo {
-            network: "testnet-1".to_string(),
+            network: match self.network {
+                Network::Mainnet => "mainnet",
+                Network::Testnet => "testnet-1",
+            }
+            .to_string(),
             total_blocks: self.blocks.len(),
             virtual_selected_parent: self.virtual_selected_parent.to_hex(),
             virtual_blue_score: self.virtual_blue_score,

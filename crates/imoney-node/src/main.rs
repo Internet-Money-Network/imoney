@@ -39,6 +39,10 @@ struct Args {
     #[arg(long)]
     mining_address: Option<String>,
 
+    /// Require this bearer token for block submission and the wallet's key-handling calls
+    #[arg(long)]
+    rpc_token: Option<String>,
+
     /// Enable automatic background miner (targets ~5s block intervals)
     #[arg(long, default_value_t = false)]
     auto_mine: bool,
@@ -190,7 +194,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    let app = create_router(ledger, pow, p2p_manager);
+    let app = create_router(ledger, pow, p2p_manager, args.rpc_token);
     let addr: SocketAddr = args.rpc_bind.parse()?;
     let listener = tokio::net::TcpListener::bind(addr).await?;
     println!("[+] HTTP RPC & Web Dashboard listening on http://{}", addr);

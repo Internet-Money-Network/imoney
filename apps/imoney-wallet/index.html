@@ -292,6 +292,10 @@
           <label>Connected Node Endpoint:</label>
           <input type="text" id="node-endpoint" value="http://127.0.0.1:18556" />
         </div>
+        <div class="form-group">
+          <label>Node RPC Token (only if your node was started with --rpc-token):</label>
+          <input type="password" id="rpc-token" autocomplete="off" />
+        </div>
         <button class="btn" style="background: #21262d; border: 1px solid var(--border); margin-bottom: 16px;" onclick="refreshBalance()">
           🔄 Reconnect & Refresh Balance
         </button>
@@ -329,6 +333,12 @@
     let currentPrivKey = localStorage.getItem('imoney_priv') || '';
     let ws = null;
 
+    // Sent with calls that handle keys; the token is kept for this browser session only
+    function authHeaders() {
+      const token = document.getElementById('rpc-token').value.trim();
+      return token ? { 'Authorization': 'Bearer ' + token } : {};
+    }
+
     function initKeys() {
       if (!currentAddress) {
         document.getElementById('current-address').innerText = 'No wallet yet. Generate a keypair under "Keys & Settings".';
@@ -343,7 +353,7 @@
     async function generateNewKeypair() {
       const nodeUrl = document.getElementById('node-endpoint').value.trim();
       try {
-        const res = await fetch(`${nodeUrl}/api/v1/wallet/generate`, { method: 'POST' });
+        const res = await fetch(`${nodeUrl}/api/v1/wallet/generate`, { method: 'POST', headers: authHeaders() });
         if (res.ok) {
           const data = await res.json();
           currentAddress = data.address;
@@ -463,7 +473,7 @@
       try {
         const res = await fetch(`${nodeUrl}/api/v1/wallet/send`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...authHeaders() },
           body: JSON.stringify({
             private_key_hex: currentPrivKey,
             recipient_address: recipient,
@@ -471,6 +481,12 @@
           })
         });
 
+        if (res.status === 401) {
+          statusEl.style.background = '#3e1b1e';
+          statusEl.style.color = '#f85149';
+          statusEl.innerText = 'This node requires an RPC token. Enter it under "Keys & Settings".';
+          return;
+        }
         const data = await res.json();
         if (data.success) {
           statusEl.style.background = '#162b1b';
