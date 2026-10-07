@@ -114,6 +114,7 @@ cargo run --release --bin imoney-miner -- --benchmark
 ---
 
 See [docs/RUNNING-A-NODE.md](docs/RUNNING-A-NODE.md) for options, seed nodes, pruning and running a node for a shop.
+Exchanges, wallet developers and mining pools: see [docs/INTEGRATION.md](docs/INTEGRATION.md).
 
 ### Rebuilding the browser pieces
 The wallet's signing module and the SDK bundles are committed, so the node builds without extra tools. To regenerate them after changing `crates/imoney-wasm` or `packages/imoney-sdk`:
@@ -130,3 +131,5 @@ cd packages/imoney-sdk && npm install && npm test
 
 ## 📜 License
 Licensed under either of [MIT](LICENSE) or [Apache-2.0](LICENSE-APACHE) at your option, with one exception: [`crates/imoney-pow/src/fishhash.rs`](crates/imoney-pow/src/fishhash.rs) is a port of Iron Fish's FishHash implementation and is licensed under the [MPL-2.0](https://mozilla.org/MPL/2.0/).
+
+The licences cover the code. The Internet Money name and logo are covered by [TRADEMARKS.md](TRADEMARKS.md): forks are welcome, but a different network needs a different name.

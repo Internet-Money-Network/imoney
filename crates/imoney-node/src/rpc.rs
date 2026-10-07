@@ -71,6 +71,8 @@ pub struct UtxoItemResponse {
     pub value_imn: f64,
     /// False for a block reward that has not matured yet.
     pub spendable: bool,
+    /// 1 once accepted into the ledger, then one more per blue block added on top.
+    pub confirmations: u64,
 }
 
 #[derive(Deserialize)]
@@ -116,6 +118,8 @@ pub struct TxStatusResponse {
     pub outputs_count: usize,
     pub total_output_atoms: u64,
     pub total_output_imn: f64,
+    /// The coins the payment spends, as `transaction_id:index` of the outputs that created them.
+    pub inputs: Vec<String>,
     /// Where the money went. An output without an address uses a script type this node cannot name.
     pub outputs: Vec<TxOutputView>,
     /// The invoice the payment names, if any.
@@ -552,12 +556,13 @@ async fn utxos_handler(
 
     let response = utxos
         .into_iter()
-        .map(|(outpoint, output, spendable)| UtxoItemResponse {
+        .map(|(outpoint, output, spendable, confirmations)| UtxoItemResponse {
             transaction_id: outpoint.transaction_id.to_hex(),
             index: outpoint.index,
             value_atoms: output.value_atoms,
             value_imn: (output.value_atoms as f64) / (imoney_core::constants::ATOMS_PER_IMN as f64),
             spendable,
+            confirmations,
         })
         .collect();
 
@@ -667,6 +672,12 @@ async fn tx_status_handler(
                 outputs_count: info.tx.outputs.len(),
                 total_output_atoms: total_out_atoms,
                 total_output_imn: total_out_imn,
+                inputs: info
+                    .tx
+                    .inputs
+                    .iter()
+                    .map(|input| format!("{}:{}", input.previous_outpoint.transaction_id.to_hex(), input.previous_outpoint.index))
+                    .collect(),
                 outputs: info
                     .tx
                     .outputs
@@ -692,6 +703,7 @@ async fn tx_status_handler(
             outputs_count: 0,
             total_output_atoms: 0,
             total_output_imn: 0.0,
+            inputs: Vec::new(),
             outputs: Vec::new(),
             invoice_id: None,
             service_address: None,

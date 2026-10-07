@@ -223,6 +223,8 @@ fn block_rewards_cannot_be_spent_before_maturity() {
 
     // The reward is visible in the balance but not yet spendable
     assert_eq!(balance(&ledger, &address_of(&miner)), block_subsidy_atoms(1));
+    let listed = ledger.get_utxos_with_status(&address_of(&miner)).unwrap();
+    assert_eq!((listed[0].2, listed[0].3), (false, 1), "one confirmation, not yet spendable");
     assert!(ledger.get_spendable_utxos(&address_of(&miner)).unwrap().is_empty());
 
     let utxos = ledger.get_utxos(&address_of(&miner)).unwrap();

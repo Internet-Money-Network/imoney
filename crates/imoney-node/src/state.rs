@@ -1115,8 +1115,9 @@ impl DagLedger {
             .collect())
     }
 
-    /// Queries the UTXOs of an address with a flag saying whether each can be spent right now.
-    pub fn get_utxos_with_status(&self, address: &Address) -> Result<Vec<(Outpoint, TxOutput, bool)>, StorageError> {
+    /// Queries the UTXOs of an address, each with whether it can be spent right now and how
+    /// many confirmations it has (1 once accepted, one more per blue block added on top).
+    pub fn get_utxos_with_status(&self, address: &Address) -> Result<Vec<(Outpoint, TxOutput, bool, u64)>, StorageError> {
         let maturity = self.params.coinbase_maturity;
         Ok(self
             .storage
@@ -1124,7 +1125,8 @@ impl DagLedger {
             .into_iter()
             .map(|(outpoint, entry)| {
                 let spendable = !entry.is_coinbase || entry.blue_score + maturity <= self.virtual_blue_score;
-                (outpoint, entry.output, spendable)
+                let confirmations = self.virtual_blue_score.saturating_sub(entry.blue_score) + 1;
+                (outpoint, entry.output, spendable, confirmations)
             })
             .collect())
     }
