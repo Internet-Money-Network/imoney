@@ -27,7 +27,7 @@ struct Args {
     #[arg(long, default_value = "0.0.0.0:18555")]
     p2p_bind: String,
 
-    /// Outbound peer addresses to connect to (comma-separated or multiple flags)
+    /// Peers to connect to, as host:port or ip:port (comma-separated or multiple flags)
     #[arg(long, value_delimiter = ',')]
     peers: Vec<String>,
 
@@ -135,15 +135,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Start incoming P2P TCP gossip server
     p2p_manager.clone().start_server(p2p_bind_addr).await?;
 
-    // Connect outbound to configured peer nodes
+    // Peers learned in earlier runs are remembered, so the node can rejoin without its seeds
+    p2p_manager.use_peer_store(args.data_dir.join("peers.txt"));
+
+    // Connect outbound to configured peer nodes. A host name may resolve to several nodes.
     for peer_str in args.peers {
         let trimmed = peer_str.trim();
         if !trimmed.is_empty() {
-            if let Ok(peer_addr) = trimmed.parse::<SocketAddr>() {
-                p2p_manager.require_initial_sync();
-                p2p_manager.clone().connect_to_peer(peer_addr);
-            } else {
-                eprintln!("[-] Warning: Could not parse peer address '{}'", trimmed);
+            match tokio::net::lookup_host(trimmed).await {
+                Ok(resolved) => {
+                    for peer_addr in resolved {
+                        p2p_manager.require_initial_sync();
+                        p2p_manager.clone().connect_to_peer(peer_addr);
+                    }
+                }
+                Err(e) => eprintln!("[-] Warning: Could not resolve peer '{}': {}", trimmed, e),
             }
         }
     }

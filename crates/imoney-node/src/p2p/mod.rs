@@ -12,6 +12,7 @@ use imoney_core::{Block, Hash, Transaction};
 use imoney_pow::MoneyPrinterPow;
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -40,6 +41,12 @@ const PING_INTERVAL: Duration = Duration::from_secs(30);
 const IDLE_TIMEOUT: Duration = Duration::from_secs(90);
 /// Messages queued for one peer before further ones are dropped.
 const PEER_QUEUE: usize = 2_048;
+/// How often each peer is asked for its tips, so a missed announcement cannot leave a node behind.
+const TIP_POLL_INTERVAL: Duration = Duration::from_secs(15);
+/// How long a node waits for its configured peers before it stops holding back the miner.
+const SYNC_WAIT: Duration = Duration::from_secs(30);
+/// How often learned peer addresses are written to disk.
+const PEER_SAVE_INTERVAL: Duration = Duration::from_secs(60);
 
 struct PeerHandle {
     sender: mpsc::Sender<Message>,
@@ -71,6 +78,12 @@ pub struct PeerManager {
     orphans: Mutex<HashMap<Hash, Block>>,
     /// False while the node still has to catch up with the peers it was told to connect to.
     synced: AtomicBool,
+    /// When initial sync was requested; after `sync_wait` with no peer, the node stops waiting.
+    sync_requested_at: Mutex<Option<Instant>>,
+    tip_poll_interval: Duration,
+    sync_wait: Duration,
+    /// File that learned peer addresses are saved to, so a restart does not depend on seeds alone.
+    peer_store: Mutex<Option<PathBuf>>,
 }
 
 impl PeerManager {
@@ -92,6 +105,52 @@ impl PeerManager {
             banned: Mutex::new(HashMap::new()),
             orphans: Mutex::new(HashMap::new()),
             synced: AtomicBool::new(true),
+            sync_requested_at: Mutex::new(None),
+            tip_poll_interval: TIP_POLL_INTERVAL,
+            sync_wait: SYNC_WAIT,
+            peer_store: Mutex::new(None),
+        }
+    }
+
+    /// Overrides the tip-polling interval and the initial-sync wait.
+    pub fn with_timing(mut self, tip_poll_interval: Duration, sync_wait: Duration) -> Self {
+        self.tip_poll_interval = tip_poll_interval;
+        self.sync_wait = sync_wait;
+        self
+    }
+
+    /// Loads previously saved peer addresses from `path` and keeps saving them there.
+    pub fn use_peer_store(&self, path: PathBuf) {
+        if let Ok(contents) = std::fs::read_to_string(&path) {
+            for addr in contents.lines().filter_map(|line| line.trim().parse::<SocketAddr>().ok()) {
+                self.remember_addr(addr);
+            }
+        }
+        *self.peer_store.lock().unwrap() = Some(path);
+    }
+
+    /// Writes the known peer addresses to the peer store, if one is configured.
+    pub fn save_peers(&self) {
+        let Some(path) = self.peer_store.lock().unwrap().clone() else {
+            return;
+        };
+        let mut lines: Vec<String> = self.known_addrs.lock().unwrap().iter().map(|addr| addr.to_string()).collect();
+        lines.sort();
+        let _ = std::fs::write(path, lines.join("\n"));
+    }
+
+    /// Stops holding back the miner when no configured peer could be reached in time.
+    /// Without this, a node whose seeds are all down would wait forever and the chain would stall.
+    fn give_up_waiting_for_sync(&self) {
+        if self.is_synced() {
+            return;
+        }
+        let waited_long_enough =
+            self.sync_requested_at.lock().unwrap().is_some_and(|since| since.elapsed() > self.sync_wait);
+        let has_peer = self.peers.lock().unwrap().values().any(|p| p.node_id.is_some());
+        if waited_long_enough && !has_peer {
+            println!("[*] No configured peer reachable after {:?}; continuing without initial sync.", self.sync_wait);
+            self.synced.store(true, Ordering::SeqCst);
         }
     }
 
@@ -117,6 +176,7 @@ impl PeerManager {
     /// Marks the node as behind until it has caught up with a peer. Called when outbound
     /// peers are configured, so the miner does not build a private chain while syncing.
     pub fn require_initial_sync(&self) {
+        *self.sync_requested_at.lock().unwrap() = Some(Instant::now());
         self.synced.store(false, Ordering::SeqCst);
     }
 
@@ -163,9 +223,15 @@ impl PeerManager {
 
         let manager = self.clone();
         tokio::spawn(async move {
+            let mut last_save = Instant::now();
             loop {
                 tokio::time::sleep(DIAL_INTERVAL).await;
                 manager.dial_more_peers();
+                manager.give_up_waiting_for_sync();
+                if last_save.elapsed() > PEER_SAVE_INTERVAL {
+                    manager.save_peers();
+                    last_save = Instant::now();
+                }
             }
         });
 
@@ -274,6 +340,7 @@ impl PeerManager {
 
         let mut frames = FrameReader::default();
         let mut ping = tokio::time::interval(PING_INTERVAL);
+        let mut tip_poll = tokio::time::interval(self.tip_poll_interval);
         let mut last_heard = Instant::now();
         let mut handshaken = false;
         loop {
@@ -306,6 +373,13 @@ impl PeerManager {
                         break;
                     }
                     let _ = sender.try_send(Message::Ping(chrono::Utc::now().timestamp_millis() as u64));
+                }
+                // Announcements can be lost (a full queue, a dropped link). Comparing tips
+                // regularly means any difference is noticed and repaired within one interval.
+                _ = tip_poll.tick() => {
+                    if handshaken {
+                        let _ = sender.try_send(Message::GetTips);
+                    }
                 }
                 _ = shutdown.notified() => break,
             }
@@ -423,6 +497,8 @@ impl PeerManager {
             let hash = match result {
                 Ok(hash) => hash,
                 Err(StateError::BlockAlreadyExists(_)) => continue,
+                // A clock disagreement is not misbehaviour; the block is fetched again later
+                Err(StateError::TimestampInFuture) => continue,
                 Err(_) => {
                     if was_first {
                         first_valid = false;

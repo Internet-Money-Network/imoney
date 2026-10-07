@@ -33,13 +33,27 @@ impl TestNode {
         params.daa.retarget = false;
         let ledger: SharedLedger = Arc::new(RwLock::new(DagLedger::open_with_params(path, None, params).unwrap()));
         let pow = Arc::new(MoneyPrinterPow::new(PowParams::tiny(), Hash([1u8; 32]), PowMode::Full));
-        let manager = Arc::new(PeerManager::with_magic(ledger.clone(), pow.clone(), 0, magic));
+        let manager = Arc::new(
+            PeerManager::with_magic(ledger.clone(), pow.clone(), 0, magic)
+                .with_timing(Duration::from_millis(300), Duration::from_secs(1)),
+        );
         let addr = manager.clone().start_server("127.0.0.1:0".parse().unwrap()).await.unwrap();
         Self { manager, ledger, pow, addr }
     }
 
     fn connect(&self, other: &TestNode) {
         self.manager.clone().connect_to_peer(other.addr);
+    }
+
+    /// Mines one block and adds it locally without telling any peer.
+    async fn mine_silently(&self, payout: &Address) -> Hash {
+        let mut ledger = self.ledger.write().await;
+        let template = ledger.get_mining_template(Some(payout));
+        let (nonce, _) = self
+            .pow
+            .mine(&template.pre_pow_hash, template.block.header.bits, 0, 1_000_000, Arc::new(AtomicBool::new(false)))
+            .unwrap();
+        ledger.add_block(template.into_block(nonce), &self.pow).unwrap()
     }
 
     /// Mines one block on the current tips, adds it locally and announces it.
@@ -282,4 +296,81 @@ async fn peer_sending_invalid_blocks_is_banned() {
     eventually!("the peer is dropped", a.peer_count().await == 0);
     assert!(a.manager.is_banned(&"127.0.0.1".parse().unwrap()));
     assert_eq!(a.block_count().await, 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn blocks_that_were_never_announced_are_found_by_tip_polling() {
+    let miner = address_of(&SigningKey::from_bytes(&[5u8; 32]));
+    let a = TestNode::start("poll-a").await;
+    let b = TestNode::start("poll-b").await;
+    b.connect(&a);
+    eventually!("link is up", a.peer_count().await == 1 && b.peer_count().await == 1);
+
+    // As if every announcement had been lost on the way
+    for _ in 0..6 {
+        a.mine_silently(&miner).await;
+    }
+    eventually!("B catches up anyway", b.block_count().await == 7);
+    assert_eq!(b.sink().await, a.sink().await);
+
+    // And in the other direction
+    for _ in 0..3 {
+        b.mine_silently(&miner).await;
+    }
+    eventually!("A catches up too", a.block_count().await == 10);
+    assert_eq!(a.sink().await, b.sink().await);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn two_isolated_chains_converge_when_the_nodes_meet() {
+    let (miner_a, miner_b) = (address_of(&SigningKey::from_bytes(&[6u8; 32])), address_of(&SigningKey::from_bytes(&[7u8; 32])));
+    let a = TestNode::start("split-a").await;
+    let b = TestNode::start("split-b").await;
+
+    // Each node mines alone: far more blocks than one block could ever merge
+    for _ in 0..120 {
+        a.mine_silently(&miner_a).await;
+    }
+    for _ in 0..150 {
+        b.mine_silently(&miner_b).await;
+    }
+    assert_ne!(a.sink().await, b.sink().await);
+
+    b.connect(&a);
+    eventually!("both nodes hold both chains", a.block_count().await == 271 && b.block_count().await == 271);
+    // Both follow the heavier chain and agree on every balance
+    assert_eq!(a.sink().await, b.sink().await);
+    let (ledger_a, ledger_b) = (a.ledger.read().await, b.ledger.read().await);
+    for miner in [&miner_a, &miner_b] {
+        assert_eq!(ledger_a.get_balance(miner).unwrap(), ledger_b.get_balance(miner).unwrap());
+    }
+    assert_eq!(ledger_a.storage.total_utxo_atoms().unwrap(), ledger_b.storage.total_utxo_atoms().unwrap());
+    assert!(ledger_a.get_balance(&miner_b).unwrap().0 > 0);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn node_stops_waiting_for_sync_when_no_peer_is_reachable() {
+    let a = TestNode::start("lonely").await;
+    a.manager.require_initial_sync();
+    // Nothing listens here
+    a.manager.clone().connect_to_peer("127.0.0.1:9".parse().unwrap());
+    assert!(!a.manager.is_synced());
+    eventually!("the node gives up waiting", a.manager.is_synced());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn learned_peer_addresses_survive_a_restart() {
+    let path = std::env::temp_dir().join(format!("imoney-peers-{}.txt", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    let learned: SocketAddr = "203.0.113.9:18555".parse().unwrap();
+
+    let first = TestNode::start("store-1").await;
+    first.manager.use_peer_store(path.clone());
+    first.manager.remember_addr(learned);
+    first.manager.save_peers();
+
+    let second = TestNode::start("store-2").await;
+    assert!(!second.manager.known_addrs.lock().unwrap().contains(&learned));
+    second.manager.use_peer_store(path);
+    assert!(second.manager.known_addrs.lock().unwrap().contains(&learned));
 }

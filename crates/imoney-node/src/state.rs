@@ -36,6 +36,9 @@ pub enum StateError {
     InvalidPoW(Hash),
     #[error("Header error: {0}")]
     Header(String),
+    /// Not proof of a bad block: the sender's clock, or ours, may simply be off.
+    #[error("Block timestamp is too far in the future")]
+    TimestampInFuture,
     #[error("Invalid block: {0}")]
     Block(#[from] BlockError),
     #[error("Invalid coinbase: {0}")]
@@ -666,7 +669,7 @@ impl DagLedger {
         }
         let now_ms = chrono::Utc::now().timestamp_millis() as u64;
         if header.timestamp_ms > now_ms + self.params.max_future_ms {
-            return Err(StateError::Header("Timestamp is too far in the future".to_string()));
+            return Err(StateError::TimestampInFuture);
         }
 
         // Validate Proof of Work
