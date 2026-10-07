@@ -1,0 +1,22 @@
+[package]
+name = "imoney-gpu-miner"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "OpenCL GPU miner for Internet Money's Money Printer (FishHash) proof of work"
+
+[[bin]]
+name = "imoney-gpu-miner"
+path = "src/main.rs"
+
+[dependencies]
+imoney-core = { path = "../imoney-core" }
+imoney-pow = { path = "../imoney-pow" }
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+rand.workspace = true
+ureq = { version = "2", default-features = false, features = ["json"] }
+# OpenCL is loaded at run time, so the miner builds on machines without an OpenCL SDK
+opencl3 = { version = "0.12", default-features = false, features = ["CL_VERSION_1_2", "dynamic"] }

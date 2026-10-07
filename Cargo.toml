@@ -9,6 +9,7 @@ members = [
     "crates/imoney-miner",
     "crates/imoney-wasm",
     "crates/imoney-loadtest",
+    "crates/imoney-gpu-miner",
 ]
 
 [workspace.package]

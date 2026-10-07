@@ -150,8 +150,8 @@ Money Printer is FishHash with a network-specific seed. Nothing else about the a
   little-endian nonce.
 - **Valid when:** the 32-byte FishHash output, read as a big-endian number, is at most the target.
 - **Sizes:** the main network will use the FishHash specification's sizes (75 MB light cache,
-  4.6 GB dataset). The current test network uses small sizes so a CPU can mine; a FishHash GPU
-  kernel does not apply to it as is.
+  4.6 GB dataset). The current test network uses small sizes (a 32 MB dataset) so a CPU can
+  mine; a GPU miner must be given the dataset size rather than assume the specification's.
 
 The reference implementation is `crates/imoney-pow/src/fishhash.rs`, checked byte for byte
 against Iron Fish's implementation at the specification's sizes.
@@ -169,7 +169,15 @@ Fetch a new template at least every second or two: parallel blocks are normal, a
 is stale as soon as the tips change. A stale block is rejected with a reason; that is routine.
 If the node was started with `--rpc-token`, send it as `Authorization: Bearer <token>` on submit.
 
-The reference miner is `crates/imoney-miner` (`imoney-miner --node <url> --address <address>`).
+The reference CPU miner is `crates/imoney-miner` (`imoney-miner --node <url> --address <address>`).
+
+The reference GPU miner is `crates/imoney-gpu-miner`, an OpenCL miner with the same options. It
+builds the dataset on the CPU, copies it to the card, and checks every nonce the card reports on
+the CPU before submitting. `--list-devices` shows the cards, `--device N` picks one, and
+`--benchmark` first compares the card's hashes with the CPU's and then measures the hashrate
+(`--pow-size mainnet` for the full 4.6 GB dataset). Measured on a Radeon RX 7800 XT: about
+50 MH/s on the test network's dataset and 26 MH/s on the full-size one. The search kernel is
+`crates/imoney-gpu-miner/src/search.cl`.
 
 ### What a pool has to build
 
@@ -187,7 +195,7 @@ Being direct about gaps saves everyone time:
 
 - **No address history.** A node can list an address's current coins, not its past transactions.
   Keep your own record of deposits and withdrawals.
-- **No Stratum bridge and no GPU miner.**
+- **No Stratum bridge.** The GPU miner is a simple reference, one card per process, tested on one AMD card.
 - **No hardware-wallet support and no multi-signature addresses.** The address format reserves
   a type for scripts; nothing implements it.
 - **No client libraries beyond Rust and the WebAssembly build.**

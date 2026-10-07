@@ -151,6 +151,12 @@ impl FishHashContext {
         self.dataset_items
     }
 
+    /// The full dataset as 32 little-endian words per item, when it was built. A GPU miner
+    /// copies this into the card's memory.
+    pub fn dataset_words(&self) -> Option<&[[u32; 32]]> {
+        self.full_dataset.as_deref()
+    }
+
     fn lookup(&self, index: usize) -> Hash1024 {
         match &self.full_dataset {
             Some(dataset) => dataset[index],
