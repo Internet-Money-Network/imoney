@@ -321,9 +321,9 @@
               <div>
                 <h3>Mining bound by memory, not by custom chips</h3>
                 <p>
-                  The proof-of-work function is designed around large random memory lookups, the thing
-                  consumer graphics cards already do well. The aim is to keep mining open to ordinary
-                  hardware. The algorithm has not been independently reviewed yet.
+                  The proof of work is FishHash, the memory-hard algorithm built for Iron Fish, with a seed
+                  of our own. Every hash makes random reads across gigabytes of memory, the thing consumer
+                  graphics cards already do well. That limits what custom chips can gain; it does not rule them out.
                 </p>
               </div>
             </li>
@@ -430,7 +430,7 @@ client.openCheckoutModal({
                 <li>Difficulty that adjusts itself to five-second blocks</li>
                 <li>Fees shared between the miner and the node that served the payment</li>
                 <li>Network sync, peer discovery and bans for misbehaving peers</li>
-                <li>Nodes verify proof of work from a small cache, without the full dataset</li>
+                <li>FishHash proof of work, verified by nodes from a small cache</li>
                 <li>CPU miner that works for any node</li>
               </ul>
             </div>

@@ -14,3 +14,7 @@ thiserror.workspace = true
 rand.workspace = true
 rayon.workspace = true
 serde.workspace = true
+
+[dev-dependencies]
+# Reference implementation, used only to check the port in `fishhash.rs`
+fish_hash = "0.3.0"

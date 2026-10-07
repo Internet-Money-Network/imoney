@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// Hashes tried on one block template before a fresh one is fetched from the node.
-const MINE_BATCH: u64 = 2_000_000;
+const MINE_BATCH: u64 = 200_000;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about = "Internet Money (IMN) - Money Printer PoW Miner & Benchmark", long_about = None)]
@@ -68,7 +68,7 @@ fn main() {
 
     println!("============================================================");
     println!("  {} ({}) - Proof-of-Work Node & Miner", CURRENCY_NAME, TICKER);
-    println!("  Algorithm: Money Printer (Memory-Hard PoW)");
+    println!("  Algorithm: Money Printer (FishHash, memory-hard)");
     println!("  Block Time: {}s | Launch Subsidy: {} IMN", TARGET_TIME_PER_BLOCK_MS / 1000, block_subsidy_imn(0));
     println!("  Threads: {}", rayon::current_num_threads());
     println!("============================================================");
@@ -86,7 +86,7 @@ fn main() {
     let pow = MoneyPrinterPow::new(PowParams::testnet(), Hash::from_bytes([0x42; 32]), PowMode::Full);
     println!(
         "[+] Dataset ready: {} items (took {:.2?})",
-        pow.context_for(0).item_count(),
+        pow.context().dataset_items(),
         init_start.elapsed()
     );
 
@@ -98,7 +98,7 @@ fn main() {
 
         // Bits that won't trigger early exit (hard target)
         let hard_bits = 0x1d00ffff;
-        pow.mine(&dummy_header, hard_bits, 0, args.bench_iters, stop_signal, 0);
+        pow.mine(&dummy_header, hard_bits, 0, args.bench_iters, stop_signal);
 
         let elapsed = bench_start.elapsed().as_secs_f64();
         let h_s = (args.bench_iters as f64) / elapsed;
@@ -133,13 +133,13 @@ fn main() {
 
         let mine_start = Instant::now();
         let stop_signal = Arc::new(AtomicBool::new(false));
-        if let Some((nonce, hash)) = pow.mine(&pre_hash, header.bits, 0, 50_000_000, stop_signal, header.daa_score) {
+        if let Some((nonce, hash)) = pow.mine(&pre_hash, header.bits, 0, 50_000_000, stop_signal) {
             println!("\n============================================================");
             println!("  >>> BLOCK MINED SUCCESSFULLY! <<<");
             println!("  Nonce:     {}", nonce);
             println!("  PoW Hash:  {}", hash);
             println!("  Duration:  {:.2?}", mine_start.elapsed());
-            println!("  Verified:  {}", pow.verify(&pre_hash, nonce, header.bits, header.daa_score));
+            println!("  Verified:  {}", pow.verify(&pre_hash, nonce, header.bits));
             println!("============================================================");
         } else {
             println!("[-] No valid nonce found within iteration budget.");
@@ -153,6 +153,8 @@ fn mine_for_node(node: &str, args: &Args) -> Result<(), Box<dyn std::error::Erro
     let info: serde_json::Value = ureq::get(&format!("{}/api/v1/info", node)).call()?.into_json()?;
     let genesis = Hash::from_hex(info["genesis_hash"].as_str().ok_or("node did not report a genesis hash")?)?;
     let pow = MoneyPrinterPow::new(PowParams::testnet(), genesis, PowMode::Full);
+    println!("[*] Building the mining dataset...");
+    pow.context();
     println!("[+] Connected to {} ({})", node, info["network"].as_str().unwrap_or("unknown network"));
 
     let template_url = match &args.address {
@@ -178,14 +180,7 @@ fn mine_for_node(node: &str, args: &Args) -> Result<(), Box<dyn std::error::Erro
         let pre_pow_hash = block.header.pre_pow_hash()?;
         let start_nonce = rand::random::<u64>();
 
-        let found = pow.mine(
-            &pre_pow_hash,
-            block.header.bits,
-            start_nonce,
-            MINE_BATCH,
-            Arc::new(AtomicBool::new(false)),
-            block.header.daa_score,
-        );
+        let found = pow.mine(&pre_pow_hash, block.header.bits, start_nonce, MINE_BATCH, Arc::new(AtomicBool::new(false)));
         hashes += MINE_BATCH;
 
         if let Some((nonce, _)) = found {

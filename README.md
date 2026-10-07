@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <b>A fast, ASIC-resistant BlockDAG Layer-1 cryptocurrency for peer-to-peer commerce.</b><br>
+  <b>A proof-of-work BlockDAG Layer-1 cryptocurrency built for payments.</b><br>
   <sub>Zero Premine &bull; Zero Dev Fee &bull; ~5-Second Block Inclusion &bull; Pure-Rust redb Storage &bull; Native Merchant SDK</sub>
 </p>
 
@@ -22,7 +22,7 @@
 **Internet Money (`IMN`)** is an open-source, permissionless Layer-1 proof-of-work cryptocurrency designed for real-world merchant checkout and decentralized digital cash.
 
 - **~5-Second Block Inclusion (0.2 BPS):** Combines the GHOSTDAG ($k=8$) parallel block consensus model with 5,000 ms block times. Honest concurrent blocks merge into a single directed acyclic graph without chain splits or high orphaning rates.
-- **ASIC-Resistant "Money Printer" PoW:** Memory-hard Blake3 + Keccak256 algorithm requiring high-bandwidth pseudo-random lookups across memory (FishHash derivative). Prevents custom ASIC dominance by forcing miners to utilize retail GDDR6/HBM memory bandwidth.
+- **"Money Printer" PoW (FishHash):** The memory-hard FishHash algorithm from Iron Fish, with a seed specific to this network. Each hash makes random reads across a 4.6 GB dataset, which favours commodity GPU memory over custom chips. Nodes verify blocks from a 75 MB cache.
 - **Sub-1% Long-Term Inflation Floor:** Strict 4-year halving cycle starting at 5.0 IMN/block, tapering down to a permanent 0.3125 IMN (about 0.83% annual inflation at year 16, declining) security subsidy floor to ensure permanent miner incentive without exorbitant user fees.
 - **Lightweight Nodes (~5–8 GB):** Generating only 17,280 blocks/day (50x fewer than 10 BPS chains), pruned full nodes run on standard hardware and modest VPS instances using pure-Rust embedded `redb` ACID persistence.
 - **Plug-and-Play Merchant Stack:** Zero-custody developer SDK (`@imoney/sdk`) and 1-click WooCommerce/WordPress plugin supporting sub-second WebSocket payment detection and 5-second customer checkouts.
@@ -39,7 +39,7 @@
 | **Block Interval** | **5,000 ms (5 seconds)** |
 | **Blocks Per Day** | 17,280 |
 | **Blocks Per Year** | 6,307,200 |
-| **Proof-of-Work Algorithm** | **Money Printer** (Memory-hard GPU-friendly PoW) |
+| **Proof-of-Work Algorithm** | **Money Printer** (FishHash with a network-specific seed) |
 | **Launch Block Reward** | **5 IMN** per block (500,000,000 atoms) |
 | **Halving Cycle** | Every 4 years (25,228,800 blocks) |
 | **Tail Emission Floor** | **0.3125 IMN** per block (~1.97M IMN / year forever) |
@@ -66,7 +66,7 @@ The codebase is structured as a modular mono-repository:
 
 - **Core Protocol & Node (`crates/`):**
   - [`crates/imoney-core`](crates/imoney-core): Addresses (`imn:q...`), Ed25519 signing, blocks and transactions with a canonical binary encoding, merkle roots.
-  - [`crates/imoney-pow`](crates/imoney-pow): Memory-hard "Money Printer" algorithm (Blake3 + Keccak256 memory bandwidth lookups).
+  - [`crates/imoney-pow`](crates/imoney-pow): "Money Printer" proof of work: a port of FishHash, checked against Iron Fish's reference implementation.
   - [`crates/imoney-emission`](crates/imoney-emission): 4-year halving curve starting at 5 IMN/block down to 0.3125 IMN permanent floor.
   - [`crates/imoney-consensus`](crates/imoney-consensus): GHOSTDAG ordering rules ($k=8$), blue scores, and rolling DAA window.
   - [`crates/imoney-node`](crates/imoney-node): Full node daemon with embedded pure-Rust `redb` ACID storage, REST/WebSocket API, and TCP P2P gossip sync.
@@ -112,4 +112,4 @@ cargo run --release --bin imoney-miner -- --benchmark
 ---
 
 ## 📜 License
-Licensed under either of [MIT](LICENSE) or [Apache-2.0](LICENSE-APACHE) at your option.
+Licensed under either of [MIT](LICENSE) or [Apache-2.0](LICENSE-APACHE) at your option, with one exception: [`crates/imoney-pow/src/fishhash.rs`](crates/imoney-pow/src/fishhash.rs) is a port of Iron Fish's FishHash implementation and is licensed under the [MPL-2.0](https://mozilla.org/MPL/2.0/).

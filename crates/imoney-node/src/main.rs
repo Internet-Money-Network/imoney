@@ -84,7 +84,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("============================================================");
     println!("  {} ({}) - Full Node Daemon [TESTNET-1]", CURRENCY_NAME, TICKER);
     println!("  Consensus: GHOSTDAG @ 5s Block Time (0.2 BPS)");
-    println!("  PoW: Money Printer (ASIC-Resistant Memory-Hard)");
+    println!("  PoW: Money Printer (FishHash, memory-hard)");
     println!("  Storage: Persistent ACID Embedded DB (redb)");
     println!("  Data Directory: {:?}", args.data_dir);
     println!("  RPC / Web Dashboard: http://{}", args.rpc_bind);
@@ -105,11 +105,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    // Verifying blocks needs only the small cache; mining holds the full dataset in memory.
-    // The genesis hash seeds the proof of work, tying it to this network.
+    // Money Printer is FishHash with a seed derived from this network's genesis hash.
+    // Verifying blocks needs only the light cache; mining holds the full dataset in memory.
     let pow_mode = if args.auto_mine { PowMode::Full } else { PowMode::Light };
     let pow = Arc::new(MoneyPrinterPow::new(PowParams::testnet(), create_testnet_genesis().hash(), pow_mode));
-    println!("[+] Money Printer PoW ready ({:?} mode).", pow_mode);
+    println!("[*] Building Money Printer (FishHash) memory in {:?} mode...", pow_mode);
+    pow.context();
+    println!("[+] Money Printer PoW ready.");
 
     println!("[*] Opening persistent database at {:?}...", db_path);
     let mut ledger_instance = DagLedger::open(&db_path, mining_address)?;
@@ -164,11 +166,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let template = ledger_clone.read().await.get_mining_template(None);
                 let pre_pow_hash = template.pre_pow_hash;
                 let bits = template.block.header.bits;
-                let daa_score = template.block.header.daa_score;
                 let start_nonce = rand::random::<u32>() as u64;
                 let worker = pow_clone.clone();
                 let found = tokio::task::spawn_blocking(move || {
-                    worker.mine(&pre_pow_hash, bits, start_nonce, AUTO_MINE_BATCH, Arc::new(AtomicBool::new(false)), daa_score)
+                    worker.mine(&pre_pow_hash, bits, start_nonce, AUTO_MINE_BATCH, Arc::new(AtomicBool::new(false)))
                 })
                 .await
                 .ok()

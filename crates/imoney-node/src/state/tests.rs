@@ -17,8 +17,7 @@ fn key(seed: u8) -> SigningKey {
 }
 
 fn test_pow() -> MoneyPrinterPow {
-    let params = PowParams { cache_items: 64, dataset_items: 1024, epoch_blocks: 120_960 };
-    MoneyPrinterPow::new(params, Hash([1u8; 32]), PowMode::Full)
+    MoneyPrinterPow::new(PowParams::tiny(), Hash([1u8; 32]), PowMode::Full)
 }
 
 fn test_params() -> ConsensusParams {
@@ -43,7 +42,7 @@ fn solve(mut block: Block, pow: &MoneyPrinterPow) -> Block {
     block.header.hash_merkle_root = Block::compute_merkle_root(&block.transactions);
     let pre_pow_hash = block.header.pre_pow_hash().unwrap();
     let (nonce, _) = pow
-        .mine(&pre_pow_hash, block.header.bits, 0, 1_000_000, Arc::new(AtomicBool::new(false)), block.header.daa_score)
+        .mine(&pre_pow_hash, block.header.bits, 0, 1_000_000, Arc::new(AtomicBool::new(false)))
         .expect("test difficulty must be minable");
     block.header.nonce = nonce;
     block

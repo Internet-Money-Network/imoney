@@ -32,8 +32,7 @@ impl TestNode {
         params.coinbase_maturity = 2;
         params.daa.retarget = false;
         let ledger: SharedLedger = Arc::new(RwLock::new(DagLedger::open_with_params(path, None, params).unwrap()));
-        let pow_params = PowParams { cache_items: 64, dataset_items: 1024, epoch_blocks: 120_960 };
-        let pow = Arc::new(MoneyPrinterPow::new(pow_params, Hash([1u8; 32]), PowMode::Full));
+        let pow = Arc::new(MoneyPrinterPow::new(PowParams::tiny(), Hash([1u8; 32]), PowMode::Full));
         let manager = Arc::new(PeerManager::with_magic(ledger.clone(), pow.clone(), 0, magic));
         let addr = manager.clone().start_server("127.0.0.1:0".parse().unwrap()).await.unwrap();
         Self { manager, ledger, pow, addr }
@@ -49,14 +48,7 @@ impl TestNode {
         let template = ledger.get_mining_template(Some(payout));
         let (nonce, _) = self
             .pow
-            .mine(
-                &template.pre_pow_hash,
-                template.block.header.bits,
-                0,
-                1_000_000,
-                Arc::new(AtomicBool::new(false)),
-                template.block.header.daa_score,
-            )
+            .mine(&template.pre_pow_hash, template.block.header.bits, 0, 1_000_000, Arc::new(AtomicBool::new(false)))
             .unwrap();
         let block = template.into_block(nonce);
         let hash = ledger.add_block(block.clone(), &self.pow).unwrap();
@@ -281,7 +273,7 @@ async fn peer_sending_invalid_blocks_is_banned() {
         let pre_pow_hash = block.header.pre_pow_hash().unwrap();
         let (found, _) = a
             .pow
-            .mine(&pre_pow_hash, block.header.bits, 0, 1_000_000, Arc::new(AtomicBool::new(false)), block.header.daa_score)
+            .mine(&pre_pow_hash, block.header.bits, 0, 1_000_000, Arc::new(AtomicBool::new(false)))
             .unwrap();
         block.header.nonce = found;
         write_frame(&mut stream, MAGIC, &Message::Block(block)).await.unwrap();

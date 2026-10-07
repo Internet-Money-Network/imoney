@@ -671,7 +671,7 @@ impl DagLedger {
 
         // Validate Proof of Work
         let pre_pow_hash = header.pre_pow_hash().map_err(|e| StateError::Header(e.to_string()))?;
-        let pow_hash = pow_engine.calculate_hash(&pre_pow_hash, header.nonce, header.daa_score);
+        let pow_hash = pow_engine.calculate_hash(&pre_pow_hash, header.nonce);
         if !is_valid_pow(&pow_hash, header.bits) {
             return Err(StateError::InvalidPoW(block_hash));
         }

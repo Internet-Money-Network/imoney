@@ -29,20 +29,32 @@ With an honest network share $\alpha \ge 0.5$, a cluster parameter of $k = 8$ pr
 
 ## 3. Proof-of-Work: The "Money Printer" Engine
 
-### 3.1 Design Philosophy
-Algorithms that rely solely on arithmetic compute (e.g. SHA-256, kHeavyHash) are quickly dominated by custom chips. Money Printer is designed so that the cost of a hash is dominated by random reads from a large block of memory, which commodity graphics cards already do well. This is a design goal. The algorithm below has not been independently reviewed, and its resistance to specialised hardware is unproven.
+### 3.1 Algorithm
+**Money Printer is FishHash with a network-specific seed.** FishHash is the Ethash-family, memory-hard algorithm designed for Iron Fish and also used by Karlsen. Internet Money did not design it and does not change it; `crates/imoney-pow/src/fishhash.rs` is a port of Iron Fish's reference implementation and is tested byte-for-byte against it.
 
-### 3.2 Cache and dataset
-Each epoch has a seed derived from the network's genesis hash and the epoch number. An epoch lasts 120,960 blocks by DAA score (one week at the target rate).
+Memory-hard algorithms make each hash depend on random reads from a large block of memory, which commodity graphics cards do well. This limits the advantage of custom chips; it does not rule them out. No FishHash ASIC is publicly known at the time of writing.
 
-1. **Cache.** A list of 64-byte items built from the seed: a Blake3 hash chain, followed by two passes in which each item is rewritten from its neighbour and an item selected by its own contents. The cache must be built in order. It is 16 MB on mainnet and 64 KB on testnet.
-2. **Dataset.** Item *i* of the dataset is computed from the cache alone: it starts from cache item *i* mod the cache size, is combined with 16 cache items selected by the running value, and is hashed. The dataset is 4.3 GB on mainnet and 4 MB on testnet.
+### 3.2 Parameters
+| | Mainnet (FishHash specification) | Testnet |
+| :--- | :--- | :--- |
+| Light cache | 1,179,641 items of 64 bytes (about 75 MB) | 16,411 items (about 1 MB) |
+| Dataset | 37,748,717 items of 128 bytes (about 4.6 GB) | 262,147 items (about 32 MB) |
+| Dataset reads per hash | 32 rounds of 3 items | same |
 
-### 3.3 Hash
-The header's pre-proof-of-work hash and the nonce are expanded with Blake3 into a 64-byte mix of eight 64-bit lanes. Then, 32 times, a dataset position is taken from the mix, that item is read, and each lane is combined with it by XOR, rotation and multiplication, with a diffusion step across lanes. Every read position depends on all earlier reads. The final hash is Blake3 over the initial expansion and the final mix, and must not exceed the block's target.
+The testnet sizes are small so that a CPU can mine. They are not FishHash-compatible; a testnet for GPU miners would use the mainnet sizes.
 
-### 3.4 Verification without the dataset
-Because any dataset item can be computed from the cache, a node verifies a block by computing only the 32 items that block's hash reads. A verifying node therefore holds the cache, not the dataset. Miners hold the full dataset so that each read is a single memory access.
+### 3.3 Network seed
+FishHash builds its cache from a 32-byte seed. Each Internet Money network uses its own:
+
+`seed = Blake3-derive-key("IMN 2026 Money Printer seed", genesis block hash)`
+
+A different seed gives a different dataset, so the dataset of another FishHash network (or of another Internet Money network) is of no use here. The seed never changes, so there are no epochs and the dataset is built once.
+
+### 3.4 Block hashing
+The input to FishHash is 40 bytes: the header's 32-byte pre-proof-of-work hash followed by the 8-byte little-endian nonce. The 32-byte output, read as a big-endian number, must not exceed the block's target.
+
+### 3.5 Verification without the dataset
+Any dataset item can be computed from the light cache alone, so a node verifies a block by computing only the 96 items that block's hash reads. A verifying node holds the cache, not the dataset. Miners hold the full dataset so that each read is a single memory access.
 
 ---
 
