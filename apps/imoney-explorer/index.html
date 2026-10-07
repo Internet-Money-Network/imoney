@@ -122,6 +122,13 @@
       color: var(--text-bright);
       font-family: monospace;
     }
+    .stat-sub {
+      font-size: 11px;
+      color: #8b949e;
+      margin-top: 4px;
+      min-height: 14px;
+    }
+
     .main-grid {
       display: grid;
       grid-template-columns: 2fr 1fr;
@@ -240,28 +247,54 @@
     <!-- Network KPI Metrics Banner -->
     <div class="stats-grid">
       <div class="stat-card">
-        <div class="stat-label">Virtual Blue Score</div>
-        <div class="stat-val" id="kpi-blue-score" style="color: var(--accent-green);">-</div>
+        <div class="stat-label">Network Hashrate</div>
+        <div class="stat-val" id="kpi-hashrate" style="color: var(--accent-green);">-</div>
+        <div class="stat-sub" id="kpi-hashrate-sub"></div>
       </div>
       <div class="stat-card">
-        <div class="stat-label">DAA Score (Height)</div>
-        <div class="stat-val" id="kpi-daa-score">-</div>
+        <div class="stat-label">Difficulty</div>
+        <div class="stat-val" id="kpi-difficulty">-</div>
+        <div class="stat-sub" id="kpi-bits"></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Block Time</div>
+        <div class="stat-val" id="kpi-block-time">-</div>
+        <div class="stat-sub">target 5 s</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Height (Blue Score)</div>
+        <div class="stat-val" id="kpi-blue-score" style="color: var(--accent-blue);">-</div>
+        <div class="stat-sub" id="kpi-total-blocks"></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Circulating Supply</div>
+        <div class="stat-val" id="kpi-supply">-</div>
+        <div class="stat-sub" id="kpi-inflation"></div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Block Reward</div>
-        <div class="stat-val" id="kpi-reward" style="color: #e3b341;">- IMN</div>
+        <div class="stat-val" id="kpi-reward" style="color: #e3b341;">-</div>
+        <div class="stat-sub" id="kpi-halving"></div>
       </div>
       <div class="stat-card">
-        <div class="stat-label">Difficulty Bits</div>
-        <div class="stat-val" id="kpi-bits">-</div>
+        <div class="stat-label">Payments</div>
+        <div class="stat-val" id="kpi-payments">-</div>
+        <div class="stat-sub" id="kpi-tps"></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Waiting (Mempool)</div>
+        <div class="stat-val" id="kpi-mempool">-</div>
+        <div class="stat-sub" id="kpi-min-fee"></div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Connected Peers</div>
-        <div class="stat-val" id="kpi-peers" style="color: var(--accent-blue);">-</div>
+        <div class="stat-val" id="kpi-peers">-</div>
+        <div class="stat-sub" id="kpi-node-type"></div>
       </div>
       <div class="stat-card">
-        <div class="stat-label">Mempool Pending</div>
-        <div class="stat-val" id="kpi-mempool">-</div>
+        <div class="stat-label">Open Tips</div>
+        <div class="stat-val" id="tips-count">-</div>
+        <div class="stat-sub">blocks not yet built on</div>
       </div>
     </div>
 
@@ -288,6 +321,23 @@
             </span>
             <span style="display: flex; align-items: center; gap: 6px;">
               <span style="width: 8px; height: 8px; border: 3px solid #58a6ff; border-radius: 50%; display: inline-block;"></span> Tip
+            </span>
+          </div>
+        </div>
+
+        <!-- Difficulty and block time over recent blocks -->
+        <div class="card">
+          <div class="card-title">
+            <span>Difficulty and block time</span>
+            <span style="font-size: 11px; color: #8b949e;" id="trend-range"></span>
+          </div>
+          <canvas id="trend-canvas" width="800" height="200"></canvas>
+          <div style="display: flex; gap: 16px; margin-top: 10px; font-size: 12px; color: #8b949e;">
+            <span style="display: flex; align-items: center; gap: 6px;">
+              <span style="width: 14px; height: 3px; background: #58a6ff; display: inline-block;"></span> Difficulty
+            </span>
+            <span style="display: flex; align-items: center; gap: 6px;">
+              <span style="width: 10px; height: 10px; background: rgba(57, 211, 83, 0.55); display: inline-block;"></span> Seconds since the previous block (dashed line: 5 s target)
             </span>
           </div>
         </div>
@@ -338,10 +388,33 @@
               <span style="color: #8b949e;">Storage Engine:</span>
               <b>Pure-Rust redb (ACID)</b>
             </div>
-            <div style="display: flex; justify-content: space-between; padding: 6px 0;">
+            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #21262d; padding: 6px 0;">
               <span style="color: #8b949e;">Permanent Emission Floor:</span>
               <b>0.3125 IMN / block</b>
             </div>
+            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #21262d; padding: 6px 0;">
+              <span style="color: #8b949e;">Halving:</span>
+              <b>every 4 years, 4 times</b>
+            </div>
+            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #21262d; padding: 6px 0;">
+              <span style="color: #8b949e;">Finality:</span>
+              <b id="rule-finality">12 hours</b>
+            </div>
+            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #21262d; padding: 6px 0;">
+              <span style="color: #8b949e;">Block Size Limit:</span>
+              <b>100 KB</b>
+            </div>
+            <div style="display: flex; justify-content: space-between; padding: 6px 0;">
+              <span style="color: #8b949e;">Fee Split:</span>
+              <b>half to miner, half to serving node</b>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Recent payments</div>
+          <div id="recent-payments" style="font-size: 13px; line-height: 1.6;">
+            <span style="color: #8b949e;">No payments in the recent blocks.</span>
           </div>
         </div>
 
@@ -357,8 +430,8 @@
               <b>18555 (TCP)</b>
             </div>
             <div style="display: flex; justify-content: space-between; padding: 6px 0;">
-              <span style="color: #8b949e;">DAG Tip Count:</span>
-              <b id="tips-count" style="color: var(--accent-blue);">-</b>
+              <span style="color: #8b949e;">Network:</span>
+              <b id="node-network">-</b>
             </div>
           </div>
         </div>
@@ -400,22 +473,144 @@
       return res.json();
     }
 
+    // 1234567 -> "1.23 M", with a unit appended
+    function scaled(value, unit) {
+      const steps = ['', 'k', 'M', 'G', 'T', 'P', 'E'];
+      let i = 0;
+      while (value >= 1000 && i < steps.length - 1) {
+        value /= 1000;
+        i += 1;
+      }
+      return (value >= 100 || i === 0 ? value.toFixed(0) : value.toFixed(2)) + ' ' + steps[i] + unit;
+    }
+    const grouped = (value) => Math.round(value).toLocaleString('en-US');
+
+    function duration(days) {
+      if (days >= 730) return (days / 365).toFixed(1) + ' years';
+      if (days >= 2) return Math.round(days) + ' days';
+      return Math.round(days * 24) + ' hours';
+    }
+
+    // Expected hashes to mine a block with the given compact difficulty bits
+    function difficultyFromBits(bitsHex) {
+      const bits = parseInt(bitsHex, 16);
+      const size = bits >>> 24;
+      const mantissa = bits & 0x7fffff;
+      return mantissa ? Math.pow(2, 256) / (mantissa * Math.pow(256, size - 3)) : 0;
+    }
+
     async function fetchNodeData() {
       try {
-        const [info, blocks] = await Promise.all([getJson('/api/v1/info'), getJson('/api/v1/blocks?limit=80')]);
-        $('kpi-blue-score').innerText = info.virtual_blue_score;
-        $('kpi-daa-score').innerText = '#' + info.virtual_daa_score;
-        $('kpi-reward').innerText = info.current_block_reward_imn.toFixed(4) + ' IMN';
-        $('kpi-bits').innerText = info.current_bits;
-        $('kpi-mempool').innerText = info.mempool_size;
-        $('tips-count').innerText = info.tips.length;
-        $('network-alert').style.display = info.network_alert ? 'block' : 'none';
+        const [stats, blocks] = await Promise.all([getJson('/api/v1/stats'), getJson('/api/v1/blocks?limit=300')]);
+        $('kpi-hashrate').innerText = stats.window_seconds > 0 ? scaled(stats.hashrate_hps, 'H/s') : '-';
+        $('kpi-hashrate-sub').innerText = 'estimated from the last ' + stats.window_blocks + ' blocks';
+        $('kpi-difficulty').innerText = scaled(stats.difficulty, '');
+        $('kpi-bits').innerText = 'bits ' + stats.difficulty_bits;
+        $('kpi-block-time').innerText = stats.average_block_time_sec > 0 ? stats.average_block_time_sec.toFixed(1) + ' s' : '-';
+        $('kpi-blue-score').innerText = grouped(stats.blue_score);
+        $('kpi-total-blocks').innerText = grouped(stats.total_blocks) + ' blocks in total';
+        $('kpi-supply').innerText = grouped(stats.circulating_supply_imn) + ' IMN';
+        $('kpi-inflation').innerText = stats.circulating_supply_imn > 0 && stats.annual_inflation_percent < 1000
+          ? stats.annual_inflation_percent.toFixed(1) + '% new supply per year at this reward'
+          : 'no cap; reward falls to 0.3125';
+        $('kpi-reward').innerText = stats.block_reward_imn + ' IMN';
+        $('kpi-halving').innerText = stats.days_until_halving != null
+          ? 'halves in ' + duration(stats.days_until_halving) + ' (' + grouped(stats.blocks_until_halving) + ' blocks)'
+          : 'permanent floor reached';
+        $('kpi-payments').innerText = grouped(stats.transactions_in_window);
+        $('kpi-tps').innerText = 'in the last ' + stats.window_blocks + ' blocks (' + stats.transactions_per_second.toFixed(2) + ' per second)';
+        $('kpi-mempool').innerText = grouped(stats.mempool_size);
+        $('kpi-min-fee').innerText = 'minimum fee ' + stats.min_relay_fee_atoms_per_byte + ' atoms per byte';
+        $('kpi-peers').innerText = stats.peers;
+        $('kpi-node-type').innerText = stats.archival ? 'this node keeps full history' : 'this node prunes old blocks';
+        $('tips-count').innerText = stats.tips;
+        $('node-network').innerText = stats.network;
+        $('rule-finality').innerText = duration(stats.finality_depth * 5 / 86400);
+        $('network-alert').style.display = stats.network_alert ? 'block' : 'none';
 
-        drawDag(blocks, info.virtual_selected_parent);
+        drawDag(blocks, stats.selected_tip);
+        drawTrends(blocks);
         renderBlocksTable(blocks);
-        getJson('/api/v1/peers').then((peers) => ($('kpi-peers').innerText = peers.total_connected)).catch(() => {});
+        renderRecentPayments(stats.recent_transactions);
       } catch (err) {
         $('blocks-tbody').innerHTML = '<tr><td colspan="4" style="text-align: center; color: #f85149;">Cannot reach the node at ' + escapeHtml(NODE_URL) + '</td></tr>';
+      }
+    }
+
+    // Difficulty as a line (log scale) over the time between blocks as bars
+    function drawTrends(blocks) {
+      const canvas = $('trend-canvas');
+      const ctx = canvas.getContext('2d');
+      const w = canvas.width;
+      const h = canvas.height;
+      ctx.clearRect(0, 0, w, h);
+      const mined = blocks.filter((b) => b.parents.length).sort((a, b) => a.timestamp_ms - b.timestamp_ms || a.daa_score - b.daa_score);
+      if (mined.length < 3) return;
+      $('trend-range').innerText = 'last ' + mined.length + ' blocks';
+
+      const left = 8;
+      const right = w - 8;
+      const top = 10;
+      const bottom = h - 18;
+      const x = (i) => left + (right - left) * (i / (mined.length - 1));
+
+      // Bars: seconds since the previous block, capped so one long gap does not flatten the rest
+      const gaps = mined.map((b, i) => (i === 0 ? 0 : (b.timestamp_ms - mined[i - 1].timestamp_ms) / 1000));
+      const cap = 30;
+      const barWidth = Math.max(1, (right - left) / mined.length - 1);
+      ctx.fillStyle = 'rgba(57, 211, 83, 0.55)';
+      gaps.forEach((gap, i) => {
+        const height = (Math.min(gap, cap) / cap) * (bottom - top);
+        ctx.fillRect(x(i) - barWidth / 2, bottom - height, barWidth, height);
+      });
+      const targetY = bottom - (5 / cap) * (bottom - top);
+      ctx.strokeStyle = 'rgba(57, 211, 83, 0.9)';
+      ctx.setLineDash([4, 4]);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(left, targetY);
+      ctx.lineTo(right, targetY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Line: difficulty on a log scale, since it spans many orders of magnitude after launch
+      const logs = mined.map((b) => Math.log10(Math.max(difficultyFromBits(b.bits), 1)));
+      const low = Math.min(...logs);
+      const high = Math.max(...logs);
+      const span = high - low || 1;
+      ctx.strokeStyle = '#58a6ff';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      logs.forEach((value, i) => {
+        const y = bottom - ((value - low) / span) * (bottom - top);
+        if (i === 0) ctx.moveTo(x(i), y);
+        else ctx.lineTo(x(i), y);
+      });
+      ctx.stroke();
+
+      ctx.fillStyle = '#8b949e';
+      ctx.font = '10px monospace';
+      ctx.textAlign = 'left';
+      ctx.fillText('difficulty ' + scaled(Math.pow(10, low), '') + ' to ' + scaled(Math.pow(10, high), ''), left, h - 4);
+      ctx.textAlign = 'right';
+      ctx.fillText('bars capped at ' + cap + ' s', right, h - 4);
+    }
+
+    function renderRecentPayments(payments) {
+      const box = $('recent-payments');
+      if (!payments.length) {
+        box.innerHTML = '<span style="color: #8b949e;">No payments in the recent blocks.</span>';
+        return;
+      }
+      box.innerHTML = '';
+      for (const payment of payments) {
+        const row = document.createElement('div');
+        row.style.cssText = 'display: flex; justify-content: space-between; gap: 10px; border-bottom: 1px solid #21262d; padding: 6px 0; cursor: pointer;';
+        row.innerHTML =
+          '<span class="hash">' + short(payment.tx_id) + '</span>' +
+          '<span><b>' + (payment.amount_atoms / 1e8) + ' IMN</b> <span style="color: #8b949e;">' + age(payment.timestamp_ms) + '</span></span>';
+        row.addEventListener('click', () => showTransaction(payment.tx_id));
+        box.appendChild(row);
       }
     }
 
@@ -522,7 +717,10 @@
           line('Hash', code(block.hash)),
           line('Blue score', block.blue_score + ' &nbsp; <b>DAA score:</b> ' + block.daa_score),
           line('Mined', block.parents.length ? escapeHtml(new Date(block.timestamp_ms).toLocaleString()) + ' (' + age(block.timestamp_ms) + ')' : 'genesis'),
-          line('Difficulty bits', code(block.bits)),
+          block.miner_address ? line('Mined by', code(block.miner_address)) : '',
+          line('Reward', block.reward_imn + ' IMN plus fees'),
+          line('Difficulty', scaled(block.difficulty, '') + ' (bits ' + escapeHtml(block.bits) + ') &nbsp; <b>Nonce:</b> ' + block.nonce),
+          line('Size', grouped(block.size_bytes) + ' bytes'),
           line('Parents', block.parents.map(code).join('<br>') || 'none'),
           line('Merges', (block.mergeset_blues.length) + ' blue, ' + block.mergeset_reds.length + ' red'),
           line('Transactions (' + block.transaction_ids.length + ', the first is the miner reward)', block.transaction_ids.map(code).join('<br>')),
@@ -559,7 +757,11 @@
           line('ID', code(tx.tx_id)),
           line('Status', tx.status === 'pending' ? 'Seen by the node, not yet in a block' : 'In a block, ' + tx.confirmations + ' confirmation' + (tx.confirmations === 1 ? '' : 's')),
           tx.block_hash ? line('Block', code(tx.block_hash)) : '',
+          tx.invoice_id ? line('Invoice', code(tx.invoice_id)) : '',
+          line('Outputs', tx.outputs.map((o) => (o.address ? code(o.address) : 'unknown script') + ' &nbsp; <b>' + o.amount_imn + ' IMN</b>').join('<br>')),
           line('Total sent', tx.total_output_imn + ' IMN'),
+          tx.service_address ? line('Fee shared with node', code(tx.service_address)) : '',
+          line('Size', grouped(tx.size_bytes) + ' bytes'),
         ].join(''));
         return true;
       } catch {

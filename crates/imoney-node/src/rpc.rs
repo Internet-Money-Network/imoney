@@ -1,5 +1,5 @@
 use crate::p2p::PeerManager;
-use crate::state::{LedgerEvent, MiningTemplate, SharedLedger};
+use crate::state::{LedgerEvent, MiningTemplate, NetworkStats, SharedLedger};
 use axum::extract::ws::{Message as WsMessage, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, Query, Request, State};
 use axum::middleware::{self, Next};
@@ -21,6 +21,8 @@ pub struct AppState {
     pub p2p: Arc<PeerManager>,
     /// When set, mining submission and wallet calls require `Authorization: Bearer <token>`.
     pub rpc_token: Option<String>,
+    /// The last computed network statistics and the tip they were computed for.
+    pub stats_cache: std::sync::Mutex<Option<(Hash, NetworkStats)>>,
 }
 
 
@@ -114,6 +116,40 @@ pub struct TxStatusResponse {
     pub outputs_count: usize,
     pub total_output_atoms: u64,
     pub total_output_imn: f64,
+    /// Where the money went. An output without an address uses a script type this node cannot name.
+    pub outputs: Vec<TxOutputView>,
+    /// The invoice the payment names, if any.
+    pub invoice_id: Option<String>,
+    /// The node address that receives half of the fee, if the payment names one.
+    pub service_address: Option<String>,
+    pub size_bytes: usize,
+}
+
+#[derive(Serialize)]
+pub struct TxOutputView {
+    pub address: Option<String>,
+    pub amount_atoms: u64,
+    pub amount_imn: f64,
+}
+
+/// Network statistics plus the figures that change between blocks.
+#[derive(Serialize)]
+pub struct StatsResponse {
+    #[serde(flatten)]
+    pub stats: NetworkStats,
+    pub network: String,
+    /// The tip the selected chain ends in.
+    pub selected_tip: String,
+    pub blue_score: u64,
+    pub daa_score: u64,
+    pub total_blocks: usize,
+    pub tips: usize,
+    pub mempool_size: usize,
+    pub peers: usize,
+    pub finality_depth: u64,
+    pub network_alert: bool,
+    pub archival: bool,
+    pub min_relay_fee_atoms_per_byte: u64,
 }
 
 #[derive(Deserialize)]
@@ -142,6 +178,13 @@ pub struct BlockDetailResponse {
     pub mergeset_blues: Vec<String>,
     pub mergeset_reds: Vec<String>,
     pub transaction_ids: Vec<String>,
+    /// The address the block's reward is paid to, when the coinbase names one.
+    pub miner_address: Option<String>,
+    pub reward_imn: f64,
+    pub size_bytes: usize,
+    /// Expected number of hashes needed to mine this block.
+    pub difficulty: f64,
+    pub nonce: u64,
 }
 
 #[derive(Serialize)]
@@ -161,7 +204,7 @@ pub fn create_router(
         .allow_methods(Any)
         .allow_headers(Any);
 
-    let state = Arc::new(AppState { ledger, pow, p2p, rpc_token });
+    let state = Arc::new(AppState { ledger, pow, p2p, rpc_token, stats_cache: std::sync::Mutex::new(None) });
 
     // Read-only queries and broadcasting an already-signed transaction: callable from any website,
     // which is what lets a merchant's checkout page talk to the merchant's node.
@@ -169,6 +212,7 @@ pub fn create_router(
         .route("/api/v1/info", get(info_handler))
         .route("/api/v1/tips", get(tips_handler))
         .route("/api/v1/peers", get(peers_handler))
+        .route("/api/v1/stats", get(stats_handler))
         .route("/api/v1/blocks", get(blocks_handler))
         .route("/api/v1/block/:hash", get(block_handler))
         .route("/api/v1/mining/template", get(template_handler))
@@ -232,6 +276,47 @@ fn block_summary(ledger: &crate::state::DagLedger, hash: &Hash, header: &imoney_
     }
 }
 
+/// The readable address of a locking script, when it is a known address type.
+fn script_address(network: imoney_core::Network, script: &ScriptPublicKey) -> Option<String> {
+    let address_type = imoney_core::AddressType::from_u8(script.version)?;
+    let hash: [u8; 32] = script.script.as_slice().try_into().ok()?;
+    Some(Address::new(network, address_type, Hash(hash)).to_string())
+}
+
+/// Hashrate, difficulty, supply and the other network-wide figures. The expensive part is
+/// computed once per new tip and reused until the tip changes.
+async fn stats_handler(State(state): State<Arc<AppState>>) -> Result<Json<StatsResponse>, StatusCode> {
+    let peers = state.p2p.get_connected_peers().await.len();
+    let ledger = state.ledger.read().await;
+    let tip = ledger.virtual_selected_parent;
+
+    let cached = state.stats_cache.lock().unwrap().as_ref().filter(|(at, _)| *at == tip).map(|(_, stats)| stats.clone());
+    let stats = match cached {
+        Some(stats) => stats,
+        None => {
+            let stats = ledger.network_stats().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            *state.stats_cache.lock().unwrap() = Some((tip, stats.clone()));
+            stats
+        }
+    };
+    let info = ledger.get_info();
+    Ok(Json(StatsResponse {
+        stats,
+        network: info.network,
+        selected_tip: info.virtual_selected_parent,
+        blue_score: info.virtual_blue_score,
+        daa_score: info.virtual_daa_score,
+        total_blocks: info.total_blocks,
+        tips: info.tips.len(),
+        mempool_size: info.mempool_size,
+        peers,
+        finality_depth: info.finality_depth,
+        network_alert: info.network_alert,
+        archival: info.archival,
+        min_relay_fee_atoms_per_byte: crate::mempool::MIN_RELAY_FEE_PER_BYTE,
+    }))
+}
+
 /// Most recent blocks, newest first. `limit` defaults to 50 and is capped at 500.
 async fn blocks_handler(
     State(state): State<Arc<AppState>>,
@@ -266,6 +351,15 @@ async fn block_handler(
         mergeset_blues: ghostdag.mergeset_blues.iter().map(|h| h.to_hex()).collect(),
         mergeset_reds: ghostdag.mergeset_reds.iter().map(|h| h.to_hex()).collect(),
         transaction_ids: block.transactions.iter().map(|tx| tx.id().to_hex()).collect(),
+        miner_address: block
+            .transactions
+            .first()
+            .and_then(|coinbase| coinbase.outputs.first())
+            .and_then(|output| script_address(ledger.network, &output.script_public_key)),
+        reward_imn: imoney_emission::block_subsidy_imn(header.daa_score),
+        size_bytes: imoney_core::Encode::to_bytes(&block).len(),
+        difficulty: ledger.dag.get(&hash).work as f64,
+        nonce: header.nonce,
     }))
 }
 
@@ -354,6 +448,7 @@ async fn dashboard_handler(State(state): State<Arc<AppState>>) -> Html<String> {
             • Balance Lookup: <code>GET /api/v1/address/:addr/balance</code><br>
             • Invoice Status: <code>GET /api/v1/invoice/:id?address=:addr</code><br>
             • Unspent Coins (UTXOs): <code>GET /api/v1/address/:addr/utxos</code><br>
+            • Network Statistics: <code>GET /api/v1/stats</code><br>
             • Recent Blocks: <code>GET /api/v1/blocks?limit=50</code><br>
             • Mining Work: <code>GET /api/v1/mining/template?address=:addr</code><br>
             • Block Submission: <code>POST /api/v1/mining/submit</code>
@@ -572,6 +667,19 @@ async fn tx_status_handler(
                 outputs_count: info.tx.outputs.len(),
                 total_output_atoms: total_out_atoms,
                 total_output_imn: total_out_imn,
+                outputs: info
+                    .tx
+                    .outputs
+                    .iter()
+                    .map(|output| TxOutputView {
+                        address: script_address(ledger.network, &output.script_public_key),
+                        amount_atoms: output.value_atoms,
+                        amount_imn: (output.value_atoms as f64) / (imoney_core::constants::ATOMS_PER_IMN as f64),
+                    })
+                    .collect(),
+                invoice_id: info.tx.invoice_id().map(str::to_string),
+                service_address: info.tx.service.as_ref().and_then(|script| script_address(ledger.network, script)),
+                size_bytes: imoney_core::Encode::to_bytes(&info.tx).len(),
             }))
         }
         Ok(None) => Ok(Json(TxStatusResponse {
@@ -584,6 +692,10 @@ async fn tx_status_handler(
             outputs_count: 0,
             total_output_atoms: 0,
             total_output_imn: 0.0,
+            outputs: Vec::new(),
+            invoice_id: None,
+            service_address: None,
+            size_bytes: 0,
         })),
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
     }

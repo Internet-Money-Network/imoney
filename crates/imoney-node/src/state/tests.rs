@@ -1,4 +1,5 @@
 use super::*;
+use imoney_core::constants::BLOCKS_PER_HALVING_ERA;
 use ed25519_dalek::SigningKey;
 use imoney_core::{AddressType, TxInput};
 use imoney_pow::{PowMode, PowParams};
@@ -104,6 +105,32 @@ fn expected_supply(ledger: &DagLedger) -> u128 {
         }
         data = &ledger.dag.get(&data.selected_parent).ghostdag;
     }
+}
+
+#[test]
+fn network_stats_reflect_the_recent_blocks() {
+    let payer = key(170);
+    let shop = address_of(&key(171));
+    let (mut ledger, pow) = funded_ledger("stats", &payer);
+    let payment = pay(&ledger, &payer, &shop, 12_345, 1_000);
+    let payment_id = ledger.broadcast_transaction(payment).unwrap();
+    let carrying = mine_tip(&mut ledger, &pow, &address_of(&key(200)));
+    mine_tip(&mut ledger, &pow, &address_of(&key(200)));
+
+    let stats = ledger.network_stats().unwrap();
+    assert_eq!(stats.window_blocks, ledger.blocks.len() - 1); // every block except genesis
+    assert_eq!(stats.difficulty, 2.0); // the easiest target: one hash in two succeeds
+    assert_eq!(stats.difficulty_bits, "0x207fffff");
+    assert_eq!(stats.transactions_in_window, 1);
+    assert_eq!(stats.recent_transactions.len(), 1);
+    assert_eq!(stats.recent_transactions[0].tx_id, payment_id.to_hex());
+    assert_eq!(stats.recent_transactions[0].block_hash, carrying.to_hex());
+    assert_eq!(stats.circulating_supply_atoms, ledger.storage.total_utxo_atoms().unwrap());
+    assert_eq!(stats.block_reward_imn, 5.0);
+    assert!(stats.annual_inflation_percent > 0.0);
+    assert_eq!(stats.blocks_until_halving, Some(BLOCKS_PER_HALVING_ERA - ledger.virtual_daa_score));
+    // Blocks in these tests are mined back to back, so only the signs are meaningful
+    assert!(stats.hashrate_hps >= 0.0 && stats.average_block_time_sec >= 0.0);
 }
 
 #[test]

@@ -5,7 +5,10 @@ use crate::storage::{
     META_SINK, META_VIRTUAL_ACCEPTANCE,
 };
 use imoney_consensus::{work_from_bits, DaaParams, Dag, DagBlock, GhostdagData, GhostdagError, GhostdagParams};
-use imoney_core::constants::{ATOMS_PER_IMN, MAX_BLOCK_BYTES, MAX_BLOCK_PARENTS, MAX_TX_BYTES, TARGET_TIME_PER_BLOCK_MS};
+use imoney_core::constants::{
+    ATOMS_PER_IMN, BLOCKS_PER_HALVING_ERA, BLOCKS_PER_YEAR, MAX_BLOCK_BYTES, MAX_BLOCK_PARENTS, MAX_TX_BYTES,
+    TARGET_TIME_PER_BLOCK_MS,
+};
 use imoney_core::serialize::tagged_hash;
 use imoney_core::{
     Address, Block, BlockError, BlockHeader, Decode, Encode, Hash, Network, Outpoint, ScriptPublicKey, Transaction,
@@ -160,6 +163,47 @@ pub struct TxInfo {
     pub block_hash: Option<Hash>,
     /// 0 while pending; grows as blue blocks are added after acceptance.
     pub confirmations: u64,
+}
+
+/// Blocks looked at when estimating hashrate, block time and transaction rate.
+pub const STATS_WINDOW: usize = 144;
+
+/// A payment recently carried by a block, for display.
+#[derive(Clone, Debug, Serialize)]
+pub struct RecentTransaction {
+    pub tx_id: String,
+    pub block_hash: String,
+    pub amount_atoms: u64,
+    pub timestamp_ms: u64,
+}
+
+/// Network-wide figures derived from the recent blocks and the current ledger.
+#[derive(Clone, Debug, Serialize)]
+pub struct NetworkStats {
+    /// Expected number of hashes needed to mine a block at the current difficulty.
+    pub difficulty: f64,
+    pub difficulty_bits: String,
+    /// Estimated hashes per second across all miners: work done over the window divided by its duration.
+    pub hashrate_hps: f64,
+    /// Average seconds between blocks over the window.
+    pub average_block_time_sec: f64,
+    /// Blocks the estimates are based on (up to `STATS_WINDOW`).
+    pub window_blocks: usize,
+    pub window_seconds: f64,
+    /// Payments carried by the blocks in the window, and the resulting rate.
+    pub transactions_in_window: usize,
+    pub transactions_per_second: f64,
+    /// Every unspent coin, including mining rewards that are still maturing.
+    pub circulating_supply_atoms: u128,
+    pub circulating_supply_imn: f64,
+    pub block_reward_imn: f64,
+    /// New coins per year at the current reward, as a percentage of the circulating supply.
+    pub annual_inflation_percent: f64,
+    /// DAA score at which the block reward next halves; absent once the permanent floor is reached.
+    pub next_halving_daa_score: Option<u64>,
+    pub blocks_until_halving: Option<u64>,
+    pub days_until_halving: Option<f64>,
+    pub recent_transactions: Vec<RecentTransaction>,
 }
 
 /// One payment towards an invoice, as the ledger currently sees it.
@@ -1196,6 +1240,89 @@ impl DagLedger {
             last = Some(*position);
         }
         Ok((blocks, None))
+    }
+
+    /// Computes network-wide figures from the most recent blocks. Reads those blocks from disk,
+    /// so callers should cache the result per tip.
+    pub fn network_stats(&self) -> Result<NetworkStats, StorageError> {
+        let window = self.dag.block_window(&self.virtual_ghostdag, STATS_WINDOW);
+        let mut total_work: u128 = 0;
+        let mut oldest: Option<(u64, u128)> = None;
+        let mut newest_time = 0u64;
+        let mut transactions_in_window = 0usize;
+        let mut recent_transactions = Vec::new();
+
+        // The window is newest first
+        for hash in &window {
+            let block = self.dag.get(hash);
+            total_work = total_work.saturating_add(block.work);
+            newest_time = newest_time.max(block.timestamp_ms);
+            if oldest.is_none_or(|(time, _)| block.timestamp_ms < time) {
+                oldest = Some((block.timestamp_ms, block.work));
+            }
+            if let Some(body) = self.storage.get_block(hash)? {
+                for tx in body.transactions.iter().skip(1) {
+                    transactions_in_window += 1;
+                    if recent_transactions.len() < 10 {
+                        recent_transactions.push(RecentTransaction {
+                            tx_id: tx.id().to_hex(),
+                            block_hash: hash.to_hex(),
+                            amount_atoms: tx.outputs.iter().fold(0u64, |sum, o| sum.saturating_add(o.value_atoms)),
+                            timestamp_ms: block.timestamp_ms,
+                        });
+                    }
+                }
+            }
+        }
+
+        // The window spans the time after its oldest block, so that block's work is not part of it
+        let (oldest_time, oldest_work) = oldest.unwrap_or((newest_time, 0));
+        let window_seconds = newest_time.saturating_sub(oldest_time) as f64 / 1000.0;
+        let intervals = window.len().saturating_sub(1);
+        let (hashrate_hps, average_block_time_sec, transactions_per_second) = if window_seconds > 0.0 && intervals > 0 {
+            (
+                (total_work - oldest_work) as f64 / window_seconds,
+                window_seconds / intervals as f64,
+                transactions_in_window as f64 / window_seconds,
+            )
+        } else {
+            (0.0, 0.0, 0.0)
+        };
+
+        let circulating_supply_atoms = self.storage.total_utxo_atoms()?;
+        let circulating_supply_imn = circulating_supply_atoms as f64 / ATOMS_PER_IMN as f64;
+        let block_reward_imn = block_subsidy_imn(self.virtual_daa_score);
+        let annual_inflation_percent = if circulating_supply_imn > 0.0 {
+            100.0 * block_reward_imn * BLOCKS_PER_YEAR as f64 / circulating_supply_imn
+        } else {
+            0.0
+        };
+
+        // The reward halves at the end of each of the first four eras, then stays at the floor
+        let era = self.virtual_daa_score / BLOCKS_PER_HALVING_ERA;
+        let next_halving_daa_score = (era < 4).then(|| (era + 1) * BLOCKS_PER_HALVING_ERA);
+        let blocks_until_halving = next_halving_daa_score.map(|at| at - self.virtual_daa_score);
+        let days_until_halving =
+            blocks_until_halving.map(|blocks| blocks as f64 * TARGET_TIME_PER_BLOCK_MS as f64 / 86_400_000.0);
+
+        Ok(NetworkStats {
+            difficulty: work_from_bits(self.difficulty_bits) as f64,
+            difficulty_bits: format!("0x{:08x}", self.difficulty_bits),
+            hashrate_hps,
+            average_block_time_sec,
+            window_blocks: window.len(),
+            window_seconds,
+            transactions_in_window,
+            transactions_per_second,
+            circulating_supply_atoms,
+            circulating_supply_imn,
+            block_reward_imn,
+            annual_inflation_percent,
+            next_halving_daa_score,
+            blocks_until_halving,
+            days_until_halving,
+            recent_transactions,
+        })
     }
 
     /// The most recent blocks by DAA score, newest first.
