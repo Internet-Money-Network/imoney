@@ -22,3 +22,6 @@ dist_release/
 # Cloudflare wrangler local cache
 .wrangler/
 node_modules/
+
+# Local launcher with this machine's own server address
+START-HOME-NODE-MINER.bat
