@@ -342,8 +342,11 @@ mod tests {
 
         assert_eq!(fee_of(10_000, &[1_000_000]).inputs_used, 1);
         // 20 small coins: the fee grows with every input needed to pay it
-        let many = fee_of(150_000, &[10_000; 20]);
-        assert!(many.inputs_used >= 16 && many.inputs_used <= 20, "{}", many.inputs_used);
+        let many = fee_of(100_000, &[10_000; 20]);
+        assert!(many.inputs_used > 10 && many.inputs_used <= 18, "{}", many.inputs_used);
+        // When the coins cannot cover the amount plus the fee they imply, say so
+        let short = build_payment(&me.private_key_hex, true, &shop.address, 150_000, 0, &utxos(&[10_000; 20]), None, None);
+        assert!(short.unwrap_err().contains("Insufficient"));
 
         let merged = build_consolidation(&me.private_key_hex, true, 0, &utxos(&[90_000, 90_000, 90_000]), None).unwrap();
         assert!(merged.fee_atoms >= DEFAULT_FEE_PER_BYTE * merged.transaction.to_bytes().len() as u64);
