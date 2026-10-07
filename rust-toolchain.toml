@@ -1,0 +1,4 @@
+# The Rust version the project is built and linted with. CI uses the same one.
+[toolchain]
+channel = "1.97.1"
+components = ["clippy"]

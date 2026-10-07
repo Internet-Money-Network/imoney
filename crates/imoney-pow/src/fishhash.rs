@@ -41,16 +41,16 @@ type Hash1024 = [u32; 32];
 
 fn keccak512(words: &Hash512) -> Hash512 {
     let mut bytes = [0u8; 64];
-    for (chunk, word) in bytes.chunks_exact_mut(4).zip(words) {
-        chunk.copy_from_slice(&word.to_le_bytes());
+    for (i, word) in words.iter().enumerate() {
+        bytes[i * 4..i * 4 + 4].copy_from_slice(&word.to_le_bytes());
     }
     words_from_bytes(&Keccak512::digest(bytes))
 }
 
 fn words_from_bytes(bytes: &[u8]) -> Hash512 {
     let mut words = [0u32; 16];
-    for (word, chunk) in words.iter_mut().zip(bytes.chunks_exact(4)) {
-        *word = u32::from_le_bytes(chunk.try_into().unwrap());
+    for (i, word) in words.iter_mut().enumerate() {
+        *word = u32::from_le_bytes(bytes[i * 4..i * 4 + 4].try_into().unwrap());
     }
     words
 }
@@ -208,8 +208,8 @@ impl FishHashContext {
 
         let mut final_data = [0u8; 96];
         final_data[..64].copy_from_slice(&seed_bytes);
-        for (chunk, word) in final_data[64..].chunks_exact_mut(4).zip(&mix_hash) {
-            chunk.copy_from_slice(&word.to_le_bytes());
+        for (i, word) in mix_hash.iter().enumerate() {
+            final_data[64 + i * 4..68 + i * 4].copy_from_slice(&word.to_le_bytes());
         }
         *blake3::hash(&final_data).as_bytes()
     }

@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg" alt="License"></a>
-  <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/rust-1.75%2B-orange.svg" alt="Rust"></a>
+  <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/rust-1.97-orange.svg" alt="Rust"></a>
   <a href="apps/imoney-explorer/index.html"><img src="https://img.shields.io/badge/explorer-testnet--1-green.svg" alt="Explorer"></a>
   <a href="packages/imoney-sdk"><img src="https://img.shields.io/badge/sdk-%40imoney%2Fsdk-blueviolet.svg" alt="SDK"></a>
 </p>
@@ -86,7 +86,7 @@ The codebase is structured as a modular mono-repository:
 ## 🚀 Quick Start
 
 ### Prerequisites
-* [Rust](https://rustup.rs/) (version 1.75 or higher)
+* [Rust](https://rustup.rs/). The version is pinned in `rust-toolchain.toml` and installed automatically.
 
 ### Build
 ```bash
