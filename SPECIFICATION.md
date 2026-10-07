@@ -72,7 +72,32 @@ $$R(s) = \begin{cases}
 
 ## 5. Difficulty Adjustment Algorithm (DAA)
 
-Difficulty retargeting uses a rolling window of 144 blocks ($720\text{ seconds} \approx 12\text{ minutes}$).
-The next target $T_{next}$ is computed as:
-$$T_{next} = T_{curr} \times \frac{\text{clamp}(t_{actual}, 0.5 \cdot t_{target}, 2.0 \cdot t_{target})}{t_{target}}$$
-Damping clamps prevent wild difficulty swings caused by transient multi-pool hashrate switching.
+Difficulty is recomputed for every block from a rolling window of the 144 most recent blocks in its past ($720	ext{ seconds} pprox 12	ext{ minutes}$). Genesis is excluded from the window.
+
+The network hashrate is estimated as the work done across the window divided by the time the window spans, where the work of a block with target $T$ is $W = 2^{256} / (T + 1)$:
+$$H = \frac{\sum W_i - W_{oldest}}{t_{newest} - t_{oldest}}$$
+
+The next target is the one this hashrate meets once per block interval:
+$$T_{next} = \frac{2^{256}}{H \cdot \Delta t}$$
+
+Two limits apply. $T_{next}$ never exceeds the network's maximum target, and it may differ from the selected parent's target by at most a factor of 2 in either direction, so a single unusually fast or slow block cannot cause a large swing. With fewer than 8 blocks in the window the maximum target is used. All arithmetic is integer arithmetic.
+
+A node recomputes the expected value for every block it receives; a header carrying any other `bits` value is invalid.
+
+---
+
+## 6. Block Validity and Transaction Acceptance
+
+### 6.1 Header rules
+A node recomputes `blue_score`, `blue_work`, `daa_score` and `bits` from the block's parents and rejects the block if any differ. A block's timestamp must be later than the median timestamp of the 41 most recent blocks in its past and at most 2 minutes ahead of the local clock. No parent may be an ancestor of another parent, and a block may merge at most $10k = 80$ blocks.
+
+### 6.2 Acceptance order
+A block's own transactions do not change the ledger when the block is mined. They are *accepted* by the next selected-chain block that merges it. That block applies the transactions of every block in its mergeset in a fixed order: the selected parent first, then the remaining blocks by ascending blue work, ties broken by hash. A transaction that cannot be spent at its turn (its input was already spent earlier in the order, its signature is invalid, or it spends an immature reward) is skipped; it does not invalidate the block that carries it.
+
+Because the order depends only on the DAG, every node with the same blocks computes the same ledger regardless of the order in which the blocks arrived.
+
+### 6.3 Rewards and fees
+The coinbase transaction names the miner's payout script in at most one output worth at most the block subsidy. When a block is merged as blue, the ledger creates one reward output for its miner worth that amount plus the fees of the block's accepted transactions. Red blocks earn no reward, and the fees of transactions accepted from red blocks are burned. A reward may be spent once it is buried by the coinbase maturity depth (20 blue-score on testnet).
+
+### 6.4 Chain reorganisation
+The selected chain ends in the tip with the most blue work. Each selected-chain block's exact ledger change is stored, so when a heavier chain appears the node undoes the old chain's changes back to the common block and applies the new chain's.

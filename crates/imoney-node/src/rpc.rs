@@ -95,6 +95,8 @@ pub struct TxStatusResponse {
     pub status: String, // "pending", "confirmed", "not_found"
     pub block_hash: Option<String>,
     pub daa_score: Option<u64>,
+    /// 0 while pending; 1 once accepted, then one more per blue block added on top.
+    pub confirmations: u64,
     pub inputs_count: usize,
     pub outputs_count: usize,
     pub total_output_atoms: u64,
@@ -338,18 +340,20 @@ async fn tx_status_handler(
     let ledger = state.ledger.read().await;
 
     match ledger.get_transaction(&tx_hash) {
-        Ok(Some((tx, maybe_block, maybe_daa))) => {
-            let total_out_atoms: u64 = tx.outputs.iter().map(|o| o.value_atoms).sum();
+        Ok(Some(info)) => {
+            let total_out_atoms: u64 = info.tx.outputs.iter().map(|o| o.value_atoms).sum();
             let total_out_imn = (total_out_atoms as f64) / (imoney_core::constants::ATOMS_PER_IMN as f64);
-            let status = if maybe_block.is_some() { "confirmed" } else { "pending" };
+            let status = if info.block_hash.is_some() { "confirmed" } else { "pending" };
+            let daa_score = info.block_hash.and_then(|b| ledger.blocks.get(&b)).map(|h| h.daa_score);
 
             Ok(Json(TxStatusResponse {
                 tx_id: txid_hex,
                 status: status.to_string(),
-                block_hash: maybe_block.map(|b| b.to_hex()),
-                daa_score: maybe_daa,
-                inputs_count: tx.inputs.len(),
-                outputs_count: tx.outputs.len(),
+                block_hash: info.block_hash.map(|b| b.to_hex()),
+                daa_score,
+                confirmations: info.confirmations,
+                inputs_count: info.tx.inputs.len(),
+                outputs_count: info.tx.outputs.len(),
                 total_output_atoms: total_out_atoms,
                 total_output_imn: total_out_imn,
             }))
@@ -359,6 +363,7 @@ async fn tx_status_handler(
             status: "not_found".to_string(),
             block_hash: None,
             daa_score: None,
+            confirmations: 0,
             inputs_count: 0,
             outputs_count: 0,
             total_output_atoms: 0,
@@ -444,7 +449,7 @@ async fn wallet_send_handler(
 
     let available_utxos = {
         let ledger = state.ledger.read().await;
-        match ledger.get_utxos(&sender_addr) {
+        match ledger.get_spendable_utxos(&sender_addr) {
             Ok(u) => u,
             Err(e) => {
                 return (

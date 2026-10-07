@@ -42,6 +42,8 @@ export interface TxStatus {
   status: 'pending' | 'confirmed' | 'not_found';
   block_hash?: string;
   daa_score?: number;
+  /** 0 while pending; 1 once accepted, then one more per blue block added on top. */
+  confirmations: number;
   inputs_count: number;
   outputs_count: number;
   total_output_atoms: number;

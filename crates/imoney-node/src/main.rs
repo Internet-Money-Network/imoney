@@ -1,6 +1,6 @@
 use clap::Parser;
 use imoney_node::genesis::create_testnet_genesis;
-use imoney_core::constants::{CURRENCY_NAME, TARGET_TIME_PER_BLOCK_MS, TICKER};
+use imoney_core::constants::{CURRENCY_NAME, TICKER};
 use imoney_core::{Address, AddressType, Network};
 use imoney_pow::{DEVNET_DATASET_ITEMS, MoneyPrinterContext, MoneyPrinterPow};
 use imoney_node::p2p::PeerManager;
@@ -11,8 +11,10 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::RwLock;
+
+/// Hashes tried per auto-miner round before the block template is refreshed.
+const AUTO_MINE_BATCH: u64 = 100_000;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about = "Internet Money (IMN) - Full Node Daemon", long_about = None)]
@@ -125,6 +127,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let trimmed = peer_str.trim();
         if !trimmed.is_empty() {
             if let Ok(peer_addr) = trimmed.parse::<SocketAddr>() {
+                p2p_manager.require_initial_sync();
                 p2p_manager.clone().connect_to_peer(peer_addr);
             } else {
                 eprintln!("[-] Warning: Could not parse peer address '{}'", trimmed);
@@ -138,16 +141,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let pow_clone = pow.clone();
         let p2p_clone = p2p_manager.clone();
         tokio::spawn(async move {
-            println!("[*] Local background auto-miner started (targets ~5s block interval)...");
+            println!("[*] Local background auto-miner started (difficulty targets ~5s block interval)...");
             loop {
-                tokio::time::sleep(Duration::from_millis(TARGET_TIME_PER_BLOCK_MS)).await;
+                // Mining before catching up with peers would only build a private fork
+                if !p2p_clone.is_synced() {
+                    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                    continue;
+                }
 
+                // Work on a fresh template each round so new tips and transactions are picked up
                 let template = ledger_clone.read().await.get_mining_template(None);
                 let pre_pow_hash = template.pre_pow_hash;
                 let bits = template.block.header.bits;
-                let stop = Arc::new(AtomicBool::new(false));
+                let start_nonce = rand::random::<u32>() as u64;
+                let worker = pow_clone.clone();
+                let found = tokio::task::spawn_blocking(move || {
+                    worker.mine(&pre_pow_hash, bits, start_nonce, AUTO_MINE_BATCH, Arc::new(AtomicBool::new(false)))
+                })
+                .await
+                .ok()
+                .flatten();
 
-                if let Some((nonce, _hash)) = pow_clone.mine(&pre_pow_hash, bits, 0, 10_000_000, stop) {
+                if let Some((nonce, _hash)) = found {
                     let candidate = template.into_block(nonce);
 
                     let mut writer = ledger_clone.write().await;
@@ -158,10 +173,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                             let balance_info = writer.mining_address.as_ref().and_then(|a| writer.get_balance(a).ok()).map(|(_, coins)| coins).unwrap_or(0.0);
                             println!(
-                                "[+] Mined Block #{} | Hash: {} | Blue Score: {} | Miner Balance: {:.2} IMN",
+                                "[+] Mined Block #{} | Hash: {} | Blue Score: {} | Bits: 0x{:08x} | Miner Balance: {:.2} IMN",
                                 writer.virtual_daa_score,
                                 new_hash,
                                 writer.virtual_blue_score,
+                                bits,
                                 balance_info
                             );
                         }

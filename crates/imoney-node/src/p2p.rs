@@ -1,14 +1,18 @@
-use crate::state::SharedLedger;
+use crate::state::{DagLedger, SharedLedger};
 use imoney_core::{Block, Hash, Transaction};
 use imoney_pow::MoneyPrinterPow;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{broadcast, RwLock};
+
+/// Most blocks held while waiting for their parents to arrive.
+const MAX_ORPHAN_BLOCKS: usize = 1_000;
 
 /// Largest single wire message accepted from a peer.
 const MAX_MESSAGE_BYTES: usize = 4 * 1024 * 1024;
@@ -68,6 +72,10 @@ pub struct PeerManager {
     ledger: SharedLedger,
     pow: Arc<MoneyPrinterPow>,
     peers: Arc<RwLock<HashSet<SocketAddr>>>,
+    /// Blocks received before their parents, keyed by block hash.
+    orphans: Mutex<HashMap<Hash, Block>>,
+    /// False while the node still has to catch up with the peers it was told to connect to.
+    synced: AtomicBool,
     broadcast_tx: broadcast::Sender<PeerMessage>,
     p2p_port: u16,
 }
@@ -79,6 +87,8 @@ impl PeerManager {
             ledger,
             pow,
             peers: Arc::new(RwLock::new(HashSet::new())),
+            orphans: Mutex::new(HashMap::new()),
+            synced: AtomicBool::new(true),
             broadcast_tx,
             p2p_port,
         }
@@ -92,6 +102,17 @@ impl PeerManager {
     /// Broadcast a new transaction to all connected peers.
     pub fn broadcast_transaction(&self, tx: Transaction) {
         let _ = self.broadcast_tx.send(PeerMessage::NewTransaction(tx));
+    }
+
+    /// Marks the node as behind until it has caught up with a peer. Called when outbound
+    /// peers are configured, so the miner does not build a private chain while syncing.
+    pub fn require_initial_sync(&self) {
+        self.synced.store(false, Ordering::SeqCst);
+    }
+
+    /// True once the node holds every block its peers have told it about.
+    pub fn is_synced(&self) -> bool {
+        self.synced.load(Ordering::SeqCst)
     }
 
     /// Returns list of currently connected peers.
@@ -232,6 +253,45 @@ impl PeerManager {
         println!("[-] Peer session ended: {}", peer_addr);
     }
 
+    /// Holds a block until its parents arrive.
+    fn park_orphan(&self, block: Block) {
+        let mut orphans = self.orphans.lock().unwrap();
+        if orphans.len() < MAX_ORPHAN_BLOCKS {
+            orphans.insert(block.hash(), block);
+        }
+    }
+
+    /// Adds a block whose parents are known, then any waiting blocks it unblocks.
+    /// Returns the hash and resulting virtual blue score of each block added.
+    fn connect_block_and_orphans(&self, ledger: &mut DagLedger, block: Block) -> Vec<(Hash, u64)> {
+        let mut connected = Vec::new();
+        let mut queue = vec![block];
+        while let Some(next) = queue.pop() {
+            // Invalid and duplicate blocks are dropped
+            let Ok(hash) = ledger.add_block(next, &self.pow) else {
+                continue;
+            };
+            connected.push((hash, ledger.virtual_blue_score));
+
+            let mut orphans = self.orphans.lock().unwrap();
+            let ready: Vec<Hash> = orphans
+                .iter()
+                .filter(|(_, orphan)| orphan.header.parents.iter().all(|p| ledger.blocks.contains_key(p)))
+                .map(|(orphan_hash, _)| *orphan_hash)
+                .collect();
+            for orphan_hash in ready {
+                if let Some(orphan) = orphans.remove(&orphan_hash) {
+                    queue.push(orphan);
+                }
+            }
+        }
+        // Everything received so far now connects to the DAG
+        if !connected.is_empty() && self.orphans.lock().unwrap().is_empty() {
+            self.synced.store(true, Ordering::SeqCst);
+        }
+        connected
+    }
+
     /// Dispatches inbound peer messages.
     async fn process_peer_message(&self, msg: &PeerMessage, writer: &mut tokio::net::tcp::OwnedWriteHalf) {
         match msg {
@@ -258,6 +318,9 @@ impl PeerManager {
                     let ledger = self.ledger.read().await;
                     tips.iter().filter(|t| !ledger.blocks.contains_key(*t)).copied().collect()
                 };
+                if unknown.is_empty() && self.orphans.lock().unwrap().is_empty() {
+                    self.synced.store(true, Ordering::SeqCst);
+                }
                 for tip in unknown {
                     let req = PeerMessage::GetBlock(tip);
                     if let Ok(s) = serde_json::to_string(&req) {
@@ -276,7 +339,7 @@ impl PeerManager {
             }
             PeerMessage::Block(block) | PeerMessage::NewBlock(block) => {
                 // Attempt to insert incoming block into DAG. The ledger lock is released before any socket write.
-                let (parents_needed, result) = {
+                let (parents_needed, connected) = {
                     let mut ledger = self.ledger.write().await;
                     let parents_needed: Vec<Hash> = block
                         .header
@@ -285,10 +348,13 @@ impl PeerManager {
                         .filter(|p| !ledger.blocks.contains_key(p))
                         .copied()
                         .collect();
-                    let result = ledger
-                        .add_block(block.clone(), &self.pow)
-                        .map(|new_hash| (new_hash, ledger.virtual_blue_score));
-                    (parents_needed, result)
+                    let connected = if parents_needed.is_empty() {
+                        self.connect_block_and_orphans(&mut ledger, block.clone())
+                    } else {
+                        self.park_orphan(block.clone());
+                        Vec::new()
+                    };
+                    (parents_needed, connected)
                 };
 
                 // If missing parents, request them from peer
@@ -299,24 +365,15 @@ impl PeerManager {
                     }
                 }
 
-                match result {
-                    Ok((new_hash, blue_score)) => {
-                        println!(
-                            "[+] P2P Block Synchronized: {} | Blue Score: {}",
-                            new_hash, blue_score
-                        );
-                        // Forward to other peers if it was a newly announced block
-                        if matches!(msg, PeerMessage::NewBlock(_)) {
-                            let _ = self.broadcast_tx.send(PeerMessage::NewBlock(block.clone()));
-                        }
-                    }
-                    Err(e) => {
-                        // Could be unknown parent (requested above) or duplicate, ignore benign errors
-                        let err_str = e.to_string();
-                        if !err_str.contains("Block already exists") {
-                            // Non-duplicate error
-                        }
-                    }
+                for (new_hash, blue_score) in &connected {
+                    println!(
+                        "[+] P2P Block Synchronized: {} | Blue Score: {}",
+                        new_hash, blue_score
+                    );
+                }
+                // Forward to other peers if it was a newly announced block
+                if !connected.is_empty() && matches!(msg, PeerMessage::NewBlock(_)) {
+                    let _ = self.broadcast_tx.send(PeerMessage::NewBlock(block.clone()));
                 }
             }
             PeerMessage::NewTransaction(tx) => {

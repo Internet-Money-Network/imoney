@@ -426,16 +426,17 @@ client.openCheckoutModal({
                 <li>Addresses and Ed25519 signatures</li>
                 <li>Blocks carrying transactions, with miner rewards</li>
                 <li>Node with on-disk storage and an HTTP / WebSocket API</li>
-                <li>Two nodes agreeing on the same ledger</li>
+                <li>GHOSTDAG ordering: nodes agree even when blocks conflict</li>
+                <li>Difficulty that adjusts itself to five-second blocks</li>
+                <li>Fees paid to miners</li>
                 <li>Reference CPU miner</li>
               </ul>
             </div>
             <div class="doing">
               <h3><i></i>Being built</h3>
               <ul>
-                <li>Full GHOSTDAG block ordering</li>
-                <li>Enforced difficulty adjustment</li>
-                <li>Sync for nodes that join late</li>
+                <li>Fast sync for nodes that are far behind</li>
+                <li>Peer discovery and network hardening</li>
                 <li>Light proof-of-work verification</li>
               </ul>
             </div>

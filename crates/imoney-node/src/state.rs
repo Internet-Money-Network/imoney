@@ -1,9 +1,14 @@
 use crate::genesis::create_testnet_genesis;
-use crate::storage::{BlockUpdate, NodeMeta, Storage, StorageError, StoredTxRecord};
-use imoney_consensus::ghostdag::{order_ghostdag_parents, GhostdagParams};
+use crate::storage::{
+    AcceptanceData, AcceptedTx, BlockMeta, Storage, StorageError, TxRecord, UtxoEntry, WriteBatch, META_SINK,
+    META_VIRTUAL_ACCEPTANCE,
+};
+use imoney_consensus::{work_from_bits, DaaParams, Dag, DagBlock, GhostdagData, GhostdagError, GhostdagParams};
 use imoney_core::constants::{ATOMS_PER_IMN, MAX_BLOCK_BYTES, MAX_BLOCK_PARENTS, MAX_TX_BYTES, TARGET_TIME_PER_BLOCK_MS};
+use imoney_core::serialize::tagged_hash;
 use imoney_core::{
-    Address, Block, BlockError, BlockHeader, Encode, Hash, Network, Outpoint, ScriptPublicKey, Transaction, TxOutput,
+    Address, Block, BlockError, BlockHeader, Decode, Encode, Hash, Network, Outpoint, ScriptPublicKey, Transaction,
+    TxOutput,
 };
 use imoney_emission::{block_subsidy_atoms, block_subsidy_imn};
 use imoney_pow::{compact_to_u256, is_valid_pow, MoneyPrinterPow};
@@ -21,24 +26,44 @@ const TEMPLATE_RESERVED_BYTES: usize = 2_000;
 pub enum StateError {
     #[error("Block already exists in DAG: {0}")]
     BlockAlreadyExists(Hash),
-    #[error("Unknown parent block hash: {0}")]
-    UnknownParent(Hash),
-    #[error("Block has no parents")]
-    NoParents,
     #[error("Block exceeds maximum parent count: {0} > {1}")]
     TooManyParents(usize, usize),
+    #[error("Invalid block parents: {0}")]
+    Ghostdag(#[from] GhostdagError),
     #[error("Invalid proof of work for block: {0}")]
     InvalidPoW(Hash),
     #[error("Header error: {0}")]
     Header(String),
     #[error("Invalid block: {0}")]
     Block(#[from] BlockError),
-    #[error("Coinbase pays {0} atoms, above the {1}-atom subsidy")]
-    CoinbaseTooLarge(u128, u64),
+    #[error("Invalid coinbase: {0}")]
+    Coinbase(String),
     #[error("Storage error: {0}")]
     Storage(#[from] StorageError),
     #[error("Transaction error: {0}")]
     Transaction(String),
+}
+
+/// The consensus rules of a network.
+#[derive(Clone, Debug)]
+pub struct ConsensusParams {
+    pub ghostdag: GhostdagParams,
+    pub daa: DaaParams,
+    /// Blue-score depth before a block reward may be spent.
+    pub coinbase_maturity: u64,
+    /// How far ahead of the local clock a block timestamp may be.
+    pub max_future_ms: u64,
+}
+
+impl ConsensusParams {
+    pub fn testnet() -> Self {
+        Self {
+            ghostdag: GhostdagParams::default(),
+            daa: DaaParams::new(crate::genesis::TESTNET_GENESIS_BITS),
+            coinbase_maturity: 20,
+            max_future_ms: 120_000,
+        }
+    }
 }
 
 /// JSON-serializable node status report.
@@ -75,110 +100,246 @@ impl MiningTemplate {
     }
 }
 
+/// A transaction as the ledger currently sees it.
+pub struct TxInfo {
+    pub tx: Transaction,
+    /// The block carrying the transaction, once it has been accepted.
+    pub block_hash: Option<Hash>,
+    /// 0 while pending; grows as blue blocks are added after acceptance.
+    pub confirmations: u64,
+}
+
+/// The outpoint of the reward the ledger creates for a blue block.
+pub fn reward_outpoint(block_hash: &Hash) -> Outpoint {
+    Outpoint {
+        transaction_id: tagged_hash("IMN 2026 block reward", &[&block_hash.0]),
+        index: 0,
+    }
+}
+
+/// Uncommitted ledger changes layered over the database.
+struct LedgerView {
+    storage: Storage,
+    batch: WriteBatch,
+}
+
+impl LedgerView {
+    fn new(storage: Storage) -> Self {
+        Self { storage, batch: WriteBatch::default() }
+    }
+
+    fn get(&self, outpoint: &Outpoint) -> Result<Option<UtxoEntry>, StorageError> {
+        if let Some(entry) = self.batch.utxo_puts.get(outpoint) {
+            return Ok(Some(entry.clone()));
+        }
+        if self.batch.utxo_deletes.contains(outpoint) {
+            return Ok(None);
+        }
+        self.storage.get_utxo(outpoint)
+    }
+
+    fn create(&mut self, outpoint: Outpoint, entry: UtxoEntry) {
+        self.batch.utxo_puts.insert(outpoint, entry);
+    }
+
+    fn spend(&mut self, outpoint: &Outpoint) {
+        self.batch.utxo_puts.remove(outpoint);
+        self.batch.utxo_deletes.insert(outpoint.clone());
+    }
+
+    fn put_record(&mut self, tx_id: Hash, record: TxRecord) {
+        self.batch.record_puts.insert(tx_id, record);
+    }
+
+    fn delete_record(&mut self, tx_id: &Hash) {
+        self.batch.record_puts.remove(tx_id);
+        self.batch.record_deletes.insert(*tx_id);
+    }
+
+    /// Reverses a previously applied acceptance.
+    fn undo(&mut self, acceptance: &AcceptanceData) {
+        for (outpoint, _) in &acceptance.created {
+            self.spend(outpoint);
+        }
+        for (outpoint, entry) in &acceptance.spent {
+            self.create(outpoint.clone(), entry.clone());
+        }
+        for accepted in &acceptance.accepted {
+            self.delete_record(&accepted.tx_id);
+        }
+    }
+
+    /// Applies an acceptance that was computed earlier against the same starting state.
+    fn redo(&mut self, acceptance: &AcceptanceData) {
+        for (outpoint, _) in &acceptance.spent {
+            self.spend(outpoint);
+        }
+        for (outpoint, entry) in &acceptance.created {
+            self.create(outpoint.clone(), entry.clone());
+        }
+        for accepted in &acceptance.accepted {
+            self.put_record(
+                accepted.tx_id,
+                TxRecord {
+                    block_hash: accepted.block_hash,
+                    tx_index: accepted.tx_index,
+                    accepting_blue_score: acceptance.blue_score,
+                },
+            );
+        }
+    }
+}
+
+/// The virtual block: an imaginary block on top of all tips whose state is "the ledger now".
+struct VirtualState {
+    sink: Hash,
+    parents: Vec<Hash>,
+    ghostdag: GhostdagData,
+    acceptance: AcceptanceData,
+    daa_score: u64,
+    bits: u32,
+}
+
 /// BlockDAG Ledger for Internet Money backed by ACID on-disk storage.
 pub struct DagLedger {
     pub storage: Storage,
     pub network: Network,
+    pub params: ConsensusParams,
+    pub dag: Dag,
     pub blocks: HashMap<Hash, BlockHeader>,
     pub tips: HashSet<Hash>,
-    pub blue_scores: HashMap<Hash, u64>,
+    /// The tip the selected chain ends in.
     pub virtual_selected_parent: Hash,
+    pub virtual_parents: Vec<Hash>,
+    pub virtual_ghostdag: GhostdagData,
     pub virtual_blue_score: u64,
     pub virtual_daa_score: u64,
+    /// Difficulty the next block must have.
     pub difficulty_bits: u32,
     /// Default payout address for block templates.
     pub mining_address: Option<Address>,
     pub mempool: HashMap<Hash, Transaction>,
-    ghostdag_params: GhostdagParams,
+    virtual_acceptance: AcceptanceData,
 }
 
 
 impl DagLedger {
-    /// Opens the persistent ledger from disk or creates it if new.
+    /// Opens the persistent testnet ledger from disk or creates it if new.
     pub fn open(db_path: impl AsRef<Path>, mining_address: Option<Address>) -> Result<Self, StateError> {
-        let storage = Storage::open(db_path)?;
-        let (blocks, blue_scores, maybe_meta) = storage.load_state()?;
+        Self::open_with_params(db_path, mining_address, ConsensusParams::testnet())
+    }
 
-        if blocks.is_empty() {
+    pub fn open_with_params(
+        db_path: impl AsRef<Path>,
+        mining_address: Option<Address>,
+        params: ConsensusParams,
+    ) -> Result<Self, StateError> {
+        let storage = Storage::open(db_path)?;
+        let loaded = storage.load_blocks()?;
+
+        let mut ledger = Self {
+            storage,
+            network: Network::Testnet,
+            dag: Dag::new(params.ghostdag.clone()),
+            params,
+            blocks: HashMap::new(),
+            tips: HashSet::new(),
+            virtual_selected_parent: Hash::ZERO,
+            virtual_parents: Vec::new(),
+            virtual_ghostdag: GhostdagData::default(),
+            virtual_blue_score: 0,
+            virtual_daa_score: 0,
+            difficulty_bits: 0,
+            mining_address,
+            mempool: HashMap::new(),
+            virtual_acceptance: AcceptanceData::default(),
+        };
+
+        let mut view = LedgerView::new(ledger.storage.clone());
+        if loaded.is_empty() {
             // Genesis initialization
             let genesis = create_testnet_genesis();
             let genesis_hash = genesis.hash();
+            ledger
+                .dag
+                .insert_genesis(genesis_hash, genesis.header.timestamp_ms, genesis.header.bits);
+            let meta = BlockMeta { level: 0, ghostdag: GhostdagData::default() };
+            view.batch.blocks.push((genesis_hash, genesis.to_bytes()));
+            view.batch.block_meta.push((genesis_hash, meta.to_bytes()));
+            ledger.blocks.insert(genesis_hash, genesis.header.clone());
+            ledger.tips.insert(genesis_hash);
+            ledger.virtual_selected_parent = genesis_hash;
 
-            let meta = NodeMeta {
-                virtual_selected_parent: genesis_hash,
-                virtual_blue_score: 0,
-                virtual_daa_score: 0,
-                difficulty_bits: genesis.header.bits,
-            };
-
-            storage.apply_block(&BlockUpdate {
-                hash: genesis_hash,
-                block: &genesis,
-                blue_score: 0,
-                meta: Some(&meta),
-                spent: &[],
-                created: &[],
-                records: &[],
-            })?;
-
-            let mut blocks = HashMap::new();
-            let mut tips = HashSet::new();
-            let mut blue_scores = HashMap::new();
-
-            blocks.insert(genesis_hash, genesis.header.clone());
-            tips.insert(genesis_hash);
-            blue_scores.insert(genesis_hash, 0);
-
-            Ok(Self {
-                storage,
-                network: Network::Testnet,
-                blocks,
-                tips,
-                blue_scores,
-                virtual_selected_parent: genesis_hash,
-                virtual_blue_score: 0,
-                virtual_daa_score: 0,
-                difficulty_bits: genesis.header.bits,
-                mining_address,
-                mempool: HashMap::new(),
-                ghostdag_params: GhostdagParams::default(),
-            })
+            let virtual_state = ledger.resolve_virtual(&mut view, Some((&genesis_hash, &genesis)))?;
+            ledger.storage.commit(&view.batch)?;
+            ledger.set_virtual(virtual_state);
         } else {
             // Recover from disk
-            let meta = maybe_meta.expect("Metadata must exist if blocks exist");
-
-            // Calculate tips: all blocks that are not parents of any other block
             let mut non_tips = HashSet::new();
-            for header in blocks.values() {
+            for (hash, header, meta) in loaded {
                 for p in &header.parents {
                     non_tips.insert(*p);
                 }
+                ledger.dag.restore(
+                    hash,
+                    DagBlock {
+                        parents: header.parents.clone(),
+                        level: meta.level,
+                        timestamp_ms: header.timestamp_ms,
+                        bits: header.bits,
+                        daa_score: header.daa_score,
+                        work: work_from_bits(header.bits),
+                        ghostdag: meta.ghostdag,
+                    },
+                );
+                ledger.blocks.insert(hash, header);
             }
-            let tips: HashSet<Hash> = blocks.keys().filter(|h| !non_tips.contains(h)).copied().collect();
+            // Tips: all blocks that are not parents of any other block
+            ledger.tips = ledger.blocks.keys().filter(|h| !non_tips.contains(h)).copied().collect();
 
-            Ok(Self {
-                storage,
-                network: Network::Testnet,
-                blocks,
-                tips,
-                blue_scores,
-                virtual_selected_parent: meta.virtual_selected_parent,
-                virtual_blue_score: meta.virtual_blue_score,
-                virtual_daa_score: meta.virtual_daa_score,
-                difficulty_bits: meta.difficulty_bits,
-                mining_address,
-                mempool: HashMap::new(),
-                ghostdag_params: GhostdagParams::default(),
-            })
+            let sink_bytes = ledger.storage.get_metadata(META_SINK)?.expect("Metadata must exist if blocks exist");
+            ledger.virtual_selected_parent = <Hash as Decode>::from_bytes(&sink_bytes).map_err(StorageError::from)?;
+            if let Some(bytes) = ledger.storage.get_metadata(META_VIRTUAL_ACCEPTANCE)? {
+                ledger.virtual_acceptance = AcceptanceData::from_bytes(&bytes).map_err(StorageError::from)?;
+            }
+
+            // The stored UTXO set already reflects the virtual state; recomputing it is a no-op
+            // on disk and rebuilds the in-memory view of the virtual block.
+            let virtual_state = ledger.resolve_virtual(&mut view, None)?;
+            ledger.storage.commit(&view.batch)?;
+            ledger.set_virtual(virtual_state);
         }
+
+        Ok(ledger)
     }
 
-    /// Checks that a transaction can spend its inputs, given a view of the UTXO set.
-    /// Returns the fee it pays. Failures are reported as `StateError::Transaction`.
+    fn set_virtual(&mut self, state: VirtualState) {
+        self.virtual_selected_parent = state.sink;
+        self.virtual_parents = state.parents;
+        self.virtual_blue_score = state.ghostdag.blue_score;
+        self.virtual_ghostdag = state.ghostdag;
+        self.virtual_daa_score = state.daa_score;
+        self.difficulty_bits = state.bits;
+        self.virtual_acceptance = state.acceptance;
+    }
+
+    fn load_block(&self, hash: &Hash, pending: Option<(&Hash, &Block)>) -> Result<Block, StorageError> {
+        if let Some((pending_hash, block)) = pending {
+            if pending_hash == hash {
+                return Ok(block.clone());
+            }
+        }
+        self.storage.get_block(hash)?.ok_or(StorageError::MissingBlock(*hash))
+    }
+
+    /// Checks that a transaction can spend its inputs, given a view of the UTXO set and the
+    /// blue score at which it would be accepted. Returns the fee it pays.
+    /// Failures are reported as `StateError::Transaction`.
     fn check_spend(
         &self,
         tx: &Transaction,
-        lookup: impl Fn(&Outpoint) -> Result<Option<TxOutput>, StorageError>,
+        lookup: impl Fn(&Outpoint) -> Result<Option<UtxoEntry>, StorageError>,
+        spending_blue_score: u64,
     ) -> Result<u64, StateError> {
         if tx.inputs.is_empty() {
             return Err(StateError::Transaction("Transaction has no inputs".to_string()));
@@ -205,12 +366,19 @@ impl DagLedger {
             let utxo = lookup(&input.previous_outpoint)?
                 .ok_or_else(|| StateError::Transaction(format!("UTXO not found: {:?}", input.previous_outpoint)))?;
 
+            if utxo.is_coinbase && utxo.blue_score + self.params.coinbase_maturity > spending_blue_score {
+                return Err(StateError::Transaction(format!(
+                    "Block reward is immature: spendable at blue score {}",
+                    utxo.blue_score + self.params.coinbase_maturity
+                )));
+            }
+
             // Verify signature against public key and address hash
-            tx.verify_input(self.network, i, &utxo.script_public_key)
+            tx.verify_input(self.network, i, &utxo.output.script_public_key)
                 .map_err(|e| StateError::Transaction(format!("Signature check failed on input {}: {}", i, e)))?;
 
             total_input_atoms = total_input_atoms
-                .checked_add(utxo.value_atoms)
+                .checked_add(utxo.output.value_atoms)
                 .ok_or_else(|| StateError::Transaction("Input total overflows".to_string()))?;
         }
 
@@ -229,12 +397,167 @@ impl DagLedger {
         Ok(total_input_atoms - total_output_atoms)
     }
 
-    /// Validates a newly mined block and applies it to the BlockDAG and persistent storage.
+    /// Applies the transactions of every block merged by a block with the given GHOSTDAG data,
+    /// in consensus order, and returns the exact change made.
     ///
-    /// The block's own transactions are what change the ledger: the coinbase pays whoever the
-    /// miner named, and each transaction that is spendable at this point is accepted. A transaction
-    /// that is not spendable (for example because a parallel block already spent its inputs) is
-    /// skipped without invalidating the block.
+    /// A transaction that cannot be spent at this point (already spent by an earlier block in the
+    /// order, bad signature, immature reward) is skipped. Each blue block's miner receives the
+    /// subsidy plus the fees of that block's accepted transactions; red blocks earn nothing.
+    fn accept_mergeset(
+        &self,
+        view: &mut LedgerView,
+        ghostdag: &GhostdagData,
+        pending: Option<(&Hash, &Block)>,
+    ) -> Result<AcceptanceData, StateError> {
+        let blue_score = ghostdag.blue_score;
+        let mut acceptance = AcceptanceData { blue_score, ..Default::default() };
+        let mut created: Vec<(Outpoint, UtxoEntry)> = Vec::new();
+        let mut spent_here: HashSet<Outpoint> = HashSet::new();
+        let mut created_here: HashSet<Outpoint> = HashSet::new();
+
+        for (block_hash, is_blue) in ghostdag.ordered_mergeset(&self.dag) {
+            let block = self.load_block(&block_hash, pending)?;
+            let mut fees: u64 = 0;
+
+            for (index, tx) in block.transactions.iter().enumerate().skip(1) {
+                match self.check_spend(tx, |outpoint| view.get(outpoint), blue_score) {
+                    Ok(fee) => fees = fees.saturating_add(fee),
+                    Err(StateError::Transaction(_)) => continue, // Not spendable here: skip it
+                    Err(e) => return Err(e),
+                }
+
+                for input in &tx.inputs {
+                    let outpoint = &input.previous_outpoint;
+                    if created_here.contains(outpoint) {
+                        // Created and spent within this acceptance: never reaches the UTXO set
+                        spent_here.insert(outpoint.clone());
+                    } else if let Some(entry) = view.get(outpoint)? {
+                        acceptance.spent.push((outpoint.clone(), entry));
+                    }
+                    view.spend(outpoint);
+                }
+
+                let tx_id = tx.id();
+                for (idx, output) in tx.outputs.iter().enumerate() {
+                    let outpoint = Outpoint { transaction_id: tx_id, index: idx as u32 };
+                    let entry = UtxoEntry { output: output.clone(), blue_score, is_coinbase: false };
+                    view.create(outpoint.clone(), entry.clone());
+                    created_here.insert(outpoint.clone());
+                    created.push((outpoint, entry));
+                }
+
+                view.put_record(
+                    tx_id,
+                    TxRecord { block_hash, tx_index: index as u32, accepting_blue_score: blue_score },
+                );
+                acceptance.accepted.push(AcceptedTx { tx_id, block_hash, tx_index: index as u32 });
+            }
+
+            if is_blue {
+                if let Some(payout) = block.transactions[0].outputs.first() {
+                    let outpoint = reward_outpoint(&block_hash);
+                    let entry = UtxoEntry {
+                        output: TxOutput {
+                            value_atoms: payout.value_atoms.saturating_add(fees),
+                            script_public_key: payout.script_public_key.clone(),
+                        },
+                        blue_score,
+                        is_coinbase: true,
+                    };
+                    view.create(outpoint.clone(), entry.clone());
+                    created.push((outpoint, entry));
+                }
+            }
+        }
+
+        acceptance.created = created.into_iter().filter(|(outpoint, _)| !spent_here.contains(outpoint)).collect();
+        Ok(acceptance)
+    }
+
+    /// Chooses the virtual block's parents: the sink plus as many other tips as can be merged.
+    fn pick_virtual_parents(&self, sink: &Hash) -> Vec<Hash> {
+        let mut others: Vec<Hash> = self.tips.iter().filter(|t| *t != sink).copied().collect();
+        others.sort_by_key(|h| std::cmp::Reverse(self.dag.sort_key(h)));
+
+        let mut parents = vec![*sink];
+        for tip in others {
+            if parents.len() == MAX_BLOCK_PARENTS {
+                break;
+            }
+            parents.push(tip);
+            // A tip that would push the mergeset past its limit is left for a later block
+            if self.dag.ghostdag(&parents).is_err() {
+                parents.pop();
+            }
+        }
+        parents
+    }
+
+    /// Moves the UTXO set in `view` from the current virtual state to the virtual state of the
+    /// current tips: undoes the old virtual block, switches the selected chain if a heavier one
+    /// exists (undoing and applying whole blocks), then applies the new virtual block.
+    fn resolve_virtual(
+        &self,
+        view: &mut LedgerView,
+        pending: Option<(&Hash, &Block)>,
+    ) -> Result<VirtualState, StateError> {
+        let old_sink = self.virtual_selected_parent;
+        let new_sink = self.dag.best_of(self.tips.iter()).expect("the DAG always has a tip");
+
+        view.undo(&self.virtual_acceptance);
+
+        // Walk both selected chains back to their common block
+        let mut to_undo = Vec::new();
+        let mut to_apply = Vec::new();
+        let (mut old_cursor, mut new_cursor) = (old_sink, new_sink);
+        while old_cursor != new_cursor {
+            let old_score = self.dag.get(&old_cursor).ghostdag.blue_score;
+            let new_score = self.dag.get(&new_cursor).ghostdag.blue_score;
+            if old_score >= new_score {
+                to_undo.push(old_cursor);
+                old_cursor = self.dag.get(&old_cursor).ghostdag.selected_parent;
+            }
+            if new_score >= old_score {
+                to_apply.push(new_cursor);
+                new_cursor = self.dag.get(&new_cursor).ghostdag.selected_parent;
+            }
+        }
+
+        for hash in &to_undo {
+            let acceptance = self.storage.get_acceptance(hash)?.ok_or(StorageError::MissingBlock(*hash))?;
+            view.undo(&acceptance);
+        }
+        for hash in to_apply.iter().rev() {
+            match self.storage.get_acceptance(hash)? {
+                Some(acceptance) => view.redo(&acceptance),
+                None => {
+                    let acceptance = self.accept_mergeset(view, &self.dag.get(hash).ghostdag, pending)?;
+                    view.batch.acceptance.push((*hash, acceptance.to_bytes()));
+                }
+            }
+        }
+
+        let parents = self.pick_virtual_parents(&new_sink);
+        let ghostdag = self.dag.ghostdag(&parents)?;
+        let acceptance = self.accept_mergeset(view, &ghostdag, pending)?;
+
+        view.batch.metadata.push((META_SINK, new_sink.0.to_vec()));
+        view.batch.metadata.push((META_VIRTUAL_ACCEPTANCE, acceptance.to_bytes()));
+
+        Ok(VirtualState {
+            sink: new_sink,
+            daa_score: self.dag.daa_score(&ghostdag),
+            bits: self.dag.expected_bits(&ghostdag, &self.params.daa),
+            parents,
+            ghostdag,
+            acceptance,
+        })
+    }
+
+    /// Validates a newly mined block and adds it to the BlockDAG and persistent storage.
+    ///
+    /// Every consensus field in the header is recomputed and compared, never trusted. The ledger
+    /// is then moved to the state implied by the new set of tips, in one database transaction.
     pub fn add_block(
         &mut self,
         block: Block,
@@ -246,18 +569,58 @@ impl DagLedger {
         if self.blocks.contains_key(&block_hash) {
             return Err(StateError::BlockAlreadyExists(block_hash));
         }
-
-        // Validate parents
-        if header.parents.is_empty() {
-            return Err(StateError::NoParents);
+        if header.version != 1 {
+            return Err(StateError::Header(format!("Unsupported version {}", header.version)));
         }
+
+        // Validate parents and work out where the block sits in the DAG
         if header.parents.len() > MAX_BLOCK_PARENTS {
             return Err(StateError::TooManyParents(header.parents.len(), MAX_BLOCK_PARENTS));
         }
-        for parent in &header.parents {
-            if !self.blocks.contains_key(parent) {
-                return Err(StateError::UnknownParent(*parent));
-            }
+        self.dag.check_parents(&header.parents)?;
+        let ghostdag = self.dag.ghostdag(&header.parents)?;
+
+        // Every consensus field must equal what this node computes
+        let expected_daa_score = self.dag.daa_score(&ghostdag);
+        let expected_bits = self.dag.expected_bits(&ghostdag, &self.params.daa);
+        if header.blue_score != ghostdag.blue_score {
+            return Err(StateError::Header(format!(
+                "Blue score {} should be {}",
+                header.blue_score, ghostdag.blue_score
+            )));
+        }
+        if header.blue_work != ghostdag.blue_work {
+            return Err(StateError::Header(format!(
+                "Blue work {} should be {}",
+                header.blue_work, ghostdag.blue_work
+            )));
+        }
+        if header.daa_score != expected_daa_score {
+            return Err(StateError::Header(format!(
+                "DAA score {} should be {}",
+                header.daa_score, expected_daa_score
+            )));
+        }
+        if header.bits != expected_bits {
+            return Err(StateError::Header(format!(
+                "Difficulty bits 0x{:08x} should be 0x{:08x}",
+                header.bits, expected_bits
+            )));
+        }
+        if header.accepted_id_merkle_root != Hash::ZERO || header.utxo_commitment != Hash::ZERO {
+            return Err(StateError::Header("Reserved commitment fields must be zero".to_string()));
+        }
+
+        let past_median_time = self.dag.past_median_time(&ghostdag);
+        if header.timestamp_ms <= past_median_time {
+            return Err(StateError::Header(format!(
+                "Timestamp {} is not after the past median time {}",
+                header.timestamp_ms, past_median_time
+            )));
+        }
+        let now_ms = chrono::Utc::now().timestamp_millis() as u64;
+        if header.timestamp_ms > now_ms + self.params.max_future_ms {
+            return Err(StateError::Header("Timestamp is too far in the future".to_string()));
         }
 
         // Validate Proof of Work
@@ -270,110 +633,66 @@ impl DagLedger {
         // Validate the body: coinbase first, sizes, merkle root
         block.validate_structure()?;
 
-        // The coinbase may create at most the block subsidy. Fees are not yet paid out.
+        // The coinbase names the miner's payout: at most one output, worth at most the subsidy.
+        // The ledger adds the block's fees when the block is merged as blue.
         let coinbase = &block.transactions[0];
+        if coinbase.payload.len() < 8 || coinbase.payload[..8] != header.daa_score.to_be_bytes() {
+            return Err(StateError::Coinbase("payload must start with the block's DAA score".to_string()));
+        }
+        if coinbase.outputs.len() > 1 {
+            return Err(StateError::Coinbase("more than one output".to_string()));
+        }
         let subsidy = block_subsidy_atoms(header.daa_score);
-        let coinbase_total: u128 = coinbase.outputs.iter().map(|o| o.value_atoms as u128).sum();
-        if coinbase_total > subsidy as u128 {
-            return Err(StateError::CoinbaseTooLarge(coinbase_total, subsidy));
+        if coinbase.outputs.iter().any(|o| o.value_atoms > subsidy) {
+            return Err(StateError::Coinbase(format!("pays more than the {}-atom subsidy", subsidy)));
         }
 
-        // Work out the UTXO changes without touching storage yet
-        let mut spent: Vec<Outpoint> = Vec::new();
-        let mut spent_set: HashSet<Outpoint> = HashSet::new();
-        let mut created: Vec<(Outpoint, TxOutput)> = Vec::new();
-        let mut created_map: HashMap<Outpoint, TxOutput> = HashMap::new();
-        let mut records: Vec<StoredTxRecord> = Vec::new();
-
-        for tx in &block.transactions {
-            if !tx.is_coinbase() {
-                let view = |outpoint: &Outpoint| {
-                    if spent_set.contains(outpoint) {
-                        return Ok(None);
-                    }
-                    match created_map.get(outpoint) {
-                        Some(output) => Ok(Some(output.clone())),
-                        None => self.storage.get_utxo(outpoint),
-                    }
-                };
-                match self.check_spend(tx, view) {
-                    Ok(_fee) => {}
-                    Err(StateError::Transaction(_)) => continue, // Not spendable here: skip it
-                    Err(e) => return Err(e),
-                }
-                for input in &tx.inputs {
-                    spent_set.insert(input.previous_outpoint.clone());
-                    spent.push(input.previous_outpoint.clone());
-                }
-            }
-
-            let tx_id = tx.id();
-            for (idx, output) in tx.outputs.iter().enumerate() {
-                let outpoint = Outpoint {
-                    transaction_id: tx_id,
-                    index: idx as u32,
-                };
-                created_map.insert(outpoint.clone(), output.clone());
-                created.push((outpoint, output.clone()));
-            }
-            records.push(StoredTxRecord {
-                tx: tx.clone(),
-                block_hash,
-                daa_score: header.daa_score,
-                timestamp_ms: header.timestamp_ms,
-            });
-        }
-        // Outputs created and spent inside this block never reach the UTXO set
-        created.retain(|(outpoint, _)| !spent_set.contains(outpoint));
-        spent.retain(|outpoint| !created_map.contains_key(outpoint));
-
-        // Run GHOSTDAG parent ordering
-        let ghostdag = order_ghostdag_parents(&header.parents, &self.blue_scores, &self.ghostdag_params);
-
-        let is_new_selected = ghostdag.blue_score > self.virtual_blue_score;
-        let meta = is_new_selected.then(|| NodeMeta {
-            virtual_selected_parent: block_hash,
-            virtual_blue_score: ghostdag.blue_score,
-            virtual_daa_score: header.daa_score,
-            difficulty_bits: header.bits,
-        });
-
-        // Persist the block and its UTXO changes atomically
-        self.storage.apply_block(&BlockUpdate {
-            hash: block_hash,
-            block: &block,
-            blue_score: ghostdag.blue_score,
-            meta: meta.as_ref(),
-            spent: &spent,
-            created: &created,
-            records: &records,
-        })?;
-
-        // Update in-memory state
-        for parent in &header.parents {
+        // Add the block to the in-memory DAG, then move the ledger to the new virtual state
+        let removed_tips: Vec<Hash> = header.parents.iter().filter(|p| self.tips.contains(*p)).copied().collect();
+        self.dag.insert(
+            block_hash,
+            header.parents.clone(),
+            header.timestamp_ms,
+            header.bits,
+            header.daa_score,
+            ghostdag.clone(),
+        );
+        for parent in &removed_tips {
             self.tips.remove(parent);
         }
         self.tips.insert(block_hash);
-        self.blue_scores.insert(block_hash, ghostdag.blue_score);
-        self.blocks.insert(block_hash, header.clone());
 
-        if let Some(meta) = meta {
-            self.virtual_selected_parent = meta.virtual_selected_parent;
-            self.virtual_blue_score = meta.virtual_blue_score;
-            self.virtual_daa_score = meta.virtual_daa_score;
-            self.difficulty_bits = meta.difficulty_bits;
-        }
+        let mut view = LedgerView::new(self.storage.clone());
+        let meta = BlockMeta { level: self.dag.get(&block_hash).level, ghostdag };
+        view.batch.blocks.push((block_hash, block.to_bytes()));
+        view.batch.block_meta.push((block_hash, meta.to_bytes()));
 
-        // Drop confirmed transactions, and pending ones whose inputs this block spent
-        for record in &records {
-            self.mempool.remove(&record.tx.id());
+        let result = self
+            .resolve_virtual(&mut view, Some((&block_hash, &block)))
+            .and_then(|virtual_state| {
+                self.storage.commit(&view.batch)?;
+                Ok(virtual_state)
+            });
+        let virtual_state = match result {
+            Ok(virtual_state) => virtual_state,
+            Err(e) => {
+                // Nothing was written: take the block back out of memory
+                self.dag.remove(&block_hash);
+                self.tips.remove(&block_hash);
+                self.tips.extend(removed_tips);
+                return Err(e);
+            }
+        };
+        self.blocks.insert(block_hash, block.header.clone());
+        self.set_virtual(virtual_state);
+
+        // Drop pending transactions that were accepted or can no longer be spent
+        let pending: Vec<(Hash, Transaction)> = self.mempool.drain().collect();
+        for (tx_id, tx) in pending {
+            if self.check_spend(&tx, |outpoint| self.storage.get_utxo(outpoint), self.virtual_blue_score).is_ok() {
+                self.mempool.insert(tx_id, tx);
+            }
         }
-        let storage = &self.storage;
-        self.mempool.retain(|_, tx| {
-            tx.inputs
-                .iter()
-                .all(|input| !matches!(storage.get_utxo(&input.previous_outpoint), Ok(None)))
-        });
 
         Ok(block_hash)
     }
@@ -386,7 +705,7 @@ impl DagLedger {
             return Ok(tx_id);
         }
 
-        self.check_spend(&tx, |outpoint| self.storage.get_utxo(outpoint))?;
+        self.check_spend(&tx, |outpoint| self.storage.get_utxo(outpoint), self.virtual_blue_score)?;
 
         // Reject a transaction that spends an outpoint already claimed by a pending transaction
         for pending in self.mempool.values() {
@@ -404,34 +723,53 @@ impl DagLedger {
         Ok(tx_id)
     }
 
-
-    /// Generates a candidate block for miners. The coinbase pays `payout`, or the node's
-    /// configured mining address when none is given.
-    pub fn get_mining_template(&self, payout: Option<&Address>) -> MiningTemplate {
-        let mut parents: Vec<Hash> = self.tips.iter().copied().collect();
+    /// Builds an unmined block on the given parents with every consensus field filled in.
+    pub fn build_block(
+        &self,
+        parents: &[Hash],
+        payout: Option<&Address>,
+        transactions: Vec<Transaction>,
+    ) -> Result<Block, StateError> {
+        let mut parents = parents.to_vec();
         parents.sort();
-        if parents.len() > MAX_BLOCK_PARENTS {
-            parents.truncate(MAX_BLOCK_PARENTS);
-        }
-
-        let ghostdag = order_ghostdag_parents(&parents, &self.blue_scores, &self.ghostdag_params);
-        let daa_score = self.virtual_daa_score + 1;
-        let blue_score = ghostdag.blue_score;
-        let bits = self.difficulty_bits;
+        self.dag.check_parents(&parents)?;
+        let ghostdag = self.dag.ghostdag(&parents)?;
+        let daa_score = self.dag.daa_score(&ghostdag);
 
         let coinbase_outputs = payout
-            .or(self.mining_address.as_ref())
             .map(|address| TxOutput {
                 value_atoms: block_subsidy_atoms(daa_score),
                 script_public_key: ScriptPublicKey::pay_to_address(address),
             })
             .into_iter()
             .collect();
-        let mut transactions = vec![Transaction::coinbase(daa_score, coinbase_outputs, &[])];
+        let mut body = vec![Transaction::coinbase(daa_score, coinbase_outputs, &[])];
+        body.extend(transactions);
 
+        let now_ms = chrono::Utc::now().timestamp_millis() as u64;
+        let header = BlockHeader {
+            version: 1,
+            parents,
+            hash_merkle_root: Block::compute_merkle_root(&body),
+            accepted_id_merkle_root: Hash::ZERO,
+            utxo_commitment: Hash::ZERO,
+            timestamp_ms: now_ms.max(self.dag.past_median_time(&ghostdag) + 1),
+            bits: self.dag.expected_bits(&ghostdag, &self.params.daa),
+            nonce: 0,
+            daa_score,
+            blue_score: ghostdag.blue_score,
+            blue_work: ghostdag.blue_work,
+        };
+        Ok(Block { header, transactions: body })
+    }
+
+    /// Generates a candidate block for miners on top of the current tips. The coinbase pays
+    /// `payout`, or the node's configured mining address when none is given.
+    pub fn get_mining_template(&self, payout: Option<&Address>) -> MiningTemplate {
         // Fill the block with pending transactions in a deterministic order
         let mut pending: Vec<(&Hash, &Transaction)> = self.mempool.iter().collect();
         pending.sort_by_key(|(id, _)| **id);
+        let mut transactions = Vec::new();
         let mut used_bytes = TEMPLATE_RESERVED_BYTES;
         for (_, tx) in pending {
             let size = tx.to_bytes().len();
@@ -442,32 +780,21 @@ impl DagLedger {
             transactions.push(tx.clone());
         }
 
-        let header = BlockHeader {
-            version: 1,
-            parents,
-            hash_merkle_root: Block::compute_merkle_root(&transactions),
-            accepted_id_merkle_root: Hash::ZERO,
-            utxo_commitment: Hash::ZERO,
-            timestamp_ms: chrono::Utc::now().timestamp_millis() as u64,
-            bits,
-            nonce: 0,
-            daa_score,
-            blue_score,
-            blue_work: blue_score as u128 * 1000,
-        };
-
-        let pre_pow_hash = header.pre_pow_hash().unwrap_or(Hash::ZERO);
-        let target = compact_to_u256(bits);
+        let block = self
+            .build_block(&self.virtual_parents, payout.or(self.mining_address.as_ref()), transactions)
+            .expect("the virtual parents always form a valid block");
+        let pre_pow_hash = block.header.pre_pow_hash().unwrap_or(Hash::ZERO);
 
         MiningTemplate {
-            block: Block { header, transactions },
-            target_hex: hex::encode(target),
+            target_hex: hex::encode(compact_to_u256(block.header.bits)),
             pre_pow_hash,
-            reward_imn: block_subsidy_imn(daa_score),
+            reward_imn: block_subsidy_imn(block.header.daa_score),
+            block,
         }
     }
 
-    /// Queries live spendable balance for an address in whole IMN and atomic units.
+    /// Queries the balance of an address in whole IMN and atomic units, including rewards
+    /// that are not yet mature.
     pub fn get_balance(&self, address: &Address) -> Result<(u64, f64), StorageError> {
         let atoms = self.storage.get_balance(address)?;
         let coins = (atoms as f64) / (ATOMS_PER_IMN as f64);
@@ -476,18 +803,46 @@ impl DagLedger {
 
     /// Queries list of UTXOs for an address.
     pub fn get_utxos(&self, address: &Address) -> Result<Vec<(Outpoint, TxOutput)>, StorageError> {
-        self.storage.get_utxos(address)
+        Ok(self
+            .storage
+            .get_utxos(address)?
+            .into_iter()
+            .map(|(outpoint, entry)| (outpoint, entry.output))
+            .collect())
     }
 
-    /// Queries a transaction record by hash, checking pending mempool first, then persistent storage.
-    pub fn get_transaction(&self, tx_id: &Hash) -> Result<Option<(Transaction, Option<Hash>, Option<u64>)>, StorageError> {
+    /// Queries the UTXOs of an address that can be spent right now (excludes immature rewards).
+    pub fn get_spendable_utxos(&self, address: &Address) -> Result<Vec<(Outpoint, TxOutput)>, StorageError> {
+        let maturity = self.params.coinbase_maturity;
+        Ok(self
+            .storage
+            .get_utxos(address)?
+            .into_iter()
+            .filter(|(_, entry)| !entry.is_coinbase || entry.blue_score + maturity <= self.virtual_blue_score)
+            .map(|(outpoint, entry)| (outpoint, entry.output))
+            .collect())
+    }
+
+    /// Queries a transaction by ID, checking the pending mempool first, then accepted transactions.
+    pub fn get_transaction(&self, tx_id: &Hash) -> Result<Option<TxInfo>, StorageError> {
         if let Some(tx) = self.mempool.get(tx_id) {
-            return Ok(Some((tx.clone(), None, None)));
+            return Ok(Some(TxInfo { tx: tx.clone(), block_hash: None, confirmations: 0 }));
         }
-        if let Some(record) = self.storage.get_transaction(tx_id)? {
-            return Ok(Some((record.tx, Some(record.block_hash), Some(record.daa_score))));
-        }
-        Ok(None)
+        let Some(record) = self.storage.get_tx_record(tx_id)? else {
+            return Ok(None);
+        };
+        let block = self
+            .storage
+            .get_block(&record.block_hash)?
+            .ok_or(StorageError::MissingBlock(record.block_hash))?;
+        let Some(tx) = block.transactions.get(record.tx_index as usize) else {
+            return Ok(None);
+        };
+        Ok(Some(TxInfo {
+            tx: tx.clone(),
+            block_hash: Some(record.block_hash),
+            confirmations: self.virtual_blue_score.saturating_sub(record.accepting_blue_score) + 1,
+        }))
     }
 
     /// Node diagnostic overview.
@@ -513,216 +868,4 @@ impl DagLedger {
 pub type SharedLedger = Arc<RwLock<DagLedger>>;
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use ed25519_dalek::SigningKey;
-    use imoney_core::{AddressType, TxInput};
-    use imoney_pow::MoneyPrinterContext;
-    use std::path::PathBuf;
-    use std::sync::atomic::AtomicBool;
-
-    fn address_of(key: &SigningKey) -> Address {
-        Address::from_public_key(Network::Testnet, AddressType::PubKeyHash, key.verifying_key().as_bytes())
-    }
-
-    fn key(seed: u8) -> SigningKey {
-        SigningKey::from_bytes(&[seed; 32])
-    }
-
-    fn test_pow() -> MoneyPrinterPow {
-        MoneyPrinterPow::new(Arc::new(MoneyPrinterContext::new(&Hash([1u8; 32]), 1024)))
-    }
-
-    fn fresh_db(name: &str) -> PathBuf {
-        let path = std::env::temp_dir().join(format!("imoney-test-{}-{}.redb", name, std::process::id()));
-        let _ = std::fs::remove_file(&path);
-        path
-    }
-
-    /// Mines the ledger's current template, paying `payout`, without adding the block.
-    fn mine(ledger: &DagLedger, pow: &MoneyPrinterPow, payout: &Address) -> Block {
-        let template = ledger.get_mining_template(Some(payout));
-        let (nonce, _) = pow
-            .mine(&template.pre_pow_hash, template.block.header.bits, 0, 1_000_000, Arc::new(AtomicBool::new(false)))
-            .expect("devnet difficulty must be minable");
-        template.into_block(nonce)
-    }
-
-    /// Re-mines a block after its contents were changed by a test.
-    fn remine(mut block: Block, pow: &MoneyPrinterPow) -> Block {
-        block.header.hash_merkle_root = Block::compute_merkle_root(&block.transactions);
-        let pre_pow_hash = block.header.pre_pow_hash().unwrap();
-        let (nonce, _) = pow
-            .mine(&pre_pow_hash, block.header.bits, 0, 1_000_000, Arc::new(AtomicBool::new(false)))
-            .unwrap();
-        block.header.nonce = nonce;
-        block
-    }
-
-    /// Opens a fresh ledger and mines one block so `miner` owns a coinbase UTXO.
-    fn ledger_with_one_block(name: &str, miner: &SigningKey) -> (DagLedger, MoneyPrinterPow) {
-        let mut ledger = DagLedger::open(fresh_db(name), None).expect("open ledger");
-        let pow = test_pow();
-        let block = mine(&ledger, &pow, &address_of(miner));
-        ledger.add_block(block, &pow).expect("add block");
-        (ledger, pow)
-    }
-
-    fn pay(ledger: &DagLedger, from: &SigningKey, to: &Address, amount: u64, fee: u64) -> Transaction {
-        let utxos = ledger.get_utxos(&address_of(from)).unwrap();
-        Transaction::build_payment(from, Network::Testnet, to, amount, fee, utxos).unwrap()
-    }
-
-    #[test]
-    fn mempool_rejects_double_spend_of_same_utxo() {
-        let miner = key(3);
-        let (mut ledger, _) = ledger_with_one_block("double-spend", &miner);
-        assert_eq!(ledger.get_utxos(&address_of(&miner)).unwrap().len(), 1);
-
-        let first = pay(&ledger, &miner, &address_of(&key(4)), 1_000, 100);
-        let second = pay(&ledger, &miner, &address_of(&key(5)), 1_000, 100);
-
-        ledger.broadcast_transaction(first).expect("first spend is admitted");
-        let err = ledger.broadcast_transaction(second).expect_err("second spend must be rejected");
-        assert!(err.to_string().contains("already spent"), "{}", err);
-        assert_eq!(ledger.mempool.len(), 1);
-    }
-
-    #[test]
-    fn mempool_rejects_output_total_overflow() {
-        let miner = key(6);
-        let (mut ledger, _) = ledger_with_one_block("overflow", &miner);
-        let (outpoint, _) = ledger.get_utxos(&address_of(&miner)).unwrap().remove(0);
-
-        let script = ScriptPublicKey::pay_to_address(&address_of(&miner));
-        let mut tx = Transaction {
-            version: 1,
-            inputs: vec![TxInput { previous_outpoint: outpoint, signature_script: Vec::new(), sequence: 0 }],
-            // Wraps to 1 atom with unchecked u64 addition
-            outputs: vec![
-                TxOutput { value_atoms: u64::MAX, script_public_key: script.clone() },
-                TxOutput { value_atoms: 2, script_public_key: script },
-            ],
-            lock_time: 0,
-            subnetwork_id: [0u8; 20],
-            gas: 0,
-            payload: Vec::new(),
-        };
-        tx.sign_input(Network::Testnet, 0, &miner).unwrap();
-
-        let err = ledger.broadcast_transaction(tx).expect_err("overflowing outputs must be rejected");
-        assert!(err.to_string().contains("overflows"), "{}", err);
-    }
-
-    #[test]
-    fn two_nodes_reach_the_same_ledger_from_the_same_blocks() {
-        let miner = key(10);
-        let alice = address_of(&key(11));
-        let subsidy = block_subsidy_atoms(1);
-
-        // Node A mines a block, takes a payment into its mempool, and mines it into a second block
-        let (mut node_a, pow) = ledger_with_one_block("node-a", &miner);
-        let payment = pay(&node_a, &miner, &alice, 40_000, 1_000);
-        let payment_id = node_a.broadcast_transaction(payment).unwrap();
-        let block_2 = mine(&node_a, &pow, &address_of(&miner));
-        assert_eq!(block_2.transactions.len(), 2);
-        let hash_2 = node_a.add_block(block_2.clone(), &pow).unwrap();
-        assert!(node_a.mempool.is_empty());
-
-        // Node B has a different payout address and an empty mempool, and sees only the blocks
-        let mut node_b = DagLedger::open(fresh_db("node-b"), Some(address_of(&key(12)))).unwrap();
-        let block_1 = node_a.storage.get_block(&block_2.header.parents[0]).unwrap().unwrap();
-        node_b.add_block(block_1, &pow).unwrap();
-        node_b.add_block(block_2, &pow).unwrap();
-
-        for node in [&node_a, &node_b] {
-            assert_eq!(node.get_balance(&alice).unwrap().0, 40_000);
-            assert_eq!(node.get_balance(&address_of(&miner)).unwrap().0, 2 * subsidy - 41_000);
-            assert_eq!(node.get_balance(&address_of(&key(12))).unwrap().0, 0);
-            // The 1,000-atom fee is burned until fee payout is implemented
-            assert_eq!(node.storage.total_utxo_atoms().unwrap(), (2 * subsidy - 1_000) as u128);
-            let (_, confirmed_in, _) = node.get_transaction(&payment_id).unwrap().unwrap();
-            assert_eq!(confirmed_in, Some(hash_2));
-        }
-        assert_eq!(node_a.virtual_selected_parent, node_b.virtual_selected_parent);
-    }
-
-    #[test]
-    fn block_rejected_when_coinbase_exceeds_subsidy() {
-        let miner = key(20);
-        let (mut ledger, pow) = ledger_with_one_block("greedy-coinbase", &miner);
-
-        let mut block = mine(&ledger, &pow, &address_of(&miner));
-        block.transactions[0].outputs[0].value_atoms += 1;
-        let block = remine(block, &pow);
-
-        let err = ledger.add_block(block, &pow).expect_err("oversized coinbase must be rejected");
-        assert!(matches!(err, StateError::CoinbaseTooLarge(..)), "{}", err);
-    }
-
-    #[test]
-    fn block_rejected_when_body_does_not_match_header() {
-        let miner = key(21);
-        let (mut ledger, pow) = ledger_with_one_block("bad-merkle", &miner);
-
-        // Redirect the coinbase after mining: the header no longer commits to the body
-        let mut block = mine(&ledger, &pow, &address_of(&miner));
-        block.transactions[0].outputs[0].script_public_key = ScriptPublicKey::pay_to_address(&address_of(&key(22)));
-
-        let err = ledger.add_block(block, &pow).expect_err("tampered body must be rejected");
-        assert!(matches!(err, StateError::Block(BlockError::MerkleRootMismatch)), "{}", err);
-    }
-
-    #[test]
-    fn unspendable_transaction_in_block_is_skipped_not_applied() {
-        let miner = key(30);
-        let thief = key(31);
-        let (mut ledger, pow) = ledger_with_one_block("skip-invalid", &miner);
-        let (outpoint, utxo) = ledger.get_utxos(&address_of(&miner)).unwrap().remove(0);
-
-        // The thief signs a spend of the miner's coin with their own key
-        let mut theft = Transaction {
-            version: 1,
-            inputs: vec![TxInput { previous_outpoint: outpoint, signature_script: Vec::new(), sequence: 0 }],
-            outputs: vec![TxOutput {
-                value_atoms: utxo.value_atoms,
-                script_public_key: ScriptPublicKey::pay_to_address(&address_of(&thief)),
-            }],
-            lock_time: 0,
-            subnetwork_id: [0u8; 20],
-            gas: 0,
-            payload: Vec::new(),
-        };
-        theft.sign_input(Network::Testnet, 0, &thief).unwrap();
-        let theft_id = theft.id();
-
-        let mut block = mine(&ledger, &pow, &address_of(&thief));
-        block.transactions.push(theft);
-        let block = remine(block, &pow);
-        ledger.add_block(block, &pow).expect("block itself is valid");
-
-        let subsidy = block_subsidy_atoms(1);
-        assert_eq!(ledger.get_balance(&address_of(&miner)).unwrap().0, subsidy);
-        assert_eq!(ledger.get_balance(&address_of(&thief)).unwrap().0, subsidy); // coinbase only
-        assert!(ledger.get_transaction(&theft_id).unwrap().is_none());
-    }
-
-    #[test]
-    fn ledger_recovers_blocks_and_balances_after_restart() {
-        let miner = key(40);
-        let path = fresh_db("restart");
-        let pow = test_pow();
-        let tip = {
-            let mut ledger = DagLedger::open(&path, None).unwrap();
-            let block = mine(&ledger, &pow, &address_of(&miner));
-            ledger.add_block(block, &pow).unwrap()
-        };
-
-        let reopened = DagLedger::open(&path, None).unwrap();
-        assert_eq!(reopened.blocks.len(), 2);
-        assert_eq!(reopened.virtual_selected_parent, tip);
-        assert_eq!(reopened.tips, HashSet::from([tip]));
-        assert_eq!(reopened.get_balance(&address_of(&miner)).unwrap().0, block_subsidy_atoms(1));
-        assert_eq!(reopened.storage.get_block(&tip).unwrap().unwrap().hash(), tip);
-    }
-}
+mod tests;

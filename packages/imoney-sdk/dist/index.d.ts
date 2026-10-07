@@ -37,6 +37,7 @@ export interface TxStatus {
   status: 'pending' | 'confirmed' | 'not_found';
   block_hash?: string;
   daa_score?: number;
+  confirmations: number;
   inputs_count: number;
   outputs_count: number;
   total_output_atoms: number;
