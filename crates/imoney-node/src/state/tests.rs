@@ -100,6 +100,41 @@ fn expected_supply(ledger: &DagLedger) -> u128 {
 }
 
 #[test]
+fn sync_paging_returns_every_block_parents_first() {
+    let mut ledger = open("sync-paging");
+    let pow = test_pow();
+    let miner = address_of(&key(110));
+    for _ in 0..25 {
+        mine_tip(&mut ledger, &pow, &miner);
+    }
+
+    let locator = ledger.locator();
+    assert_eq!(locator.first(), Some(&ledger.virtual_selected_parent));
+    assert_eq!(locator.last(), Some(&ledger.genesis_hash));
+    assert!(locator.len() < 20, "locator must thin out: {}", locator.len());
+
+    // A peer that only has genesis pages through everything, 7 blocks at a time
+    let mut cursor = (ledger.sync_start_level(&[Hash([9u8; 32]), ledger.genesis_hash]), Hash([0xff; 32]));
+    let mut received: Vec<Hash> = Vec::new();
+    loop {
+        let (blocks, next) = ledger.blocks_after(cursor, 7, usize::MAX).unwrap();
+        for block in &blocks {
+            assert!(block.header.parents.iter().all(|p| *p == ledger.genesis_hash || received.contains(p)));
+            received.push(block.hash());
+        }
+        match next {
+            Some(position) => cursor = position,
+            None => break,
+        }
+    }
+    assert_eq!(received.len(), 25);
+
+    // A peer that already has the tip is sent nothing
+    let up_to_date = (ledger.sync_start_level(&locator), Hash([0xff; 32]));
+    assert_eq!(ledger.blocks_after(up_to_date, 7, usize::MAX).unwrap(), (Vec::new(), None));
+}
+
+#[test]
 fn mempool_rejects_double_spend_of_same_utxo() {
     let miner = key(3);
     let (mut ledger, _) = funded_ledger("double-spend", &miner);

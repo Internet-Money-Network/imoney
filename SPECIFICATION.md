@@ -103,3 +103,15 @@ A transaction may name a *service script*: the node that served the payment, cho
 
 ### 6.4 Chain reorganisation
 The selected chain ends in the tip with the most blue work. Each selected-chain block's exact ledger change is stored, so when a heavier chain appears the node undoes the old chain's changes back to the common block and applies the new chain's.
+
+---
+
+## 7. Peer-to-Peer Protocol
+
+Nodes talk over TCP. Every message travels in a frame of a 4-byte network magic, a 4-byte big-endian length (at most 4 MiB) and a payload: a one-byte message tag followed by the canonical binary encoding of the message.
+
+* **Handshake.** Each side opens with `Version` (protocol version, network, genesis hash, a random node ID, listening port). A peer on another protocol version, network or genesis is dropped. The node ID lets a node detect a connection to itself and collapse duplicate links between the same two nodes.
+* **Relay.** Blocks and transactions are announced by hash (`InvBlock`, `InvTx`) and sent only to peers that ask for them.
+* **Sync.** A node sends a *locator*: selected-chain hashes from its tip back to genesis, dense near the tip and exponentially sparser further back. The peer finds the newest block they share and returns blocks above it in `(level, hash)` order, in which parents always precede children, in batches of at most 200 blocks or 2 MB with a cursor for the next batch. A block that arrives before its parents waits in an orphan pool while the parents are requested.
+* **Discovery.** Peers exchange the addresses of nodes that accept connections (`GetAddr`, `Addr`). A node keeps up to 8 outbound connections and accepts up to 64 inbound.
+* **Misbehaviour.** Bytes that are not this protocol, and repeated invalid blocks, raise a peer's score; at the threshold the peer is disconnected and its IP refused for 10 minutes.

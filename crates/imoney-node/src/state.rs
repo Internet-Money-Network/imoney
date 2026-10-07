@@ -14,7 +14,8 @@ use imoney_core::{
 use imoney_emission::{block_subsidy_atoms, block_subsidy_imn};
 use imoney_pow::{compact_to_u256, is_valid_pow, MoneyPrinterPow};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
+use std::ops::Bound;
 use std::path::Path;
 use std::sync::Arc;
 use thiserror::Error;
@@ -237,6 +238,10 @@ pub struct DagLedger {
     pub mempool: Mempool,
     /// Ledger change notifications. Sending never blocks; slow subscribers skip events.
     pub events: broadcast::Sender<LedgerEvent>,
+    pub genesis_hash: Hash,
+    /// Every block ordered by `(level, hash)`: an order in which parents precede children,
+    /// used to page through the DAG when another node syncs from this one.
+    level_index: BTreeSet<(u64, Hash)>,
     virtual_acceptance: AcceptanceData,
 }
 
@@ -272,6 +277,8 @@ impl DagLedger {
             mining_address,
             mempool: Mempool::default(),
             events: broadcast::channel(1024).0,
+            genesis_hash: create_testnet_genesis().hash(),
+            level_index: BTreeSet::new(),
             virtual_acceptance: AcceptanceData::default(),
         };
 
@@ -287,6 +294,7 @@ impl DagLedger {
             view.batch.blocks.push((genesis_hash, genesis.to_bytes()));
             view.batch.block_meta.push((genesis_hash, meta.to_bytes()));
             ledger.blocks.insert(genesis_hash, genesis.header.clone());
+            ledger.level_index.insert((0, genesis_hash));
             ledger.tips.insert(genesis_hash);
             ledger.virtual_selected_parent = genesis_hash;
 
@@ -300,6 +308,7 @@ impl DagLedger {
                 for p in &header.parents {
                     non_tips.insert(*p);
                 }
+                ledger.level_index.insert((meta.level, hash));
                 ledger.dag.restore(
                     hash,
                     DagBlock {
@@ -719,6 +728,7 @@ impl DagLedger {
             }
         };
         self.blocks.insert(block_hash, block.header.clone());
+        self.level_index.insert((self.dag.get(&block_hash).level, block_hash));
         self.set_virtual(virtual_state);
 
         // Drop pending transactions that were accepted or can no longer be spent
@@ -859,6 +869,62 @@ impl DagLedger {
             block_hash: Some(record.block_hash),
             confirmations: self.virtual_blue_score.saturating_sub(record.accepting_blue_score) + 1,
         }))
+    }
+
+    /// Selected-chain block hashes from the tip back to genesis, dense near the tip and
+    /// exponentially sparser further back. A peer uses it to find the newest block we share.
+    pub fn locator(&self) -> Vec<Hash> {
+        let mut locator = Vec::new();
+        let mut cursor = self.virtual_selected_parent;
+        let mut step = 1usize;
+        loop {
+            locator.push(cursor);
+            if cursor == self.genesis_hash {
+                return locator;
+            }
+            for _ in 0..step {
+                let parent = self.dag.get(&cursor).ghostdag.selected_parent;
+                if parent == Hash::ZERO {
+                    break;
+                }
+                cursor = parent;
+            }
+            if locator.len() >= 10 {
+                step *= 2;
+            }
+        }
+    }
+
+    /// The level of the first locator entry this node has, or 0 when it has none of them.
+    pub fn sync_start_level(&self, locator: &[Hash]) -> u64 {
+        locator
+            .iter()
+            .find_map(|hash| self.dag.try_get(hash))
+            .map_or(0, |block| block.level)
+    }
+
+    /// Blocks after `cursor` in `(level, hash)` order, up to the given limits.
+    /// Also returns the cursor for the next call, or `None` when nothing is left.
+    pub fn blocks_after(
+        &self,
+        cursor: (u64, Hash),
+        max_blocks: usize,
+        max_bytes: usize,
+    ) -> Result<(Vec<Block>, Option<(u64, Hash)>), StorageError> {
+        let mut blocks = Vec::new();
+        let mut bytes = 0usize;
+        let mut last = None;
+        for position in self.level_index.range((Bound::Excluded(cursor), Bound::Unbounded)) {
+            if blocks.len() >= max_blocks || bytes >= max_bytes {
+                // More remain: resume after the last block sent
+                return Ok((blocks, last));
+            }
+            let block = self.storage.get_block(&position.1)?.ok_or(StorageError::MissingBlock(position.1))?;
+            bytes += block.to_bytes().len();
+            blocks.push(block);
+            last = Some(*position);
+        }
+        Ok((blocks, None))
     }
 
     /// The most recent blocks by DAA score, newest first.
