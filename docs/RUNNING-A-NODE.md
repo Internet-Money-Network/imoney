@@ -46,6 +46,7 @@ Create the address in the wallet at `/wallet` first, and write down its recovery
 | `--service-address` | the mining address | Where this node's half of the fee goes on payments that name it. |
 | `--prune` | off | Delete the contents of blocks older than 36 hours. See below. |
 | `--final-confirmations` | 60 | Confirmations before this node reports a payment as final. |
+| `--devnet <name>` | off | Private test network: the node only talks to nodes started with the same name. |
 | `--rpc-token` | none | Require this token to submit blocks over the API. |
 
 ## Full history or pruned

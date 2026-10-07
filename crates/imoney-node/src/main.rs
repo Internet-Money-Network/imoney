@@ -44,6 +44,11 @@ struct Args {
     #[arg(long)]
     service_address: Option<String>,
 
+    /// Run on a private network with this name. Nodes only talk to nodes started with the
+    /// same name, so a test network can never mix with the public one.
+    #[arg(long)]
+    devnet: Option<String>,
+
     /// Delete the transactions of blocks buried deeper than three times the finality depth
     /// (36 hours). The node keeps headers and the current ledger, uses far less disk, and can
     /// no longer serve old history to nodes that are syncing.
@@ -148,7 +153,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Initialize P2P PeerManager
     let p2p_bind_addr: SocketAddr = args.p2p_bind.parse()?;
-    let p2p_manager = Arc::new(PeerManager::new(ledger.clone(), pow.clone(), p2p_bind_addr.port()));
+    let p2p_manager = Arc::new(match &args.devnet {
+        Some(name) => {
+            // A network identifier derived from the name keeps this network apart from all others
+            let magic: [u8; 4] = blake3::hash(format!("imoney devnet: {}", name).as_bytes()).as_bytes()[..4].try_into().unwrap();
+            println!("[*] Private network '{}': only nodes started with the same --devnet name can connect.", name);
+            PeerManager::with_magic(ledger.clone(), pow.clone(), p2p_bind_addr.port(), magic)
+        }
+        None => PeerManager::new(ledger.clone(), pow.clone(), p2p_bind_addr.port()),
+    });
     
     // Start incoming P2P TCP gossip server
     p2p_manager.clone().start_server(p2p_bind_addr).await?;
