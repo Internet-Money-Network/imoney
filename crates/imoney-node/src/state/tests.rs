@@ -33,8 +33,15 @@ fn fresh_db(name: &str) -> PathBuf {
     path
 }
 
+/// Relay policy for tests: 1 atom per byte, so the fees used below stay small round numbers.
+fn test_mempool() -> crate::mempool::Mempool {
+    crate::mempool::Mempool::default().with_min_fee_rate(1)
+}
+
 fn open(name: &str) -> DagLedger {
-    DagLedger::open_with_params(fresh_db(name), None, test_params()).expect("open ledger")
+    let mut ledger = DagLedger::open_with_params(fresh_db(name), None, test_params()).expect("open ledger");
+    ledger.mempool = test_mempool();
+    ledger
 }
 
 /// Finds a nonce for a block whose header is otherwise final.
@@ -444,6 +451,7 @@ fn ledger_recovers_state_after_restart() {
 
     let (tip, supply, miner_balance) = {
         let mut ledger = DagLedger::open_with_params(&path, None, test_params()).unwrap();
+        ledger.mempool = test_mempool();
         mine_tip(&mut ledger, &pow, &address_of(&miner));
         for _ in 0..=MATURITY {
             mine_tip(&mut ledger, &pow, &address_of(&key(200)));

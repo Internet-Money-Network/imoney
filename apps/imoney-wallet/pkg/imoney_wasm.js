@@ -33,8 +33,9 @@ export function build_consolidation(private_key_hex, testnet, fee_atoms, utxos_j
 }
 
 /**
- * Builds and signs a payment. Returns `{ tx_id, transaction, inputs_used }` as JSON;
- * post `{ transaction }` to the node's `/api/v1/tx/broadcast`.
+ * Builds and signs a payment. Returns `{ tx_id, transaction, inputs_used, fee_atoms }` as JSON;
+ * post `{ transaction }` to the node's `/api/v1/tx/broadcast`. Pass a fee of 0 to have the fee
+ * set from the transaction's size.
  * @param {string} private_key_hex
  * @param {boolean} testnet
  * @param {string} recipient

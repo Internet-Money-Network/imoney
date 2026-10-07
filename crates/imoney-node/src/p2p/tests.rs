@@ -31,7 +31,9 @@ impl TestNode {
         let mut params = ConsensusParams::testnet();
         params.coinbase_maturity = 2;
         params.daa.retarget = false;
-        let ledger: SharedLedger = Arc::new(RwLock::new(DagLedger::open_with_params(path, None, params).unwrap()));
+        let mut ledger = DagLedger::open_with_params(path, None, params).unwrap();
+        ledger.mempool = crate::mempool::Mempool::default().with_min_fee_rate(1);
+        let ledger: SharedLedger = Arc::new(RwLock::new(ledger));
         let pow = Arc::new(MoneyPrinterPow::new(PowParams::tiny(), Hash([1u8; 32]), PowMode::Full));
         let manager = Arc::new(
             PeerManager::with_magic(ledger.clone(), pow.clone(), 0, magic)

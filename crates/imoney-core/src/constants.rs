@@ -43,4 +43,9 @@ pub const FLOOR_SUBSIDY_ATOMS: u64 = ATOMS_PER_IMN * 5 / 16;
 pub const MAX_TX_BYTES: usize = 50_000;
 
 /// Maximum canonical-encoded size of a block (header plus transactions), in bytes.
-pub const MAX_BLOCK_BYTES: usize = 250_000;
+/// At one block every 5 seconds this caps chain growth at about 1.7 GB a day.
+pub const MAX_BLOCK_BYTES: usize = 100_000;
+
+/// Lowest fee nodes relay by default, in atoms per byte of transaction. Node policy, not a
+/// consensus rule: it makes filling blocks with junk cost real money.
+pub const MIN_RELAY_FEE_PER_BYTE: u64 = 10;

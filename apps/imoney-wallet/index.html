@@ -327,7 +327,7 @@
               <input type="text" id="send-invoice" placeholder="optional" maxlength="64" />
             </div>
           </div>
-          <p style="font-size: 12px; color: #8b949e; margin: 0 0 12px;">Network fee: 0.0001 IMN</p>
+          <p style="font-size: 12px; color: #8b949e; margin: 0 0 12px;">The network fee is set from the size of the payment, usually about 0.00006 IMN.</p>
           <button class="btn" id="send-btn">Sign &amp; send</button>
           <div id="send-status" class="status-msg"></div>
         </div>
@@ -366,7 +366,6 @@
   <script type="module">
     const TESTNET = true;
     const ATOMS_PER_IMN = 100000000;
-    const FEE_ATOMS = 10000;
     const $ = (id) => document.getElementById(id);
 
     // When served by a node the page lives at /wallet and its files under /wallet/
@@ -591,13 +590,13 @@
             TESTNET,
             recipient,
             BigInt(amountAtoms),
-            BigInt(FEE_ATOMS),
+            0n, // fee set from the transaction's size
             JSON.stringify(spendable),
             serviceAddress || undefined,
             invoice || undefined
           )
         );
-        show(statusEl, `Sent. Transaction ${signed.tx_id.slice(0, 16)}… should be in a block in about 5 seconds.`, true);
+        show(statusEl, `Sent for a fee of ${formatImn(signed.fee_atoms)} IMN. Transaction ${signed.tx_id.slice(0, 16)}… should be in a block in about 5 seconds.`, true);
         $('send-recipient').value = '';
         $('send-amount').value = '';
         $('send-invoice').value = '';
@@ -611,13 +610,10 @@
       const statusEl = $('consolidate-status');
       try {
         await refreshBalance();
-        // About 144 bytes per coin plus a fixed part, at twice the minimum fee rate
-        const coins = Math.min(spendable.length, 300);
-        const feeAtoms = 2 * (150 + 144 * coins);
         const signed = await broadcast(
-          wasm.build_consolidation(wallet.private_key_hex, TESTNET, BigInt(feeAtoms), JSON.stringify(spendable), serviceAddress || undefined)
+          wasm.build_consolidation(wallet.private_key_hex, TESTNET, 0n, JSON.stringify(spendable), serviceAddress || undefined)
         );
-        show(statusEl, `Merging ${signed.inputs_used} coins into one for a fee of ${formatImn(feeAtoms)} IMN.`, true);
+        show(statusEl, `Merging ${signed.inputs_used} coins into one for a fee of ${formatImn(signed.fee_atoms)} IMN.`, true);
         setTimeout(refreshBalance, 1500);
       } catch (err) {
         show(statusEl, err.message || String(err), false);

@@ -2,8 +2,7 @@ use imoney_core::{Encode, Hash, Outpoint, Transaction};
 use std::collections::HashMap;
 use thiserror::Error;
 
-/// Lowest fee a transaction must pay to be relayed, in atoms per byte. Node policy, not consensus.
-pub const MIN_RELAY_FEE_PER_BYTE: u64 = 1;
+pub use imoney_core::constants::MIN_RELAY_FEE_PER_BYTE;
 
 /// Default cap on the total size of pending transactions, in bytes.
 pub const DEFAULT_MAX_MEMPOOL_BYTES: usize = 50_000_000;
@@ -41,6 +40,8 @@ pub struct Mempool {
     spent: HashMap<Outpoint, Hash>,
     total_bytes: usize,
     max_bytes: usize,
+    /// Lowest fee admitted, in atoms per byte.
+    min_fee_per_byte: u64,
 }
 
 impl Default for Mempool {
@@ -56,7 +57,14 @@ impl Mempool {
             spent: HashMap::new(),
             total_bytes: 0,
             max_bytes,
+            min_fee_per_byte: MIN_RELAY_FEE_PER_BYTE,
         }
+    }
+
+    /// Overrides the minimum fee rate this pool admits.
+    pub fn with_min_fee_rate(mut self, atoms_per_byte: u64) -> Self {
+        self.min_fee_per_byte = atoms_per_byte;
+        self
     }
 
     pub fn len(&self) -> usize {
@@ -89,7 +97,7 @@ impl Mempool {
         }
 
         let size = tx.to_bytes().len();
-        let min_fee = size as u64 * MIN_RELAY_FEE_PER_BYTE;
+        let min_fee = size as u64 * self.min_fee_per_byte;
         if fee < min_fee {
             return Err(MempoolError::FeeTooLow(fee, min_fee, size));
         }
@@ -228,8 +236,16 @@ mod tests {
     }
 
     #[test]
-    fn rejects_low_fees_and_conflicts() {
+    fn default_policy_requires_ten_atoms_per_byte() {
         let mut pool = Mempool::default();
+        let size = size_of(&tx(1, 0)) as u64;
+        assert!(matches!(pool.insert(tx(1, 0), 10 * size - 1), Err(MempoolError::FeeTooLow(..))));
+        assert!(pool.insert(tx(1, 0), 10 * size).is_ok());
+    }
+
+    #[test]
+    fn rejects_low_fees_and_conflicts() {
+        let mut pool = Mempool::default().with_min_fee_rate(1);
         let a = tx(1, 0);
         let size = size_of(&a);
 
@@ -249,7 +265,7 @@ mod tests {
 
     #[test]
     fn block_selection_prefers_higher_fee_rate_and_respects_size() {
-        let mut pool = Mempool::default();
+        let mut pool = Mempool::default().with_min_fee_rate(1);
         let size = size_of(&tx(1, 0));
         let low = pool.insert(tx(1, 0), 1_000).unwrap();
         let high = pool.insert(tx(2, 0), 9_000).unwrap();
@@ -267,7 +283,7 @@ mod tests {
     #[test]
     fn full_pool_evicts_cheapest_for_better_paying_transaction() {
         let size = size_of(&tx(1, 0));
-        let mut pool = Mempool::new(2 * size);
+        let mut pool = Mempool::new(2 * size).with_min_fee_rate(1);
         let cheap = pool.insert(tx(1, 0), 1_000).unwrap();
         let good = pool.insert(tx(2, 0), 5_000).unwrap();
 
@@ -287,7 +303,7 @@ mod tests {
 
     #[test]
     fn retain_drops_stale_transactions() {
-        let mut pool = Mempool::default();
+        let mut pool = Mempool::default().with_min_fee_rate(1);
         let keep = pool.insert(tx(1, 0), 1_000).unwrap();
         let drop = pool.insert(tx(2, 0), 1_000).unwrap();
         pool.retain(|t| t.id() == keep);

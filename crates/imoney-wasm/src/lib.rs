@@ -5,10 +5,14 @@
 
 use bip39::Mnemonic;
 use ed25519_dalek::SigningKey;
-use imoney_core::{Address, AddressType, Hash, Network, Outpoint, ScriptPublicKey, Transaction, TxOutput};
+use imoney_core::constants::MIN_RELAY_FEE_PER_BYTE;
+use imoney_core::{Address, AddressType, Encode, Hash, Network, Outpoint, ScriptPublicKey, Transaction, TxOutput};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
+
+/// Fee rate wallets pay when none is given: twice the default relay minimum, in atoms per byte.
+pub const DEFAULT_FEE_PER_BYTE: u64 = 2 * MIN_RELAY_FEE_PER_BYTE;
 
 /// A wallet's keys, as handed to the page.
 #[derive(Debug, Serialize)]
@@ -33,6 +37,8 @@ pub struct SignedTransaction {
     pub tx_id: String,
     pub transaction: Transaction,
     pub inputs_used: usize,
+    /// The fee the transaction pays, in atoms.
+    pub fee_atoms: u64,
 }
 
 fn network(testnet: bool) -> Network {
@@ -85,8 +91,8 @@ fn spendable_utxos(utxos_json: &str, owner: &Address) -> Result<Vec<(Outpoint, T
         .collect()
 }
 
-fn signed(tx: Transaction) -> SignedTransaction {
-    SignedTransaction { tx_id: tx.id().to_hex(), inputs_used: tx.inputs.len(), transaction: tx }
+fn signed(tx: Transaction, fee_atoms: u64) -> SignedTransaction {
+    SignedTransaction { tx_id: tx.id().to_hex(), inputs_used: tx.inputs.len(), transaction: tx, fee_atoms }
 }
 
 /// The wallet logic, kept free of JavaScript types so it can be tested natively.
@@ -131,17 +137,34 @@ pub mod wallet {
         let recipient = parse_address(recipient, testnet, "recipient")?;
         let service = service_address.map(|a| parse_address(a, testnet, "service")).transpose()?;
         let utxos = spendable_utxos(utxos_json, &address_of(&key, testnet))?;
-        let tx = Transaction::build_invoice_payment(
-            &key,
-            network(testnet),
-            &recipient,
-            amount_atoms,
-            fee_atoms,
-            utxos,
-            service.as_ref(),
-            invoice_id.filter(|id| !id.is_empty()),
-        )?;
-        Ok(signed(tx))
+        let build = |fee: u64| {
+            Transaction::build_invoice_payment(
+                &key,
+                network(testnet),
+                &recipient,
+                amount_atoms,
+                fee,
+                utxos.clone(),
+                service.as_ref(),
+                invoice_id.filter(|id| !id.is_empty()),
+            )
+        };
+        if fee_atoms > 0 {
+            return Ok(signed(build(fee_atoms)?, fee_atoms));
+        }
+
+        // No fee given: pay for the transaction's actual size. A higher fee can pull in another
+        // input and make the transaction larger, so repeat until the fee covers the size.
+        let mut fee = DEFAULT_FEE_PER_BYTE * 300;
+        for _ in 0..8 {
+            let tx = build(fee)?;
+            let needed = DEFAULT_FEE_PER_BYTE * tx.to_bytes().len() as u64;
+            if fee >= needed {
+                return Ok(signed(tx, fee));
+            }
+            fee = needed;
+        }
+        Err("Could not settle on a fee for this payment".to_string())
     }
 
     /// Merges the wallet's smallest spendable outputs (up to the per-transaction limit) into one.
@@ -157,8 +180,10 @@ pub mod wallet {
         let mut utxos = spendable_utxos(utxos_json, &address_of(&key, testnet))?;
         utxos.sort_by_key(|(_, output)| output.value_atoms);
         utxos.truncate(imoney_core::transaction::MAX_CONSOLIDATION_INPUTS);
-        let tx = Transaction::build_consolidation(&key, network(testnet), fee_atoms, utxos, service.as_ref())?;
-        Ok(signed(tx))
+        // No fee given: about 144 bytes per merged output plus a fixed part
+        let fee = if fee_atoms > 0 { fee_atoms } else { DEFAULT_FEE_PER_BYTE * (160 + 144 * utxos.len() as u64) };
+        let tx = Transaction::build_consolidation(&key, network(testnet), fee, utxos, service.as_ref())?;
+        Ok(signed(tx, fee))
     }
 }
 
@@ -190,8 +215,9 @@ pub fn is_valid_address(address: &str, testnet: bool) -> bool {
     wallet::is_valid_address(address, testnet)
 }
 
-/// Builds and signs a payment. Returns `{ tx_id, transaction, inputs_used }` as JSON;
-/// post `{ transaction }` to the node's `/api/v1/tx/broadcast`.
+/// Builds and signs a payment. Returns `{ tx_id, transaction, inputs_used, fee_atoms }` as JSON;
+/// post `{ transaction }` to the node's `/api/v1/tx/broadcast`. Pass a fee of 0 to have the fee
+/// set from the transaction's size.
 #[wasm_bindgen]
 #[allow(clippy::too_many_arguments)]
 pub fn build_payment(
@@ -231,7 +257,8 @@ pub fn build_consolidation(
 #[cfg(test)]
 mod tests {
     use super::wallet::*;
-    use imoney_core::{Address, Network, ScriptPublicKey, Transaction};
+    use crate::DEFAULT_FEE_PER_BYTE;
+    use imoney_core::{Address, Encode, Network, ScriptPublicKey, Transaction};
 
     const PHRASE: &str = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
 
@@ -296,6 +323,30 @@ mod tests {
         let posted: serde_json::Value = serde_json::from_str(&json).unwrap();
         let round_trip: Transaction = serde_json::from_value(posted["transaction"].clone()).unwrap();
         assert_eq!(&round_trip, tx);
+    }
+
+    #[test]
+    fn automatic_fee_covers_the_size_even_when_it_pulls_in_more_inputs() {
+        let me = keys_from_mnemonic(PHRASE, true).unwrap();
+        let shop = keys_from_private_key(&"11".repeat(32), true).unwrap();
+        let fee_of = |amount: u64, coins: &[u64]| {
+            let signed = build_payment(&me.private_key_hex, true, &shop.address, amount, 0, &utxos(coins), None, None).unwrap();
+            let size = signed.transaction.to_bytes().len() as u64;
+            assert!(signed.fee_atoms >= DEFAULT_FEE_PER_BYTE * size, "fee {} for {} bytes", signed.fee_atoms, size);
+            assert!(signed.fee_atoms <= DEFAULT_FEE_PER_BYTE * (size + 300), "fee {} for {} bytes", signed.fee_atoms, size);
+            let paid_in: u64 = signed.inputs_used as u64 * coins[0];
+            let paid_out: u64 = signed.transaction.outputs.iter().map(|o| o.value_atoms).sum();
+            assert_eq!(paid_in - paid_out, signed.fee_atoms);
+            signed
+        };
+
+        assert_eq!(fee_of(10_000, &[1_000_000]).inputs_used, 1);
+        // 20 small coins: the fee grows with every input needed to pay it
+        let many = fee_of(150_000, &[10_000; 20]);
+        assert!(many.inputs_used >= 16 && many.inputs_used <= 20, "{}", many.inputs_used);
+
+        let merged = build_consolidation(&me.private_key_hex, true, 0, &utxos(&[90_000, 90_000, 90_000]), None).unwrap();
+        assert!(merged.fee_atoms >= DEFAULT_FEE_PER_BYTE * merged.transaction.to_bytes().len() as u64);
     }
 
     #[test]
