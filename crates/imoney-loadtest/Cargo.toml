@@ -1,0 +1,21 @@
+[package]
+name = "imoney-loadtest"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Floods an Internet Money test node with signed payments and payment watchers, and reports how it copes"
+
+[[bin]]
+name = "imoney-loadtest"
+path = "src/main.rs"
+
+[dependencies]
+imoney-core = { path = "../imoney-core" }
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+blake3.workspace = true
+ed25519-dalek.workspace = true
+ureq = { version = "2", default-features = false, features = ["json"] }
+tungstenite = { version = "0.24", default-features = false, features = ["handshake"] }

@@ -858,6 +858,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "imoney-loadtest"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "clap",
+ "ed25519-dalek",
+ "imoney-core",
+ "serde",
+ "serde_json",
+ "tungstenite",
+ "ureq",
+]
+
+[[package]]
 name = "imoney-miner"
 version = "0.1.0"
 dependencies = [
