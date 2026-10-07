@@ -1,12 +1,12 @@
 use crate::p2p::PeerManager;
-use crate::state::SharedLedger;
+use crate::state::{MiningTemplate, SharedLedger};
 use axum::extract::ws::{Message as WsMessage, WebSocket, WebSocketUpgrade};
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Json};
 use axum::routing::{get, post};
 use axum::Router;
-use imoney_core::{Address, BlockHeader, Hash, Transaction};
+use imoney_core::{Address, Block, Hash, Transaction};
 use imoney_pow::MoneyPrinterPow;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -21,8 +21,14 @@ pub struct AppState {
 
 
 #[derive(Deserialize)]
+pub struct TemplateQuery {
+    /// Payout address for the coinbase. Defaults to the node's own mining address.
+    pub address: Option<String>,
+}
+
+#[derive(Deserialize)]
 pub struct SubmitBlockRequest {
-    pub header: BlockHeader,
+    pub block: Block,
 }
 
 #[derive(Serialize)]
@@ -47,7 +53,7 @@ pub struct BroadcastTxResponse {
 #[derive(Serialize)]
 pub struct AddressBalanceResponse {
     pub address: String,
-    pub balance_im: f64,
+    pub balance_imn: f64,
     pub balance_atoms: u64,
 }
 
@@ -56,7 +62,7 @@ pub struct UtxoItemResponse {
     pub transaction_id: String,
     pub index: u32,
     pub value_atoms: u64,
-    pub value_im: f64,
+    pub value_imn: f64,
 }
 
 #[derive(Serialize)]
@@ -70,7 +76,7 @@ pub struct WalletGenerateResponse {
 pub struct WalletSendRequest {
     pub private_key_hex: String,
     pub recipient_address: String,
-    pub amount_im: f64,
+    pub amount_imn: f64,
     pub fee_atoms: Option<u64>,
 }
 
@@ -92,7 +98,7 @@ pub struct TxStatusResponse {
     pub inputs_count: usize,
     pub outputs_count: usize,
     pub total_output_atoms: u64,
-    pub total_output_im: f64,
+    pub total_output_imn: f64,
 }
 
 #[derive(Serialize)]
@@ -168,7 +174,7 @@ async fn dashboard_handler(State(state): State<Arc<AppState>>) -> Html<String> {
         <div class="row"><span>Database Engine:</span><b>ACID On-Disk Storage (redb)</b></div>
         <div class="row"><span>Current Blue Score:</span><b>{}</b></div>
         <div class="row"><span>Total Blocks in DAG:</span><b>{}</b></div>
-        <div class="row"><span>Block Subsidy:</span><b>{} IM</b></div>
+        <div class="row"><span>Block Subsidy:</span><b>{} IMN</b></div>
         <div class="row"><span>Difficulty (Bits):</span><b>{}</b></div>
         <div class="row"><span>Active Mining Address:</span><span class="hash">{}</span></div>
         <div class="row"><span>Virtual Selected Parent:</span><span class="hash">{}</span></div>
@@ -182,7 +188,7 @@ async fn dashboard_handler(State(state): State<Arc<AppState>>) -> Html<String> {
             • GUI Wallet Interface: <code>GET /wallet</code><br>
             • Balance Lookup: <code>GET /api/v1/address/:addr/balance</code><br>
             • Unspent Coins (UTXOs): <code>GET /api/v1/address/:addr/utxos</code><br>
-            • Mining Work: <code>GET /api/v1/mining/template</code><br>
+            • Mining Work: <code>GET /api/v1/mining/template?address=:addr</code><br>
             • Block Submission: <code>POST /api/v1/mining/submit</code>
         </div>
     </div>
@@ -191,7 +197,7 @@ async fn dashboard_handler(State(state): State<Arc<AppState>>) -> Html<String> {
         info.target_block_interval_sec,
         info.virtual_blue_score,
         info.total_blocks,
-        info.current_block_reward_im,
+        info.current_block_reward_imn,
         info.current_bits,
         mining_addr_display,
         info.virtual_selected_parent
@@ -218,9 +224,16 @@ async fn peers_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse 
     })
 }
 
-async fn template_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let template = state.ledger.read().await.get_mining_template();
-    Json(template)
+async fn template_handler(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<TemplateQuery>,
+) -> Result<Json<MiningTemplate>, StatusCode> {
+    let payout = match query.address {
+        Some(addr_str) => Some(Address::decode(&addr_str).map_err(|_| StatusCode::BAD_REQUEST)?),
+        None => None,
+    };
+    let template = state.ledger.read().await.get_mining_template(payout.as_ref());
+    Ok(Json(template))
 }
 
 async fn submit_handler(
@@ -228,9 +241,9 @@ async fn submit_handler(
     Json(payload): Json<SubmitBlockRequest>,
 ) -> (StatusCode, Json<SubmitBlockResponse>) {
     let mut ledger = state.ledger.write().await;
-    match ledger.add_block(payload.header.clone(), &state.pow) {
+    match ledger.add_block(payload.block.clone(), &state.pow) {
         Ok(hash) => {
-            state.p2p.broadcast_block(payload.header);
+            state.p2p.broadcast_block(payload.block);
             (
                 StatusCode::OK,
                 Json(SubmitBlockResponse {
@@ -262,7 +275,7 @@ async fn balance_handler(
 
     Ok(Json(AddressBalanceResponse {
         address: addr_str,
-        balance_im: coins,
+        balance_imn: coins,
         balance_atoms: atoms,
     }))
 }
@@ -281,7 +294,7 @@ async fn utxos_handler(
             transaction_id: outpoint.transaction_id.to_hex(),
             index: outpoint.index,
             value_atoms: output.value_atoms,
-            value_im: (output.value_atoms as f64) / (imoney_core::constants::SOMPI_PER_IM as f64),
+            value_imn: (output.value_atoms as f64) / (imoney_core::constants::ATOMS_PER_IMN as f64),
         })
         .collect();
 
@@ -327,7 +340,7 @@ async fn tx_status_handler(
     match ledger.get_transaction(&tx_hash) {
         Ok(Some((tx, maybe_block, maybe_daa))) => {
             let total_out_atoms: u64 = tx.outputs.iter().map(|o| o.value_atoms).sum();
-            let total_out_im = (total_out_atoms as f64) / (imoney_core::constants::SOMPI_PER_IM as f64);
+            let total_out_imn = (total_out_atoms as f64) / (imoney_core::constants::ATOMS_PER_IMN as f64);
             let status = if maybe_block.is_some() { "confirmed" } else { "pending" };
 
             Ok(Json(TxStatusResponse {
@@ -338,7 +351,7 @@ async fn tx_status_handler(
                 inputs_count: tx.inputs.len(),
                 outputs_count: tx.outputs.len(),
                 total_output_atoms: total_out_atoms,
-                total_output_im: total_out_im,
+                total_output_imn: total_out_imn,
             }))
         }
         Ok(None) => Ok(Json(TxStatusResponse {
@@ -349,7 +362,7 @@ async fn tx_status_handler(
             inputs_count: 0,
             outputs_count: 0,
             total_output_atoms: 0,
-            total_output_im: 0.0,
+            total_output_imn: 0.0,
         })),
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
     }
@@ -426,8 +439,8 @@ async fn wallet_send_handler(
         }
     };
 
-    let fee_atoms = payload.fee_atoms.unwrap_or(10_000); // 0.0001 IM fee
-    let amount_atoms = (payload.amount_im * imoney_core::constants::SOMPI_PER_IM as f64).round() as u64;
+    let fee_atoms = payload.fee_atoms.unwrap_or(10_000); // 0.0001 IMN fee
+    let amount_atoms = (payload.amount_imn * imoney_core::constants::ATOMS_PER_IMN as f64).round() as u64;
 
     let available_utxos = {
         let ledger = state.ledger.read().await;
@@ -526,7 +539,7 @@ async fn handle_address_socket(mut socket: WebSocket, addr_str: String, state: A
         "event": "connected",
         "address": addr_str,
         "balance_atoms": last_balance,
-        "balance_im": (last_balance as f64) / (imoney_core::constants::SOMPI_PER_IM as f64)
+        "balance_imn": (last_balance as f64) / (imoney_core::constants::ATOMS_PER_IMN as f64)
     });
     let _ = socket.send(WsMessage::Text(init_msg.to_string())).await;
 
@@ -549,7 +562,7 @@ async fn handle_address_socket(mut socket: WebSocket, addr_str: String, state: A
                 "address": addr_str,
                 "change_atoms": change_atoms,
                 "balance_atoms": current_balance,
-                "balance_im": (current_balance as f64) / (imoney_core::constants::SOMPI_PER_IM as f64),
+                "balance_imn": (current_balance as f64) / (imoney_core::constants::ATOMS_PER_IMN as f64),
                 "timestamp_ms": chrono::Utc::now().timestamp_millis()
             });
 

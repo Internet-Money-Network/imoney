@@ -10,7 +10,7 @@
 })(this, function(exports) {
   'use strict';
 
-  var SOMPI_PER_IM = 100000000;
+  var ATOMS_PER_IMN = 100000000;
 
   function IMoneyClient(config) {
     config = config || {};
@@ -70,7 +70,7 @@
     }
 
     var merchantAddress = options.merchantAddress;
-    var amountIm = options.amountIm;
+    var amountImn = options.amountImn;
     var orderId = options.orderId || ('ORD-' + Math.floor(100000 + Math.random() * 900000));
     var memo = options.memo || 'Store Purchase';
     var timeoutSeconds = options.timeoutSeconds || 600;
@@ -78,8 +78,8 @@
     var onExpire = options.onExpire;
     var onCancel = options.onCancel;
 
-    var atomsRequired = Math.round(amountIm * SOMPI_PER_IM);
-    var paymentUri = 'imoney:' + merchantAddress + '?amount=' + amountIm + '&label=' + encodeURIComponent(memo);
+    var atomsRequired = Math.round(amountImn * ATOMS_PER_IMN);
+    var paymentUri = merchantAddress + '?amount=' + amountImn + '&label=' + encodeURIComponent(memo);
 
     var overlay = document.createElement('div');
     overlay.id = 'imoney-modal-overlay';
@@ -95,11 +95,11 @@
       '    <div style="width: 28px; height: 28px; background: #238636; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 16px;">⚡</div>' +
       '    <h2 style="margin: 0; font-size: 20px; color: #58a6ff;">Internet Money</h2>' +
       '  </div>' +
-      '  <p style="margin: 4px 0 16px; color: #8b949e; font-size: 13px;">5-Second Instant BlockDAG Settlement</p>' +
+      '  <p style="margin: 4px 0 16px; color: #8b949e; font-size: 13px;">~5-Second BlockDAG Inclusion</p>' +
       '  <div style="background: #0d1117; border: 1px solid #21262d; border-radius: 8px; padding: 12px; margin-bottom: 16px;">' +
       '    <div style="font-size: 12px; color: #8b949e;">Amount to Send:</div>' +
-      '    <div style="font-size: 26px; font-weight: bold; color: #39d353; margin: 4px 0;">' + amountIm + ' IMN</div>' +
-      '    <div style="font-size: 11px; color: #8b949e;">Order #' + orderId + ' • Zero Network Fees</div>' +
+      '    <div style="font-size: 26px; font-weight: bold; color: #39d353; margin: 4px 0;">' + amountImn + ' IMN</div>' +
+      '    <div style="font-size: 11px; color: #8b949e;">Order #' + orderId + ' • Low Network Fee</div>' +
       '  </div>' +
       '  <div style="background: white; border-radius: 8px; padding: 12px; display: inline-block; margin-bottom: 16px;">' +
       '    <img src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=' + encodeURIComponent(paymentUri) + '" alt="Scan to pay" style="display: block; width: 180px; height: 180px;" />' +
@@ -165,7 +165,7 @@
         clearInterval(timer);
         var statusBox = document.getElementById('imoney-status-box');
         if (statusBox) {
-          statusBox.innerHTML = '<div style="color: #39d353; font-weight: bold; font-size: 15px;">✓ Payment Received! Confirmed on BlockDAG</div>';
+          statusBox.innerHTML = '<div style="color: #39d353; font-weight: bold; font-size: 15px;">✓ Payment received and included in the BlockDAG</div>';
         }
 
         setTimeout(function() {
@@ -173,7 +173,7 @@
           if (onSuccess) {
             onSuccess({
               atoms: data.change_atoms,
-              im: data.change_atoms / SOMPI_PER_IM
+              imn: data.change_atoms / ATOMS_PER_IMN
             });
           }
         }, 1500);
@@ -182,7 +182,7 @@
   };
 
   exports.IMoneyClient = IMoneyClient;
-  exports.SOMPI_PER_IM = SOMPI_PER_IM;
+  exports.ATOMS_PER_IMN = ATOMS_PER_IMN;
 
   if (typeof window !== 'undefined') {
     window.IMoneyClient = IMoneyClient;

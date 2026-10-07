@@ -1,4 +1,4 @@
-use imoney_core::{Address, BlockHeader, Hash, Outpoint, TxOutput};
+use imoney_core::{Address, Block, BlockHeader, Decode, DecodeError, Encode, Hash, Outpoint, ScriptPublicKey, Transaction, TxOutput};
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use std::collections::HashMap;
 use std::path::Path;
@@ -19,13 +19,16 @@ pub enum StorageError {
     Commit(#[from] redb::CommitError),
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
+    #[error("Corrupt database record: {0}")]
+    Decode(#[from] DecodeError),
 }
 
-const HEADERS_TABLE: TableDefinition<&[u8; 32], &[u8]> = TableDefinition::new("headers");
-const BLUE_SCORES_TABLE: TableDefinition<&[u8; 32], u64> = TableDefinition::new("blue_scores");
-const METADATA_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("metadata");
-const UTXO_TABLE: TableDefinition<&[u8], &[u8]> = TableDefinition::new("utxos");
-const TRANSACTIONS_TABLE: TableDefinition<&[u8; 32], &[u8]> = TableDefinition::new("transactions");
+// Table names carry a schema version: records are in the canonical binary encoding.
+const BLOCKS_TABLE: TableDefinition<&[u8; 32], &[u8]> = TableDefinition::new("v1/blocks");
+const BLUE_SCORES_TABLE: TableDefinition<&[u8; 32], u64> = TableDefinition::new("v1/blue_scores");
+const METADATA_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("v1/metadata");
+const UTXO_TABLE: TableDefinition<&[u8], &[u8]> = TableDefinition::new("v1/utxos");
+const TRANSACTIONS_TABLE: TableDefinition<&[u8; 32], &[u8]> = TableDefinition::new("v1/transactions");
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct NodeMeta {
@@ -35,12 +38,45 @@ pub struct NodeMeta {
     pub difficulty_bits: u32,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+/// A confirmed transaction together with the block that carried it.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StoredTxRecord {
-    pub tx: imoney_core::Transaction,
+    pub tx: Transaction,
     pub block_hash: Hash,
     pub daa_score: u64,
     pub timestamp_ms: u64,
+}
+
+impl Encode for StoredTxRecord {
+    fn encode(&self, out: &mut Vec<u8>) {
+        self.block_hash.encode(out);
+        out.extend_from_slice(&self.daa_score.to_be_bytes());
+        out.extend_from_slice(&self.timestamp_ms.to_be_bytes());
+        self.tx.encode(out);
+    }
+}
+
+impl Decode for StoredTxRecord {
+    fn decode(reader: &mut imoney_core::serialize::Reader<'_>) -> Result<Self, DecodeError> {
+        Ok(Self {
+            block_hash: reader.hash()?,
+            daa_score: reader.u64()?,
+            timestamp_ms: reader.u64()?,
+            tx: Transaction::decode(reader)?,
+        })
+    }
+}
+
+/// Everything a block changes on disk. Written in a single database transaction.
+pub struct BlockUpdate<'a> {
+    pub hash: Hash,
+    pub block: &'a Block,
+    pub blue_score: u64,
+    /// New virtual state, when this block became the selected tip.
+    pub meta: Option<&'a NodeMeta>,
+    pub spent: &'a [Outpoint],
+    pub created: &'a [(Outpoint, TxOutput)],
+    pub records: &'a [StoredTxRecord],
 }
 
 /// Persistent embedded ACID database for Internet Money.
@@ -52,11 +88,11 @@ impl Storage {
     /// Opens or creates the on-disk database at the specified path.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, StorageError> {
         let db = Database::create(path.as_ref())?;
-        
+
         // Ensure initial tables exist
         let write_tx = db.begin_write()?;
         {
-            let _ = write_tx.open_table(HEADERS_TABLE)?;
+            let _ = write_tx.open_table(BLOCKS_TABLE)?;
             let _ = write_tx.open_table(BLUE_SCORES_TABLE)?;
             let _ = write_tx.open_table(METADATA_TABLE)?;
             let _ = write_tx.open_table(UTXO_TABLE)?;
@@ -67,35 +103,41 @@ impl Storage {
         Ok(Self { db: Arc::new(db) })
     }
 
-
-    /// Stores a block header and its GHOSTDAG blue score atomically.
-    pub fn save_block(
-        &self,
-        hash: &Hash,
-        header: &BlockHeader,
-        blue_score: u64,
-        meta: Option<&NodeMeta>,
-    ) -> Result<(), StorageError> {
+    /// Stores a block and applies its UTXO changes atomically: after a crash either all of it
+    /// is on disk or none of it is.
+    pub fn apply_block(&self, update: &BlockUpdate<'_>) -> Result<(), StorageError> {
         let write_tx = self.db.begin_write()?;
         {
-            let mut headers_table = write_tx.open_table(HEADERS_TABLE)?;
-            let header_bytes = serde_json::to_vec(header)?;
-            headers_table.insert(&hash.0, header_bytes.as_slice())?;
+            let mut blocks_table = write_tx.open_table(BLOCKS_TABLE)?;
+            blocks_table.insert(&update.hash.0, update.block.to_bytes().as_slice())?;
 
             let mut blue_table = write_tx.open_table(BLUE_SCORES_TABLE)?;
-            blue_table.insert(&hash.0, blue_score)?;
+            blue_table.insert(&update.hash.0, update.blue_score)?;
 
-            if let Some(m) = meta {
+            if let Some(m) = update.meta {
                 let mut meta_table = write_tx.open_table(METADATA_TABLE)?;
                 let meta_bytes = serde_json::to_vec(m)?;
                 meta_table.insert("node_meta", meta_bytes.as_slice())?;
+            }
+
+            let mut utxo_table = write_tx.open_table(UTXO_TABLE)?;
+            for outpoint in update.spent {
+                utxo_table.remove(outpoint.to_bytes().as_slice())?;
+            }
+            for (outpoint, output) in update.created {
+                utxo_table.insert(outpoint.to_bytes().as_slice(), output.to_bytes().as_slice())?;
+            }
+
+            let mut tx_table = write_tx.open_table(TRANSACTIONS_TABLE)?;
+            for record in update.records {
+                tx_table.insert(&record.tx.id().0, record.to_bytes().as_slice())?;
             }
         }
         write_tx.commit()?;
         Ok(())
     }
 
-    /// Loads all blocks and metadata from disk on node startup.
+    /// Loads all block headers and metadata from disk on node startup.
     pub fn load_state(
         &self,
     ) -> Result<
@@ -110,12 +152,12 @@ impl Storage {
         let mut blocks = HashMap::new();
         let mut blue_scores = HashMap::new();
 
-        let headers_table = read_tx.open_table(HEADERS_TABLE)?;
-        for entry in headers_table.iter()? {
+        let blocks_table = read_tx.open_table(BLOCKS_TABLE)?;
+        for entry in blocks_table.iter()? {
             let (key, val) = entry?;
             let hash = Hash(*key.value());
-            let header: BlockHeader = serde_json::from_slice(val.value())?;
-            blocks.insert(hash, header);
+            let block = Block::from_bytes(val.value())?;
+            blocks.insert(hash, block.header);
         }
 
         let blue_table = read_tx.open_table(BLUE_SCORES_TABLE)?;
@@ -135,105 +177,71 @@ impl Storage {
         Ok((blocks, blue_scores, meta))
     }
 
-    /// Adds a new UTXO to the unspent transaction output database.
-    pub fn add_utxo(&self, outpoint: &Outpoint, output: &TxOutput) -> Result<(), StorageError> {
-        let write_tx = self.db.begin_write()?;
-        {
-            let mut utxo_table = write_tx.open_table(UTXO_TABLE)?;
-            let key_bytes = serde_json::to_vec(outpoint)?;
-            let val_bytes = serde_json::to_vec(output)?;
-            utxo_table.insert(key_bytes.as_slice(), val_bytes.as_slice())?;
+    /// Returns a full block (header and transactions) by its hash.
+    pub fn get_block(&self, hash: &Hash) -> Result<Option<Block>, StorageError> {
+        let read_tx = self.db.begin_read()?;
+        let blocks_table = read_tx.open_table(BLOCKS_TABLE)?;
+        match blocks_table.get(&hash.0)? {
+            Some(val) => Ok(Some(Block::from_bytes(val.value())?)),
+            None => Ok(None),
         }
-        write_tx.commit()?;
-        Ok(())
     }
 
     /// Returns a specific UTXO if it exists.
     pub fn get_utxo(&self, outpoint: &Outpoint) -> Result<Option<TxOutput>, StorageError> {
         let read_tx = self.db.begin_read()?;
         let utxo_table = read_tx.open_table(UTXO_TABLE)?;
-        let key_bytes = serde_json::to_vec(outpoint)?;
-        if let Some(val) = utxo_table.get(key_bytes.as_slice())? {
-            let output: TxOutput = serde_json::from_slice(val.value())?;
-            Ok(Some(output))
-        } else {
-            Ok(None)
+        match utxo_table.get(outpoint.to_bytes().as_slice())? {
+            Some(val) => Ok(Some(TxOutput::from_bytes(val.value())?)),
+            None => Ok(None),
         }
-    }
-
-    /// Removes a spent UTXO from the database.
-    pub fn remove_utxo(&self, outpoint: &Outpoint) -> Result<bool, StorageError> {
-        let write_tx = self.db.begin_write()?;
-        let removed = {
-            let mut utxo_table = write_tx.open_table(UTXO_TABLE)?;
-            let key_bytes = serde_json::to_vec(outpoint)?;
-            let maybe_guard = utxo_table.remove(key_bytes.as_slice())?;
-            maybe_guard.is_some()
-        };
-        write_tx.commit()?;
-        Ok(removed)
     }
 
     /// Queries spendable balance for an address (summing atomic units).
     pub fn get_balance(&self, address: &Address) -> Result<u64, StorageError> {
-        let read_tx = self.db.begin_read()?;
-        let utxo_table = read_tx.open_table(UTXO_TABLE)?;
-        let mut total_atoms: u64 = 0;
-
-        for entry in utxo_table.iter()? {
-            let (_, val) = entry?;
-            let output: TxOutput = serde_json::from_slice(val.value())?;
-            // Output script holds address hash
-            if output.script_public_key == address.hash.0 {
-                total_atoms += output.value_atoms;
-            }
-        }
-
-        Ok(total_atoms)
+        Ok(self
+            .get_utxos(address)?
+            .iter()
+            .fold(0u64, |total, (_, output)| total.saturating_add(output.value_atoms)))
     }
 
     /// Returns list of all UTXOs belonging to an address.
     pub fn get_utxos(&self, address: &Address) -> Result<Vec<(Outpoint, TxOutput)>, StorageError> {
         let read_tx = self.db.begin_read()?;
         let utxo_table = read_tx.open_table(UTXO_TABLE)?;
+        let script = ScriptPublicKey::pay_to_address(address);
         let mut results = Vec::new();
 
         for entry in utxo_table.iter()? {
             let (k, val) = entry?;
-            let outpoint: Outpoint = serde_json::from_slice(k.value())?;
-            let output: TxOutput = serde_json::from_slice(val.value())?;
-            if output.script_public_key == address.hash.0 {
-                results.push((outpoint, output));
+            let output = TxOutput::from_bytes(val.value())?;
+            if output.script_public_key == script {
+                results.push((Outpoint::from_bytes(k.value())?, output));
             }
         }
 
         Ok(results)
     }
 
-    /// Persists a confirmed transaction record associated with a block.
-    pub fn save_transaction(&self, record: &StoredTxRecord) -> Result<(), StorageError> {
-        let write_tx = self.db.begin_write()?;
-        {
-            let mut tx_table = write_tx.open_table(TRANSACTIONS_TABLE)?;
-            let tx_id = record.tx.id();
-            let val_bytes = serde_json::to_vec(record)?;
-            tx_table.insert(&tx_id.0, val_bytes.as_slice())?;
+    /// Sum of every unspent output: the circulating supply in atoms.
+    pub fn total_utxo_atoms(&self) -> Result<u128, StorageError> {
+        let read_tx = self.db.begin_read()?;
+        let utxo_table = read_tx.open_table(UTXO_TABLE)?;
+        let mut total: u128 = 0;
+        for entry in utxo_table.iter()? {
+            let (_, val) = entry?;
+            total += TxOutput::from_bytes(val.value())?.value_atoms as u128;
         }
-        write_tx.commit()?;
-        Ok(())
+        Ok(total)
     }
 
     /// Queries a confirmed transaction record by its transaction ID.
     pub fn get_transaction(&self, tx_id: &Hash) -> Result<Option<StoredTxRecord>, StorageError> {
         let read_tx = self.db.begin_read()?;
         let tx_table = read_tx.open_table(TRANSACTIONS_TABLE)?;
-        if let Some(val) = tx_table.get(&tx_id.0)? {
-            let record: StoredTxRecord = serde_json::from_slice(val.value())?;
-            Ok(Some(record))
-        } else {
-            Ok(None)
+        match tx_table.get(&tx_id.0)? {
+            Some(val) => Ok(Some(StoredTxRecord::from_bytes(val.value())?)),
+            None => Ok(None),
         }
     }
 }
-
-

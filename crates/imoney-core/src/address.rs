@@ -20,9 +20,9 @@ pub enum AddressError {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum AddressType {
-    /// Classical Public Key Hash (P2PKH - Schnorr/Ed25519)
+    /// Classical Public Key Hash (P2PKH - Ed25519)
     PubKeyHash = 0x00,
-    /// Post-Quantum Public Key Hash (P2PQ - Falcon-512)
+    /// Reserved for a post-quantum key hash (no signature scheme implemented yet)
     PostQuantumHash = 0x01,
     /// Multi-signature Script Hash (P2SH)
     ScriptHash = 0x02,
@@ -53,6 +53,14 @@ impl Network {
             Network::Testnet => "imntest",
         }
     }
+
+    /// Network identifier committed to by transaction signatures.
+    pub fn id(&self) -> u8 {
+        match self {
+            Network::Mainnet => 0,
+            Network::Testnet => 1,
+        }
+    }
 }
 
 /// Checksummed human-readable Internet Money address (Bech32).
@@ -74,7 +82,8 @@ impl Address {
         Self::new(network, address_type, hash)
     }
 
-    /// Encodes to human-readable Bech32 string format (e.g. `imn:qz6r7...` or `imntest:qz6r7...`).
+    /// Encodes to human-readable string format (e.g. `imn:qz6r7...` or `imntest:qz6r7...`).
+    /// This is Bech32 with a `:` in place of the `1` separator.
     pub fn encode(&self) -> Result<String, AddressError> {
         let hrp = Hrp::parse(self.network.hrp_str()).map_err(|e| AddressError::Encode(e.to_string()))?;
         
@@ -85,23 +94,21 @@ impl Address {
         let encoded = bech32::encode::<Bech32>(hrp, &data)
             .map_err(|e| AddressError::Encode(e.to_string()))?;
         
-        // Kaspa / Bitcoin style prefix with colon: e.g. "imn:qz..."
+        // Replace the Bech32 `1` separator with a colon: "imn1qz..." -> "imn:qz..."
         let prefix = self.network.hrp_str();
-        if let Some(payload) = encoded.strip_prefix(prefix) {
-            Ok(format!("{}:{}", prefix, payload))
-        } else {
-            Ok(encoded)
+        match encoded.strip_prefix(prefix).and_then(|rest| rest.strip_prefix('1')) {
+            Some(payload) => Ok(format!("{}:{}", prefix, payload)),
+            None => Err(AddressError::Encode("unexpected Bech32 layout".to_string())),
         }
     }
 
     /// Decodes a human-readable Bech32 string back into an Address struct.
     pub fn decode(s: &str) -> Result<Self, AddressError> {
-        // Strip optional colon delimiter if present (e.g. "imn:qz..." -> "imnqz...")
-        let normalized = if let Some((prefix, rest)) = s.split_once(':') {
-            format!("{}{}", prefix, rest)
-        } else {
-            s.to_string()
-        };
+        // Restore the Bech32 separator (e.g. "imn:qz..." -> "imn1qz...")
+        let (prefix, payload) = s
+            .split_once(':')
+            .ok_or_else(|| AddressError::Decode("missing ':' after network prefix".to_string()))?;
+        let normalized = format!("{}1{}", prefix, payload);
 
         let (hrp, data) = bech32::decode(&normalized)
             .map_err(|e| AddressError::Decode(e.to_string()))?;
@@ -152,7 +159,7 @@ mod tests {
         let addr = Address::from_public_key(Network::Testnet, AddressType::PubKeyHash, &dummy_pubkey);
         let encoded = addr.encode().expect("encoding must succeed");
 
-        assert!(encoded.starts_with("imntest:"));
+        assert!(encoded.starts_with("imntest:q"), "{}", encoded);
         println!("Generated Testnet Address: {}", encoded);
 
         let decoded = Address::decode(&encoded).expect("decoding must succeed");
@@ -165,10 +172,26 @@ mod tests {
         let addr = Address::from_public_key(Network::Mainnet, AddressType::PostQuantumHash, &dummy_pubkey);
         let encoded = addr.encode().expect("encoding must succeed");
 
-        assert!(encoded.starts_with("imn:"));
+        assert!(encoded.starts_with("imn:q"), "{}", encoded);
         println!("Generated Mainnet Post-Quantum Address: {}", encoded);
 
         let decoded = Address::decode(&encoded).expect("decoding must succeed");
         assert_eq!(addr, decoded);
+    }
+
+    #[test]
+    fn test_decode_rejects_malformed_addresses() {
+        let addr = Address::from_public_key(Network::Testnet, AddressType::PubKeyHash, &[0x55u8; 32]);
+        let encoded = addr.encode().unwrap();
+
+        // Plain Bech32 form without the colon is not an address
+        assert!(Address::decode(&encoded.replace(':', "1")).is_err());
+        // A single changed character breaks the checksum
+        let mut corrupted = encoded.clone().into_bytes();
+        let last = corrupted.len() - 1;
+        corrupted[last] = if corrupted[last] == b'q' { b'p' } else { b'q' };
+        assert!(Address::decode(std::str::from_utf8(&corrupted).unwrap()).is_err());
+        // Wrong network prefix
+        assert!(Address::decode(&encoded.replace("imntest:", "btc:")).is_err());
     }
 }

@@ -1,4 +1,4 @@
-//! Consensus and Network Constants for Internet Money (IM).
+//! Consensus and Network Constants for Internet Money (IMN).
 
 /// Ticker symbol for the currency.
 pub const TICKER: &str = "IMN";
@@ -31,10 +31,16 @@ pub const MAX_BLOCK_PARENTS: usize = 16;
 pub const GHOSTDAG_K: u64 = 8;
 
 /// Atoms per single whole coin (8 decimal places, same as Bitcoin).
-pub const SOMPI_PER_IM: u64 = 100_000_000;
+pub const ATOMS_PER_IMN: u64 = 100_000_000;
 
-/// Launch block reward: 5 IM per 5-second block (500,000,000 atoms).
-pub const LAUNCH_BLOCK_SUBSIDY_ATOMS: u64 = 5 * SOMPI_PER_IM;
+/// Launch block reward: 5 IMN per 5-second block (500,000,000 atoms).
+pub const LAUNCH_BLOCK_SUBSIDY_ATOMS: u64 = 5 * ATOMS_PER_IMN;
 
-/// Permanent tail emission subsidy floor: 0.3125 IM per block (31,250,000 atoms).
-pub const FLOOR_SUBSIDY_ATOMS: u64 = SOMPI_PER_IM * 5 / 16;
+/// Permanent tail emission subsidy floor: 0.3125 IMN per block (31,250,000 atoms).
+pub const FLOOR_SUBSIDY_ATOMS: u64 = ATOMS_PER_IMN * 5 / 16;
+
+/// Maximum canonical-encoded size of a single transaction, in bytes.
+pub const MAX_TX_BYTES: usize = 50_000;
+
+/// Maximum canonical-encoded size of a block (header plus transactions), in bytes.
+pub const MAX_BLOCK_BYTES: usize = 250_000;

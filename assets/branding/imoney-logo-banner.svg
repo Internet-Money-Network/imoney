@@ -36,7 +36,7 @@
 
     <!-- Specs row -->
     <text x="0" y="188" font-family="'Courier New', Courier, monospace" font-size="13" fill="#6b7280">
-      0 premine &#8226; 0 dev tax &#8226; 5 IM/block 4-year halving &#8226; 0.3125 IM permanent floor
+      0 premine &#8226; 0 dev tax &#8226; 5 IMN/block 4-year halving &#8226; 0.3125 IMN permanent floor
     </text>
   </g>
 </svg>

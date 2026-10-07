@@ -104,7 +104,7 @@
       <span class="badge">TESTNET-1</span>
     </h1>
     <p style="color: #8b949e; margin-bottom: 24px;">
-      Demonstrating the 100% non-custodial, 5-second instant BlockDAG settlement with <code>@imoney/sdk</code>.
+      Demonstrating the 100% non-custodial, ~5-second BlockDAG inclusion with <code>@imoney/sdk</code>.
     </p>
 
     <div class="product-card">
@@ -114,7 +114,7 @@
       </div>
       <div style="text-align: right;">
         <div class="price">2.50 IMN</div>
-        <div style="font-size: 11px; color: #8b949e;">≈ $2.50 USD • 0% Fees</div>
+        <div style="font-size: 11px; color: #8b949e;">≈ $2.50 USD • No Intermediary Fees</div>
       </div>
     </div>
 
@@ -130,7 +130,7 @@
     <div class="code-box">
       // Integration in 2 lines of code:<br>
       const client = new IMoneyClient({ nodeUrl: "http://127.0.0.1:18556" });<br>
-      client.openCheckoutModal({ merchantAddress: "imntest:q...", amountIm: 2.5 });
+      client.openCheckoutModal({ merchantAddress: "imntest:q...", amountImn: 2.5 });
     </div>
 
     <div class="specs">
@@ -147,10 +147,14 @@
     const receiptBox = document.getElementById('receipt');
     const receiptText = document.getElementById('receipt-text');
 
-    // Use default testnet node address
-    const MERCHANT_ADDRESS = 'imntest:qpm2qsznhks23z7629mms6s4cwef74vcwvy22gd6aedxrr66r20';
+    // Paste a testnet address you control here (generate one in the wallet at /wallet)
+    const MERCHANT_ADDRESS = '';
 
     payBtn.addEventListener('click', () => {
+      if (!MERCHANT_ADDRESS) {
+        alert('Set MERCHANT_ADDRESS in this page to a testnet address you control.');
+        return;
+      }
       const client = new IMoneyClient({
         nodeUrl: 'http://127.0.0.1:18556',
         network: 'testnet'
@@ -158,13 +162,13 @@
 
       client.openCheckoutModal({
         merchantAddress: MERCHANT_ADDRESS,
-        amountIm: 2.5,
+        amountImn: 2.5,
         orderId: 'DEMO-' + Math.floor(1000 + Math.random() * 9000),
         memo: 'T-Shirt Purchase',
         timeoutSeconds: 300,
         onSuccess: (payment) => {
           receiptBox.style.display = 'block';
-          receiptText.innerText = `Received ${payment.im} IMN (${payment.atoms} atomic units). Confirmed on BlockDAG!`;
+          receiptText.innerText = `Received ${payment.imn} IMN (${payment.atoms} atomic units). Included in the BlockDAG.`;
           payBtn.innerText = '✓ Paid';
           payBtn.style.background = '#1f6feb';
         },

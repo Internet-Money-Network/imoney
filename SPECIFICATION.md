@@ -7,7 +7,7 @@
 
 ## 1. Abstract
 
-Internet Money (`IMN`) is an open-source decentralized cryptocurrency based on a directed acyclic graph of blocks (BlockDAG) ordered by the GHOSTDAG consensus protocol. It is engineered to provide sub-second transaction visibility with 5-second deterministic settlement, while preserving absolute ASIC resistance and decentralized mining distribution via the memory-hard **Money Printer** Proof-of-Work algorithm.
+Internet Money (`IMN`) is an open-source decentralized cryptocurrency based on a directed acyclic graph of blocks (BlockDAG) ordered by the GHOSTDAG consensus protocol. It is engineered to provide sub-second transaction visibility with ~5-second block inclusion, with ASIC resistance as a design goal and decentralized mining distribution via the memory-hard **Money Printer** Proof-of-Work algorithm.
 
 ---
 
@@ -46,8 +46,8 @@ Full nodes and mobile wallets do not require high-performance GPU mining rigs. V
 
 ### 4.1 Smooth 4-Year Halving (No Opening Premine)
 * **Genesis Block:** Zero premine.
-* **Launch Block Subsidy:** $5.00000000\text{ IM}$ per block ($500\text{M}$ atoms).
-* **Era Duration:** $25,228,800$ blocks (exactly 4 Julian years).
+* **Launch Block Subsidy:** $5.00000000\text{ IMN}$ per block ($500\text{M}$ atoms).
+* **Era Duration:** $25,228,800$ blocks (4 × 365 days).
 
 ### 4.2 Mathematical Model
 For a block with cumulative DAA score $s$, the era index $E$ is:
@@ -62,11 +62,11 @@ $$R(s) = \begin{cases}
 ### 4.3 Supply Metrics Table
 | Era | Years | Blocks | Reward / Block | Total Mined in Era | Cumulative Supply |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **0** | 0 – 4 | 0 – 25,228,799 | 5.00000000 IM | 126,144,000 IM | 126,144,000 IM |
-| **1** | 4 – 8 | 25,228,800 – 50,457,599 | 2.50000000 IM | 63,072,000 IM | 189,216,000 IM |
-| **2** | 8 – 12 | 50,457,600 – 75,686,399 | 1.25000000 IM | 31,536,000 IM | 220,752,000 IM |
-| **3** | 12 – 16 | 75,686,400 – 100,915,199 | 0.62500000 IM | 15,768,000 IM | 236,520,000 IM |
-| **4+** | 16+ | 100,915,200+ | **0.31250000 IM** | ~1,971,000 IM / yr | Uncapped (~1% tail) |
+| **0** | 0 – 4 | 0 – 25,228,799 | 5.00000000 IMN | 126,144,000 IMN | 126,144,000 IMN |
+| **1** | 4 – 8 | 25,228,800 – 50,457,599 | 2.50000000 IMN | 63,072,000 IMN | 189,216,000 IMN |
+| **2** | 8 – 12 | 50,457,600 – 75,686,399 | 1.25000000 IMN | 31,536,000 IMN | 220,752,000 IMN |
+| **3** | 12 – 16 | 75,686,400 – 100,915,199 | 0.62500000 IMN | 15,768,000 IMN | 236,520,000 IMN |
+| **4+** | 16+ | 100,915,200+ | **0.31250000 IMN** | ~1,971,000 IMN / yr | Uncapped (<1% tail) |
 
 ---
 

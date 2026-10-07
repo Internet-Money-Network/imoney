@@ -1,14 +1,39 @@
 use crate::state::SharedLedger;
-use imoney_core::{BlockHeader, Hash, Transaction};
+use imoney_core::{Block, Hash, Transaction};
 use imoney_pow::MoneyPrinterPow;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{broadcast, RwLock};
+
+/// Largest single wire message accepted from a peer.
+const MAX_MESSAGE_BYTES: usize = 4 * 1024 * 1024;
+
+/// Reads one newline-terminated message into `buf`, failing once it exceeds `MAX_MESSAGE_BYTES`.
+/// Returns `Ok(false)` on EOF. Progress is kept in `buf`, so the future may be dropped and re-polled.
+async fn read_bounded_line<R: AsyncBufRead + Unpin>(reader: &mut R, buf: &mut Vec<u8>) -> std::io::Result<bool> {
+    loop {
+        let available = reader.fill_buf().await?;
+        if available.is_empty() {
+            return Ok(false);
+        }
+        let newline = available.iter().position(|b| *b == b'\n');
+        let take = newline.unwrap_or(available.len());
+        buf.extend_from_slice(&available[..take]);
+        reader.consume(newline.map_or(take, |pos| pos + 1));
+
+        if buf.len() > MAX_MESSAGE_BYTES {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "peer message too large"));
+        }
+        if newline.is_some() {
+            return Ok(true);
+        }
+    }
+}
 
 /// Wire messages exchanged across P2P TCP connections.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -26,10 +51,10 @@ pub enum PeerMessage {
     Tips(Vec<Hash>),
     /// Request a specific block by hash
     GetBlock(Hash),
-    /// Response with full block header
-    Block(BlockHeader),
+    /// Response with a full block (header and transactions)
+    Block(Block),
     /// Gossip announcement of a newly mined block
-    NewBlock(BlockHeader),
+    NewBlock(Block),
     /// Gossip announcement of a new pending transaction
     NewTransaction(Transaction),
     /// Ping heartbeat
@@ -60,8 +85,8 @@ impl PeerManager {
     }
 
     /// Broadcast a newly mined block to all connected peers.
-    pub fn broadcast_block(&self, header: BlockHeader) {
-        let _ = self.broadcast_tx.send(PeerMessage::NewBlock(header));
+    pub fn broadcast_block(&self, block: Block) {
+        let _ = self.broadcast_tx.send(PeerMessage::NewBlock(block));
     }
 
     /// Broadcast a new transaction to all connected peers.
@@ -168,7 +193,7 @@ impl PeerManager {
         });
 
         // Loop handling incoming peer lines and outbound broadcast messages
-        let mut line_buf = String::new();
+        let mut line_buf: Vec<u8> = Vec::new();
         loop {
             tokio::select! {
                 // Outbound messages to send to this peer (blocks/transactions to gossip)
@@ -188,19 +213,16 @@ impl PeerManager {
                     }
                 }
                 // Inbound messages from the peer
-                res = reader.read_line(&mut line_buf) => {
+                res = read_bounded_line(&mut reader, &mut line_buf) => {
                     match res {
-                        Ok(0) => break, // Connection closed EOF
-                        Ok(_) => {
-                            let trimmed = line_buf.trim();
-                            if !trimmed.is_empty() {
-                                if let Ok(msg) = serde_json::from_str::<PeerMessage>(trimmed) {
-                                    self.process_peer_message(&msg, &mut writer).await;
-                                }
+                        Ok(false) => break, // Connection closed EOF
+                        Ok(true) => {
+                            if let Ok(msg) = serde_json::from_slice::<PeerMessage>(&line_buf) {
+                                self.process_peer_message(&msg, &mut writer).await;
                             }
                             line_buf.clear();
                         }
-                        Err(_) => break,
+                        Err(_) => break, // I/O error or oversized message
                     }
                 }
             }
@@ -231,35 +253,43 @@ impl PeerManager {
                 }
             }
             PeerMessage::Tips(tips) => {
-                // Request any unknown tip headers
-                let ledger = self.ledger.read().await;
-                for tip in tips {
-                    if !ledger.blocks.contains_key(tip) {
-                        let req = PeerMessage::GetBlock(*tip);
-                        if let Ok(s) = serde_json::to_string(&req) {
-                            let _ = writer.write_all(format!("{}\n", s).as_bytes()).await;
-                        }
+                // Request any unknown tip blocks
+                let unknown: Vec<Hash> = {
+                    let ledger = self.ledger.read().await;
+                    tips.iter().filter(|t| !ledger.blocks.contains_key(*t)).copied().collect()
+                };
+                for tip in unknown {
+                    let req = PeerMessage::GetBlock(tip);
+                    if let Ok(s) = serde_json::to_string(&req) {
+                        let _ = writer.write_all(format!("{}\n", s).as_bytes()).await;
                     }
                 }
             }
             PeerMessage::GetBlock(hash) => {
-                let ledger = self.ledger.read().await;
-                if let Some(header) = ledger.blocks.get(hash) {
-                    let reply = PeerMessage::Block(header.clone());
+                let block = self.ledger.read().await.storage.get_block(hash).ok().flatten();
+                if let Some(block) = block {
+                    let reply = PeerMessage::Block(block);
                     if let Ok(s) = serde_json::to_string(&reply) {
                         let _ = writer.write_all(format!("{}\n", s).as_bytes()).await;
                     }
                 }
             }
-            PeerMessage::Block(header) | PeerMessage::NewBlock(header) => {
-                // Attempt to insert incoming block into DAG
-                let mut ledger = self.ledger.write().await;
-                let parents_needed: Vec<Hash> = header
-                    .parents
-                    .iter()
-                    .filter(|p| !ledger.blocks.contains_key(p))
-                    .copied()
-                    .collect();
+            PeerMessage::Block(block) | PeerMessage::NewBlock(block) => {
+                // Attempt to insert incoming block into DAG. The ledger lock is released before any socket write.
+                let (parents_needed, result) = {
+                    let mut ledger = self.ledger.write().await;
+                    let parents_needed: Vec<Hash> = block
+                        .header
+                        .parents
+                        .iter()
+                        .filter(|p| !ledger.blocks.contains_key(p))
+                        .copied()
+                        .collect();
+                    let result = ledger
+                        .add_block(block.clone(), &self.pow)
+                        .map(|new_hash| (new_hash, ledger.virtual_blue_score));
+                    (parents_needed, result)
+                };
 
                 // If missing parents, request them from peer
                 for parent in parents_needed {
@@ -269,15 +299,15 @@ impl PeerManager {
                     }
                 }
 
-                match ledger.add_block(header.clone(), &self.pow) {
-                    Ok(new_hash) => {
+                match result {
+                    Ok((new_hash, blue_score)) => {
                         println!(
                             "[+] P2P Block Synchronized: {} | Blue Score: {}",
-                            new_hash, ledger.virtual_blue_score
+                            new_hash, blue_score
                         );
                         // Forward to other peers if it was a newly announced block
                         if matches!(msg, PeerMessage::NewBlock(_)) {
-                            let _ = self.broadcast_tx.send(PeerMessage::NewBlock(header.clone()));
+                            let _ = self.broadcast_tx.send(PeerMessage::NewBlock(block.clone()));
                         }
                     }
                     Err(e) => {
@@ -310,5 +340,34 @@ impl PeerManager {
             }
             PeerMessage::Pong(_) => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn bounded_line_reader_splits_messages_and_reports_eof() {
+        let mut reader = BufReader::with_capacity(4, &b"first\nsecond\n"[..]);
+        let mut buf = Vec::new();
+
+        assert!(read_bounded_line(&mut reader, &mut buf).await.unwrap());
+        assert_eq!(buf, b"first");
+        buf.clear();
+        assert!(read_bounded_line(&mut reader, &mut buf).await.unwrap());
+        assert_eq!(buf, b"second");
+        buf.clear();
+        assert!(!read_bounded_line(&mut reader, &mut buf).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn bounded_line_reader_rejects_oversized_message() {
+        let oversized = vec![b'a'; MAX_MESSAGE_BYTES + 2];
+        let mut reader = BufReader::new(&oversized[..]);
+        let mut buf = Vec::new();
+
+        let err = read_bounded_line(&mut reader, &mut buf).await.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
     }
 }

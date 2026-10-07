@@ -2,11 +2,11 @@
 /**
  * Plugin Name: Internet Money (IMN) Payments for WooCommerce
  * Plugin URI: https://internetmoneynetwork.org
- * Description: Accept zero-fee, 5-second instant payments in Internet Money (IMN) cryptocurrency on your WooCommerce store. Direct to merchant address, 100% non-custodial.
+ * Description: Accept low-fee payments with ~5-second block inclusion in Internet Money (IMN) cryptocurrency on your WooCommerce store. Direct to merchant address, 100% non-custodial.
  * Version: 1.0.0
  * Author: Internet Money Network Developers
  * Author URI: https://github.com/Internet-Money-Network
- * License: MIT
+ * License: MIT OR Apache-2.0
  * Text Domain: imoney-payments
  */
 
@@ -29,7 +29,7 @@ function imoney_payments_init_gateway_class() {
             $this->icon               = apply_filters('woocommerce_imoney_icon', '');
             $this->has_fields         = false;
             $this->method_title       = __('Internet Money (IMN)', 'imoney-payments');
-            $this->method_description = __('Accept instant, zero-fee IMN payments directly to your wallet via the high-speed BlockDAG.', 'imoney-payments');
+            $this->method_description = __('Accept low-fee IMN payments directly to your wallet via the high-speed BlockDAG.', 'imoney-payments');
 
             $this->supports = array(
                 'products',
@@ -83,7 +83,7 @@ function imoney_payments_init_gateway_class() {
                     'title'       => __('Merchant Receiving Address (imn: or imntest:)', 'imoney-payments'),
                     'type'        => 'text',
                     'description' => __('Your non-custodial Bech32 wallet address. All buyer payments settle directly into your wallet.', 'imoney-payments'),
-                    'default'     => 'imntest:qpm2qsznhks23z7629mms6s4cwef74vcwvy22gd6aedxrr66r20',
+                    'default'     => '',
                     'desc_tip'    => true,
                 ),
                 'node_url' => array(
@@ -101,6 +101,13 @@ function imoney_payments_init_gateway_class() {
                     'desc_tip'    => true,
                 )
             );
+        }
+
+        /**
+         * The gateway is offered at checkout only once a receiving address is configured.
+         */
+        public function is_available() {
+            return parent::is_available() && !empty($this->merchant_address);
         }
 
         /**
@@ -149,7 +156,7 @@ function imoney_payments_init_gateway_class() {
             ?>
             <div id="imoney-checkout-container" style="margin: 20px 0; padding: 20px; background: #0d1117; color: #f0f6fc; border-radius: 8px; border: 1px solid #30363d;">
                 <h3 style="color: #58a6ff; margin-top: 0;">⚡ Internet Money Instant Checkout</h3>
-                <p>Complete your payment using any IMN wallet. Confirms in ~5 seconds with 0 network fees.</p>
+                <p>Complete your payment using any IMN wallet. Included in a block in ~5 seconds, with a network fee under a cent.</p>
                 <button id="btn-trigger-imoney" style="background: #238636; color: white; border: none; padding: 12px 24px; font-size: 16px; border-radius: 6px; cursor: pointer; font-weight: bold;">
                     Pay <?php echo esc_html($imn_amount); ?> IMN Now
                 </button>
@@ -170,7 +177,7 @@ function imoney_payments_init_gateway_class() {
 
                     client.openCheckoutModal({
                         merchantAddress: '<?php echo $merchant_addr; ?>',
-                        amountIm: <?php echo $imn_amount; ?>,
+                        amountImn: <?php echo $imn_amount; ?>,
                         orderId: '<?php echo esc_attr($order_id); ?>',
                         memo: 'Order #<?php echo esc_attr($order_id); ?>',
                         onSuccess: function(payment) {

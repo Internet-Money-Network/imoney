@@ -1,20 +1,14 @@
-mod genesis;
-mod p2p;
-mod rpc;
-mod state;
-mod storage;
-
 use clap::Parser;
-use genesis::create_testnet_genesis;
+use imoney_node::genesis::create_testnet_genesis;
 use imoney_core::constants::{CURRENCY_NAME, TARGET_TIME_PER_BLOCK_MS, TICKER};
-use imoney_core::{Address, AddressType, BlockHeader, Hash, Network};
+use imoney_core::{Address, AddressType, Network};
 use imoney_pow::{DEVNET_DATASET_ITEMS, MoneyPrinterContext, MoneyPrinterPow};
-use p2p::PeerManager;
-use rpc::create_router;
-use state::{DagLedger, SharedLedger};
+use imoney_node::p2p::PeerManager;
+use imoney_node::rpc::create_router;
+use imoney_node::state::{DagLedger, SharedLedger};
 use std::fs;
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Duration;
@@ -49,6 +43,29 @@ struct Args {
 }
 
 
+/// Loads the node's own mining keypair from the data directory, creating it on first run.
+fn load_or_create_miner_key(data_dir: &Path) -> Result<(Address, PathBuf), Box<dyn std::error::Error>> {
+    let key_path = data_dir.join("miner-key.hex");
+    let signing_key = if key_path.exists() {
+        let bytes = hex::decode(fs::read_to_string(&key_path)?.trim())?;
+        let key_bytes: [u8; 32] = bytes
+            .try_into()
+            .map_err(|_| "miner-key.hex must contain a 32-byte hex private key")?;
+        ed25519_dalek::SigningKey::from_bytes(&key_bytes)
+    } else {
+        let key = ed25519_dalek::SigningKey::generate(&mut rand::rngs::OsRng);
+        fs::write(&key_path, hex::encode(key.to_bytes()))?;
+        key
+    };
+
+    let addr = Address::from_public_key(
+        Network::Testnet,
+        AddressType::PubKeyHash,
+        signing_key.verifying_key().as_bytes(),
+    );
+    Ok((addr, key_path))
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
@@ -70,17 +87,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mining_address = match args.mining_address {
         Some(s) => Some(Address::decode(&s)?),
         None => {
-            // Generate a deterministic default testnet miner key for easy local testing
-            let dummy_key = [0x77u8; 32];
-            let addr = Address::from_public_key(Network::Testnet, AddressType::PubKeyHash, &dummy_key);
-            println!("[*] Default Testnet Mining Address: {}", addr);
+            let (addr, key_path) = load_or_create_miner_key(&args.data_dir)?;
+            println!("[*] Mining Address (local key): {}", addr);
+            println!("[*] Its private key is stored in {:?}. Keep that file private.", key_path);
             Some(addr)
         }
     };
 
     println!("[*] Initializing Money Printer PoW Context (Devnet mode)...");
     let genesis = create_testnet_genesis();
-    let genesis_seed = genesis.pre_pow_hash().unwrap();
+    let genesis_seed = genesis.header.pre_pow_hash().unwrap();
     let ctx = Arc::new(MoneyPrinterContext::new(&genesis_seed, DEVNET_DATASET_ITEMS));
     let pow = Arc::new(MoneyPrinterPow::new(ctx));
     println!("[+] PoW Context initialized successfully.");
@@ -126,25 +142,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             loop {
                 tokio::time::sleep(Duration::from_millis(TARGET_TIME_PER_BLOCK_MS)).await;
 
-                let template = ledger_clone.read().await.get_mining_template();
+                let template = ledger_clone.read().await.get_mining_template(None);
                 let pre_pow_hash = template.pre_pow_hash;
-                let bits = template.bits;
+                let bits = template.block.header.bits;
                 let stop = Arc::new(AtomicBool::new(false));
 
                 if let Some((nonce, _hash)) = pow_clone.mine(&pre_pow_hash, bits, 0, 10_000_000, stop) {
-                    let candidate = BlockHeader {
-                        version: template.version,
-                        parents: template.parents,
-                        hash_merkle_root: Hash::ZERO,
-                        accepted_id_merkle_root: Hash::ZERO,
-                        utxo_commitment: Hash::ZERO,
-                        timestamp_ms: template.timestamp_ms,
-                        bits,
-                        nonce,
-                        daa_score: template.daa_score,
-                        blue_score: template.blue_score,
-                        blue_work: template.blue_score as u128 * 1000,
-                    };
+                    let candidate = template.into_block(nonce);
 
                     let mut writer = ledger_clone.write().await;
                     match writer.add_block(candidate.clone(), &pow_clone) {
@@ -154,7 +158,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                             let balance_info = writer.mining_address.as_ref().and_then(|a| writer.get_balance(a).ok()).map(|(_, coins)| coins).unwrap_or(0.0);
                             println!(
-                                "[+] Mined Block #{} | Hash: {} | Blue Score: {} | Miner Balance: {:.2} IM",
+                                "[+] Mined Block #{} | Hash: {} | Blue Score: {} | Miner Balance: {:.2} IMN",
                                 writer.virtual_daa_score,
                                 new_hash,
                                 writer.virtual_blue_score,

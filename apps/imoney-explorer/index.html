@@ -249,7 +249,7 @@
       </div>
       <div class="stat-card">
         <div class="stat-label">Block Reward</div>
-        <div class="stat-val" id="kpi-reward" style="color: #e3b341;">- IM</div>
+        <div class="stat-val" id="kpi-reward" style="color: #e3b341;">- IMN</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Difficulty Bits</div>
@@ -333,7 +333,7 @@
             </div>
             <div style="display: flex; justify-content: space-between; padding: 6px 0;">
               <span style="color: #8b949e;">Permanent Emission Floor:</span>
-              <b>0.3125 IM / block</b>
+              <b>0.3125 IMN / block</b>
             </div>
           </div>
         </div>
@@ -384,7 +384,7 @@
           const info = await infoRes.json();
           document.getElementById('kpi-blue-score').innerText = info.virtual_blue_score;
           document.getElementById('kpi-daa-score').innerText = '#' + info.virtual_daa_score;
-          document.getElementById('kpi-reward').innerText = info.current_block_reward_im.toFixed(4) + ' IM';
+          document.getElementById('kpi-reward').innerText = info.current_block_reward_imn.toFixed(4) + ' IMN';
           document.getElementById('kpi-bits').innerText = info.current_bits;
           document.getElementById('kpi-mempool').innerText = info.mempool_size;
 
@@ -504,7 +504,7 @@
             const data = await res.json();
             content.innerHTML = `
               <div style="margin-bottom: 8px;"><b>Address:</b> <code>${data.address}</code></div>
-              <div style="margin-bottom: 8px;"><b>Balance:</b> <span style="color: #39d353; font-weight: bold; font-size: 18px;">${data.balance_im} IMN</span> (${data.balance_atoms} atoms)</div>
+              <div style="margin-bottom: 8px;"><b>Balance:</b> <span style="color: #39d353; font-weight: bold; font-size: 18px;">${data.balance_imn} IMN</span> (${data.balance_atoms} atoms)</div>
               <div><b>Network:</b> Testnet-1</div>
             `;
           } else {
@@ -528,7 +528,7 @@
               <div style="margin-bottom: 8px;"><b>Status:</b> <span style="color: #39d353; font-weight: bold;">${data.status.toUpperCase()}</span></div>
               <div style="margin-bottom: 8px;"><b>Confirming Block:</b> <code>${data.block_hash || 'Pending in Mempool'}</code></div>
               <div style="margin-bottom: 8px;"><b>DAA Height:</b> ${data.daa_score || '-'}</div>
-              <div><b>Total Output:</b> ${data.total_output_im} IMN</div>
+              <div><b>Total Output:</b> ${data.total_output_imn} IMN</div>
             `;
             return;
           }

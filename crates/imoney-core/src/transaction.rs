@@ -1,8 +1,17 @@
 use crate::address::{Address, AddressType, Network};
+use crate::constants::MAX_TX_BYTES;
 use crate::hash::Hash;
+use crate::serialize::{put_bytes, put_list, tagged_hash, Decode, DecodeError, Encode, Reader};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+
+const TX_ID_CONTEXT: &str = "IMN 2026 transaction id";
+const TX_HASH_CONTEXT: &str = "IMN 2026 transaction hash";
+const SIG_HASH_CONTEXT: &str = "IMN 2026 signature hash";
+
+/// Script version 0: the script is the 32-byte Blake3 hash of an Ed25519 public key.
+pub const SCRIPT_VERSION_PUBKEY_HASH: u8 = AddressType::PubKeyHash as u8;
 
 #[derive(Error, Debug, PartialEq)]
 pub enum TransactionError {
@@ -16,6 +25,8 @@ pub enum TransactionError {
     InvalidSignature(String),
     #[error("Public key does not match address hash")]
     PublicKeyAddressMismatch,
+    #[error("Unsupported script version: {0}")]
+    UnsupportedScriptVersion(u8),
 }
 
 /// Reference to a transaction output.
@@ -34,15 +45,31 @@ pub struct TxInput {
     pub sequence: u64,
 }
 
+/// Versioned locking script of an output.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ScriptPublicKey {
+    pub version: u8,
+    pub script: Vec<u8>,
+}
+
+impl ScriptPublicKey {
+    /// The script that pays to `address`.
+    pub fn pay_to_address(address: &Address) -> Self {
+        Self {
+            version: address.address_type as u8,
+            script: address.hash.0.to_vec(),
+        }
+    }
+}
+
 /// Transaction output creating a new UTXO.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TxOutput {
     pub value_atoms: u64,
-    /// Usually 32-byte Blake3 address hash or script payload
-    pub script_public_key: Vec<u8>,
+    pub script_public_key: ScriptPublicKey,
 }
 
-/// UTXO-based Internet Money transaction.
+/// UTXO-based Internet Money transaction. A transaction without inputs is a coinbase.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Transaction {
     pub version: u16,
@@ -55,30 +82,74 @@ pub struct Transaction {
 }
 
 impl Transaction {
-    /// Computes the unique ID (hash) of the transaction including signatures.
-    pub fn id(&self) -> Hash {
-        let serialized = serde_json::to_vec(self).unwrap_or_default();
-        let hash = blake3::hash(&serialized);
-        Hash(*hash.as_bytes())
+    /// Builds a coinbase transaction. The payload starts with the block's DAA score.
+    pub fn coinbase(daa_score: u64, outputs: Vec<TxOutput>, extra_data: &[u8]) -> Self {
+        let mut payload = daa_score.to_be_bytes().to_vec();
+        payload.extend_from_slice(extra_data);
+        Self {
+            version: 1,
+            inputs: Vec::new(),
+            outputs,
+            lock_time: 0,
+            subnetwork_id: [0u8; 20],
+            gas: 0,
+            payload,
+        }
     }
 
-    /// Computes the signing hash (sighash) for an input.
-    /// Zeroes out the signature_scripts of all inputs before hashing to prevent circular dependencies.
-    pub fn sig_hash(&self, input_index: usize) -> Hash {
-        let mut unsigned = self.clone();
-        for input in &mut unsigned.inputs {
-            input.signature_script.clear();
+    pub fn is_coinbase(&self) -> bool {
+        self.inputs.is_empty()
+    }
+
+    fn encode_with(&self, out: &mut Vec<u8>, include_signatures: bool) {
+        out.extend_from_slice(&self.version.to_be_bytes());
+        out.extend_from_slice(&(self.inputs.len() as u32).to_be_bytes());
+        for input in &self.inputs {
+            input.previous_outpoint.encode(out);
+            if include_signatures {
+                put_bytes(out, &input.signature_script);
+            } else {
+                put_bytes(out, &[]);
+            }
+            out.extend_from_slice(&input.sequence.to_be_bytes());
         }
-        let serialized = serde_json::to_vec(&unsigned).unwrap_or_default();
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(&serialized);
-        hasher.update(&(input_index as u32).to_le_bytes());
-        Hash(*hasher.finalize().as_bytes())
+        put_list(out, &self.outputs);
+        out.extend_from_slice(&self.lock_time.to_be_bytes());
+        out.extend_from_slice(&self.subnetwork_id);
+        out.extend_from_slice(&self.gas.to_be_bytes());
+        put_bytes(out, &self.payload);
+    }
+
+    fn unsigned_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        self.encode_with(&mut out, false);
+        out
+    }
+
+    /// The transaction ID referenced by outpoints. It excludes signature scripts,
+    /// so re-signing a transaction cannot change its ID.
+    pub fn id(&self) -> Hash {
+        tagged_hash(TX_ID_CONTEXT, &[&self.unsigned_bytes()])
+    }
+
+    /// Hash of the full transaction including signatures; committed to by the block merkle root.
+    pub fn hash(&self) -> Hash {
+        tagged_hash(TX_HASH_CONTEXT, &[&self.to_bytes()])
+    }
+
+    /// Computes the signing hash for an input. It commits to the network, so a signature
+    /// made on one network is not valid on another.
+    pub fn sig_hash(&self, network: Network, input_index: usize) -> Hash {
+        tagged_hash(
+            SIG_HASH_CONTEXT,
+            &[&[network.id()], &self.unsigned_bytes(), &(input_index as u32).to_be_bytes()],
+        )
     }
 
     /// Signs an input using the specified private key.
     pub fn sign_input(
         &mut self,
+        network: Network,
         input_index: usize,
         signing_key: &SigningKey,
     ) -> Result<(), TransactionError> {
@@ -86,7 +157,7 @@ impl Transaction {
             return Err(TransactionError::EmptyInputs);
         }
 
-        let sighash = self.sig_hash(input_index);
+        let sighash = self.sig_hash(network, input_index);
         let signature = signing_key.sign(sighash.as_bytes());
         let verifying_key = signing_key.verifying_key();
 
@@ -99,12 +170,17 @@ impl Transaction {
         Ok(())
     }
 
-    /// Verifies the signature of an input against an expected UTXO script_public_key (address hash).
+    /// Verifies the signature of an input against the script of the UTXO it spends.
     pub fn verify_input(
         &self,
+        network: Network,
         input_index: usize,
-        expected_address_hash: &[u8],
+        spent_script: &ScriptPublicKey,
     ) -> Result<(), TransactionError> {
+        if spent_script.version != SCRIPT_VERSION_PUBKEY_HASH {
+            return Err(TransactionError::UnsupportedScriptVersion(spent_script.version));
+        }
+
         let input = self.inputs.get(input_index).ok_or(TransactionError::EmptyInputs)?;
         if input.signature_script.len() != 96 {
             return Err(TransactionError::InvalidSignatureScript(input.signature_script.len()));
@@ -115,7 +191,7 @@ impl Transaction {
 
         // 1. Verify that public key hashes to the expected address hash
         let computed_addr_hash = blake3::hash(&pubkey_bytes);
-        if computed_addr_hash.as_bytes() != expected_address_hash {
+        if computed_addr_hash.as_bytes()[..] != spent_script.script[..] {
             return Err(TransactionError::PublicKeyAddressMismatch);
         }
 
@@ -124,7 +200,7 @@ impl Transaction {
             .map_err(|e| TransactionError::InvalidSignature(e.to_string()))?;
         let signature = Signature::from_bytes(&sig_bytes);
 
-        let sighash = self.sig_hash(input_index);
+        let sighash = self.sig_hash(network, input_index);
         verifying_key
             .verify(sighash.as_bytes(), &signature)
             .map_err(|e| TransactionError::InvalidSignature(e.to_string()))?;
@@ -144,12 +220,16 @@ impl Transaction {
         let verifying_key = signing_key.verifying_key();
         let sender_addr = Address::from_public_key(network, AddressType::PubKeyHash, verifying_key.as_bytes());
 
-        let total_required = amount_atoms + fee_atoms;
+        let total_required = amount_atoms
+            .checked_add(fee_atoms)
+            .ok_or_else(|| "Amount plus fee overflows".to_string())?;
         let mut accumulated: u64 = 0;
         let mut selected_utxos = Vec::new();
 
         for (outpoint, output) in available_utxos {
-            accumulated += output.value_atoms;
+            accumulated = accumulated
+                .checked_add(output.value_atoms)
+                .ok_or_else(|| "Selected inputs overflow".to_string())?;
             selected_utxos.push((outpoint, output));
             if accumulated >= total_required {
                 break;
@@ -176,13 +256,13 @@ impl Transaction {
 
         let mut outputs = vec![TxOutput {
             value_atoms: amount_atoms,
-            script_public_key: recipient_addr.hash.0.to_vec(),
+            script_public_key: ScriptPublicKey::pay_to_address(recipient_addr),
         }];
 
         if change_atoms > 0 {
             outputs.push(TxOutput {
                 value_atoms: change_atoms,
-                script_public_key: sender_addr.hash.0.to_vec(),
+                script_public_key: ScriptPublicKey::pay_to_address(&sender_addr),
             });
         }
 
@@ -197,11 +277,85 @@ impl Transaction {
         };
 
         for i in 0..tx.inputs.len() {
-            tx.sign_input(i, signing_key)
+            tx.sign_input(network, i, signing_key)
                 .map_err(|e| format!("Failed to sign input {}: {}", i, e))?;
         }
 
         Ok(tx)
+    }
+}
+
+impl Encode for Outpoint {
+    fn encode(&self, out: &mut Vec<u8>) {
+        out.extend_from_slice(&self.transaction_id.0);
+        out.extend_from_slice(&self.index.to_be_bytes());
+    }
+}
+
+impl Decode for Outpoint {
+    fn decode(reader: &mut Reader<'_>) -> Result<Self, DecodeError> {
+        Ok(Self {
+            transaction_id: reader.hash()?,
+            index: reader.u32()?,
+        })
+    }
+}
+
+impl Encode for TxInput {
+    fn encode(&self, out: &mut Vec<u8>) {
+        self.previous_outpoint.encode(out);
+        put_bytes(out, &self.signature_script);
+        out.extend_from_slice(&self.sequence.to_be_bytes());
+    }
+}
+
+impl Decode for TxInput {
+    fn decode(reader: &mut Reader<'_>) -> Result<Self, DecodeError> {
+        Ok(Self {
+            previous_outpoint: Outpoint::decode(reader)?,
+            signature_script: reader.bytes(MAX_TX_BYTES)?,
+            sequence: reader.u64()?,
+        })
+    }
+}
+
+impl Encode for TxOutput {
+    fn encode(&self, out: &mut Vec<u8>) {
+        out.extend_from_slice(&self.value_atoms.to_be_bytes());
+        out.push(self.script_public_key.version);
+        put_bytes(out, &self.script_public_key.script);
+    }
+}
+
+impl Decode for TxOutput {
+    fn decode(reader: &mut Reader<'_>) -> Result<Self, DecodeError> {
+        Ok(Self {
+            value_atoms: reader.u64()?,
+            script_public_key: ScriptPublicKey {
+                version: reader.u8()?,
+                script: reader.bytes(MAX_TX_BYTES)?,
+            },
+        })
+    }
+}
+
+impl Encode for Transaction {
+    fn encode(&self, out: &mut Vec<u8>) {
+        self.encode_with(out, true);
+    }
+}
+
+impl Decode for Transaction {
+    fn decode(reader: &mut Reader<'_>) -> Result<Self, DecodeError> {
+        Ok(Self {
+            version: reader.u16()?,
+            inputs: reader.list(MAX_TX_BYTES)?,
+            outputs: reader.list(MAX_TX_BYTES)?,
+            lock_time: reader.u64()?,
+            subnetwork_id: reader.take(20)?.try_into().unwrap(),
+            gas: reader.u64()?,
+            payload: reader.bytes(MAX_TX_BYTES)?,
+        })
     }
 }
 
@@ -210,15 +364,13 @@ mod tests {
     use super::*;
     use rand::rngs::OsRng;
 
-    #[test]
-    fn test_transaction_signing_and_verification() {
+    fn signed_payment() -> (Transaction, Address) {
         let mut csprng = OsRng;
         let signing_key = SigningKey::generate(&mut csprng);
-        let verifying_key = signing_key.verifying_key();
         let sender_addr = Address::from_public_key(
             Network::Testnet,
             AddressType::PubKeyHash,
-            verifying_key.as_bytes(),
+            signing_key.verifying_key().as_bytes(),
         );
 
         let outpoint = Outpoint {
@@ -227,7 +379,7 @@ mod tests {
         };
         let utxo = TxOutput {
             value_atoms: 10_000_000,
-            script_public_key: sender_addr.hash.0.to_vec(),
+            script_public_key: ScriptPublicKey::pay_to_address(&sender_addr),
         };
 
         let recipient_key = SigningKey::generate(&mut csprng);
@@ -246,6 +398,12 @@ mod tests {
             vec![(outpoint, utxo)],
         )
         .expect("build_payment failed");
+        (tx, sender_addr)
+    }
+
+    #[test]
+    fn test_transaction_signing_and_verification() {
+        let (tx, sender_addr) = signed_payment();
 
         assert_eq!(tx.inputs.len(), 1);
         assert_eq!(tx.outputs.len(), 2); // 6_000_000 to recipient, 3_999_000 change
@@ -253,7 +411,88 @@ mod tests {
         assert_eq!(tx.outputs[1].value_atoms, 3_999_000);
 
         // Verify input signature
-        let verify_res = tx.verify_input(0, &sender_addr.hash.0);
+        let verify_res = tx.verify_input(Network::Testnet, 0, &ScriptPublicKey::pay_to_address(&sender_addr));
         assert!(verify_res.is_ok(), "Signature verification failed: {:?}", verify_res);
+    }
+
+    #[test]
+    fn signature_does_not_replay_on_another_network() {
+        let (tx, sender_addr) = signed_payment();
+        let script = ScriptPublicKey::pay_to_address(&sender_addr);
+
+        assert!(tx.verify_input(Network::Testnet, 0, &script).is_ok());
+        assert!(matches!(
+            tx.verify_input(Network::Mainnet, 0, &script),
+            Err(TransactionError::InvalidSignature(_))
+        ));
+    }
+
+    #[test]
+    fn tampering_with_outputs_invalidates_signature() {
+        let (mut tx, sender_addr) = signed_payment();
+        tx.outputs[0].value_atoms += 1;
+        let script = ScriptPublicKey::pay_to_address(&sender_addr);
+        assert!(tx.verify_input(Network::Testnet, 0, &script).is_err());
+    }
+
+    #[test]
+    fn id_ignores_signatures_but_hash_commits_to_them() {
+        let (tx, _) = signed_payment();
+        let mut resigned = tx.clone();
+        resigned.inputs[0].signature_script[95] ^= 1;
+
+        assert_eq!(tx.id(), resigned.id());
+        assert_ne!(tx.hash(), resigned.hash());
+        assert_ne!(tx.id(), tx.hash());
+    }
+
+    #[test]
+    fn transaction_round_trips_through_canonical_encoding() {
+        let (tx, _) = signed_payment();
+        let bytes = tx.to_bytes();
+        assert_eq!(Transaction::from_bytes(&bytes).unwrap(), tx);
+        assert!(Transaction::from_bytes(&bytes[..bytes.len() - 1]).is_err());
+
+        let coinbase = Transaction::coinbase(42, Vec::new(), b"extra");
+        assert!(coinbase.is_coinbase());
+        assert_eq!(Transaction::from_bytes(&coinbase.to_bytes()).unwrap(), coinbase);
+    }
+
+    #[test]
+    fn canonical_encoding_matches_fixed_vector() {
+        let tx = Transaction {
+            version: 1,
+            inputs: vec![TxInput {
+                previous_outpoint: Outpoint { transaction_id: Hash([0xaa; 32]), index: 2 },
+                signature_script: vec![0xbb; 3],
+                sequence: 5,
+            }],
+            outputs: vec![TxOutput {
+                value_atoms: 0x0102,
+                script_public_key: ScriptPublicKey { version: 0, script: vec![0xcc; 2] },
+            }],
+            lock_time: 0,
+            subnetwork_id: [0u8; 20],
+            gas: 0,
+            payload: vec![0xdd],
+        };
+        let expected = [
+            "0001",                 // version
+            "00000001",             // input count
+            &"aa".repeat(32),       // previous transaction id
+            "00000002",             // previous output index
+            "00000003bbbbbb",       // signature script
+            "0000000000000005",     // sequence
+            "00000001",             // output count
+            "0000000000000102",     // value
+            "00",                   // script version
+            "00000002cccc",         // script
+            "0000000000000000",     // lock time
+            &"00".repeat(20),       // subnetwork id
+            "0000000000000000",     // gas
+            "00000001dd",           // payload
+        ]
+        .concat();
+        assert_eq!(hex::encode(tx.to_bytes()), expected);
     }
 }

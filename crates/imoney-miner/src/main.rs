@@ -1,14 +1,14 @@
 use clap::Parser;
 use imoney_core::constants::*;
 use imoney_core::{BlockHeader, Hash};
-use imoney_emission::block_subsidy_im;
+use imoney_emission::block_subsidy_imn;
 use imoney_pow::{DEVNET_DATASET_ITEMS, MoneyPrinterContext, MoneyPrinterPow};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Instant;
 
 #[derive(Parser, Debug)]
-#[command(author, version, about = "Internet Money (IM) - Money Printer PoW Miner & Benchmark", long_about = None)]
+#[command(author, version, about = "Internet Money (IMN) - Money Printer PoW Miner & Benchmark", long_about = None)]
 struct Args {
     /// Number of worker threads (default: system CPU count)
     #[arg(short, long)]
@@ -40,7 +40,7 @@ fn main() {
     println!("============================================================");
     println!("  {} ({}) - Proof-of-Work Node & Miner", CURRENCY_NAME, TICKER);
     println!("  Algorithm: Money Printer (ASIC-Resistant Memory-Hard PoW)");
-    println!("  Block Time: {}s | Launch Subsidy: {} IM", TARGET_TIME_PER_BLOCK_MS / 1000, block_subsidy_im(0));
+    println!("  Block Time: {}s | Launch Subsidy: {} IMN", TARGET_TIME_PER_BLOCK_MS / 1000, block_subsidy_imn(0));
     println!("  Threads: {}", rayon::current_num_threads());
     println!("============================================================");
 

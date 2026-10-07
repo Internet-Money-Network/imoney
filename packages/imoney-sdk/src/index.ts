@@ -3,7 +3,7 @@
  * Ultra-fast, zero-custody, 5-second merchant payment checkout & BlockDAG API client.
  */
 
-export const SOMPI_PER_IM = 100_000_000n; // 1 IM = 10^8 atoms (like satoshis)
+export const ATOMS_PER_IMN = 100_000_000n; // 1 IMN = 10^8 atoms (like satoshis)
 
 export interface IMoneyClientConfig {
   nodeUrl?: string; // Default: 'http://127.0.0.1:18556'
@@ -18,7 +18,7 @@ export interface NodeInfo {
   virtual_daa_score: number;
   tips: string[];
   current_bits: string;
-  current_block_reward_im: number;
+  current_block_reward_imn: number;
   target_block_interval_sec: number;
   mining_address?: string;
   mempool_size: number;
@@ -26,7 +26,7 @@ export interface NodeInfo {
 
 export interface AddressBalance {
   address: string;
-  balance_im: number;
+  balance_imn: number;
   balance_atoms: number;
 }
 
@@ -34,7 +34,7 @@ export interface UtxoItem {
   transaction_id: string;
   index: number;
   value_atoms: number;
-  value_im: number;
+  value_imn: number;
 }
 
 export interface TxStatus {
@@ -45,16 +45,16 @@ export interface TxStatus {
   inputs_count: number;
   outputs_count: number;
   total_output_atoms: number;
-  total_output_im: number;
+  total_output_imn: number;
 }
 
 export interface PaymentInvoiceOptions {
   merchantAddress: string;
-  amountIm: number;
+  amountImn: number;
   orderId?: string;
   memo?: string;
   timeoutSeconds?: number;
-  onSuccess?: (payment: { txId?: string; atoms: number; im: number }) => void;
+  onSuccess?: (payment: { txId?: string; atoms: number; imn: number }) => void;
   onExpire?: () => void;
   onCancel?: () => void;
 }
@@ -111,7 +111,7 @@ export class IMoneyClient {
 
   subscribeAddressPayments(
     address: string,
-    onPayment: (data: { change_atoms: number; balance_atoms: number; balance_im: number }) => void
+    onPayment: (data: { change_atoms: number; balance_atoms: number; balance_imn: number }) => void
   ): () => void {
     const wsUrl = this.nodeUrl.replace(/^http/, 'ws') + `/api/v1/ws/address/${encodeURIComponent(address)}`;
     let ws: any;
@@ -155,7 +155,7 @@ export class IMoneyClient {
 
     const {
       merchantAddress,
-      amountIm,
+      amountImn,
       orderId = 'ORD-' + Math.floor(100000 + Math.random() * 900000),
       memo = 'Store Purchase',
       timeoutSeconds = 600,
@@ -164,8 +164,8 @@ export class IMoneyClient {
       onCancel,
     } = options;
 
-    const atomsRequired = Math.round(amountIm * 100_000_000);
-    const paymentUri = `imoney:${merchantAddress}?amount=${amountIm}&label=${encodeURIComponent(memo)}`;
+    const atomsRequired = Math.round(amountImn * 100_000_000);
+    const paymentUri = `${merchantAddress}?amount=${amountImn}&label=${encodeURIComponent(memo)}`;
 
     // Create modal backdrop and overlay
     const overlay = document.createElement('div');
@@ -182,12 +182,12 @@ export class IMoneyClient {
           <div style="width: 28px; height: 28px; background: #238636; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 16px;">⚡</div>
           <h2 style="margin: 0; font-size: 20px; color: #58a6ff;">Internet Money</h2>
         </div>
-        <p style="margin: 4px 0 16px; color: #8b949e; font-size: 13px;">5-Second Instant BlockDAG Settlement</p>
+        <p style="margin: 4px 0 16px; color: #8b949e; font-size: 13px;">~5-Second BlockDAG Inclusion</p>
         
         <div style="background: #0d1117; border: 1px solid #21262d; border-radius: 8px; padding: 12px; margin-bottom: 16px;">
           <div style="font-size: 12px; color: #8b949e;">Amount to Send:</div>
-          <div style="font-size: 26px; font-weight: bold; color: #39d353; margin: 4px 0;">${amountIm} IMN</div>
-          <div style="font-size: 11px; color: #8b949e;">Order #${orderId} • Zero Network Fees</div>
+          <div style="font-size: 26px; font-weight: bold; color: #39d353; margin: 4px 0;">${amountImn} IMN</div>
+          <div style="font-size: 11px; color: #8b949e;">Order #${orderId} • Low Network Fee</div>
         </div>
 
         <!-- QR Code Placeholder -->
@@ -265,7 +265,7 @@ export class IMoneyClient {
         if (statusBox) {
           statusBox.innerHTML = `
             <div style="color: #39d353; font-weight: bold; font-size: 15px;">
-              ✓ Payment Received! Confirmed on BlockDAG
+              ✓ Payment received and included in the BlockDAG
             </div>
           `;
         }
@@ -275,7 +275,7 @@ export class IMoneyClient {
           if (onSuccess) {
             onSuccess({
               atoms: data.change_atoms,
-              im: data.change_atoms / 100_000_000,
+              imn: data.change_atoms / 100_000_000,
             });
           }
         }, 1500);
