@@ -116,7 +116,7 @@ mod tests {
             script_public_key: ScriptPublicKey::pay_to_address(&recipient),
         };
         let outpoint = Outpoint { transaction_id: Hash([seed; 32]), index: 0 };
-        Transaction::build_payment(&key, Network::Testnet, &recipient, 5_000, 100, vec![(outpoint, utxo)]).unwrap()
+        Transaction::build_payment(&key, Network::Testnet, &recipient, 5_000, 100, vec![(outpoint, utxo)], None).unwrap()
     }
 
     fn block_with(transactions: Vec<Transaction>) -> Block {

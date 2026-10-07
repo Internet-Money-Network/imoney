@@ -91,6 +91,8 @@ pub struct NodeInfo {
     pub current_block_reward_imn: f64,
     pub target_block_interval_sec: u64,
     pub mining_address: Option<String>,
+    /// Name this as a payment's service address to give this node half of the fee.
+    pub service_address: Option<String>,
     pub mempool_size: usize,
 }
 
@@ -230,6 +232,8 @@ pub struct DagLedger {
     pub difficulty_bits: u32,
     /// Default payout address for block templates.
     pub mining_address: Option<Address>,
+    /// Address this node asks wallets to name as the service address of payments it serves.
+    pub service_address: Option<Address>,
     pub mempool: Mempool,
     /// Ledger change notifications. Sending never blocks; slow subscribers skip events.
     pub events: broadcast::Sender<LedgerEvent>,
@@ -264,6 +268,7 @@ impl DagLedger {
             virtual_blue_score: 0,
             virtual_daa_score: 0,
             difficulty_bits: 0,
+            service_address: mining_address.clone(),
             mining_address,
             mempool: Mempool::default(),
             events: broadcast::channel(1024).0,
@@ -416,8 +421,9 @@ impl DagLedger {
     /// in consensus order, and returns the exact change made.
     ///
     /// A transaction that cannot be spent at this point (already spent by an earlier block in the
-    /// order, bad signature, immature reward) is skipped. Each blue block's miner receives the
-    /// subsidy plus the fees of that block's accepted transactions; red blocks earn nothing.
+    /// order, bad signature, immature reward) is skipped. A transaction that names a service
+    /// script pays it half of its fee. Each blue block's miner receives the subsidy plus the
+    /// rest of the fees of that block's accepted transactions; red blocks earn nothing.
     fn accept_mergeset(
         &self,
         view: &mut LedgerView,
@@ -435,11 +441,13 @@ impl DagLedger {
             let mut fees: u64 = 0;
 
             for (index, tx) in block.transactions.iter().enumerate().skip(1) {
-                match self.check_spend(tx, |outpoint| view.get(outpoint), blue_score) {
-                    Ok(fee) => fees = fees.saturating_add(fee),
+                let fee = match self.check_spend(tx, |outpoint| view.get(outpoint), blue_score) {
+                    Ok(fee) => fee,
                     Err(StateError::Transaction(_)) => continue, // Not spendable here: skip it
                     Err(e) => return Err(e),
-                }
+                };
+                let service_share = tx.service_share(fee);
+                fees = fees.saturating_add(fee - service_share);
 
                 for input in &tx.inputs {
                     let outpoint = &input.previous_outpoint;
@@ -456,6 +464,18 @@ impl DagLedger {
                 for (idx, output) in tx.outputs.iter().enumerate() {
                     let outpoint = Outpoint { transaction_id: tx_id, index: idx as u32 };
                     let entry = UtxoEntry { output: output.clone(), blue_score, is_coinbase: false };
+                    view.create(outpoint.clone(), entry.clone());
+                    created_here.insert(outpoint.clone());
+                    created.push((outpoint, entry));
+                }
+
+                if let (Some(script), true) = (&tx.service, service_share > 0) {
+                    let outpoint = tx.service_outpoint();
+                    let entry = UtxoEntry {
+                        output: TxOutput { value_atoms: service_share, script_public_key: script.clone() },
+                        blue_score,
+                        is_coinbase: false,
+                    };
                     view.create(outpoint.clone(), entry.clone());
                     created_here.insert(outpoint.clone());
                     created.push((outpoint, entry));
@@ -866,6 +886,7 @@ impl DagLedger {
             current_block_reward_imn: block_subsidy_imn(self.virtual_daa_score),
             target_block_interval_sec: TARGET_TIME_PER_BLOCK_MS / 1000,
             mining_address: self.mining_address.as_ref().map(|a| a.to_string()),
+            service_address: self.service_address.as_ref().map(|a| a.to_string()),
             mempool_size: self.mempool.len(),
         }
     }

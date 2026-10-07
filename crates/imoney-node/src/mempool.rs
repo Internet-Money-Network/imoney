@@ -214,6 +214,7 @@ mod tests {
             subnetwork_id: [0u8; 20],
             gas: 0,
             payload: vec![0u8; payload_len],
+            service: None,
         }
     }
 

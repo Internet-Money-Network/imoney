@@ -21,6 +21,8 @@ export interface NodeInfo {
   current_block_reward_imn: number;
   target_block_interval_sec: number;
   mining_address?: string;
+  /** Name this as a payment's service address to give this node half of the fee. */
+  service_address?: string;
   mempool_size: number;
 }
 

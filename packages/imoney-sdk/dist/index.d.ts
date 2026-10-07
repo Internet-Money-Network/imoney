@@ -16,6 +16,7 @@ export interface NodeInfo {
   current_block_reward_imn: number;
   target_block_interval_sec: number;
   mining_address?: string;
+  service_address?: string;
   mempool_size: number;
 }
 

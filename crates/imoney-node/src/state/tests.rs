@@ -73,7 +73,7 @@ fn funded_ledger(name: &str, miner: &SigningKey) -> (DagLedger, MoneyPrinterPow)
 
 fn pay(ledger: &DagLedger, from: &SigningKey, to: &Address, amount: u64, fee: u64) -> Transaction {
     let utxos = ledger.get_spendable_utxos(&address_of(from)).unwrap();
-    Transaction::build_payment(from, Network::Testnet, to, amount, fee, utxos).unwrap()
+    Transaction::build_payment(from, Network::Testnet, to, amount, fee, utxos, None).unwrap()
 }
 
 fn balance(ledger: &DagLedger, address: &Address) -> u64 {
@@ -132,6 +132,7 @@ fn mempool_rejects_output_total_overflow() {
         subnetwork_id: [0u8; 20],
         gas: 0,
         payload: Vec::new(),
+        service: None,
     };
     tx.sign_input(Network::Testnet, 0, &miner).unwrap();
 
@@ -151,7 +152,7 @@ fn block_rewards_cannot_be_spent_before_maturity() {
     assert!(ledger.get_spendable_utxos(&address_of(&miner)).unwrap().is_empty());
 
     let utxos = ledger.get_utxos(&address_of(&miner)).unwrap();
-    let early = Transaction::build_payment(&miner, Network::Testnet, &address_of(&key(8)), 1_000, 500, utxos).unwrap();
+    let early = Transaction::build_payment(&miner, Network::Testnet, &address_of(&key(8)), 1_000, 500, utxos, None).unwrap();
     let err = ledger.broadcast_transaction(early.clone()).expect_err("immature spend must be rejected");
     assert!(err.to_string().contains("immature"), "{}", err);
 
@@ -384,6 +385,7 @@ fn unspendable_transaction_in_block_is_skipped_not_applied() {
         subnetwork_id: [0u8; 20],
         gas: 0,
         payload: Vec::new(),
+        service: None,
     };
     theft.sign_input(Network::Testnet, 0, &thief).unwrap();
     let theft_id = theft.id();
@@ -503,4 +505,30 @@ fn address_index_tracks_many_outputs_across_spends() {
     assert_eq!(ledger.get_utxos(&address_of(&miner)).unwrap().len(), 1);
     assert_eq!(balance(&ledger, &address_of(&miner)), block_subsidy_atoms(1) - 6_000 - 1_500);
     assert_eq!(balance(&ledger, &address_of(&key(93))), 0);
+}
+
+#[test]
+fn fee_is_split_between_the_miner_and_the_named_service_address() {
+    let payer = key(100);
+    let (alice, node_operator, block_miner) = (address_of(&key(101)), address_of(&key(102)), address_of(&key(103)));
+    let (mut ledger, pow) = funded_ledger("fee-split", &payer);
+
+    let utxos = ledger.get_spendable_utxos(&address_of(&payer)).unwrap();
+    let payment =
+        Transaction::build_payment(&payer, Network::Testnet, &alice, 20_000, 1_001, utxos, Some(&node_operator)).unwrap();
+    let service_outpoint = payment.service_outpoint();
+    ledger.broadcast_transaction(payment).unwrap();
+    let carrying_block = mine_tip(&mut ledger, &pow, &block_miner);
+
+    // Half the fee, rounded down, goes to the service address; the miner gets the rest
+    assert_eq!(balance(&ledger, &node_operator), 500);
+    assert_eq!(ledger.storage.get_utxo(&service_outpoint).unwrap().unwrap().output.value_atoms, 500);
+    let subsidy = block_subsidy_atoms(ledger.blocks[&carrying_block].daa_score);
+    assert_eq!(balance(&ledger, &block_miner), subsidy + 501);
+    assert_eq!(balance(&ledger, &alice), 20_000);
+    assert_eq!(ledger.storage.total_utxo_atoms().unwrap(), expected_supply(&ledger));
+
+    // The service share is ordinary money: spendable at once, not held for maturity
+    assert_eq!(ledger.get_spendable_utxos(&node_operator).unwrap().len(), 1);
+    assert_eq!(ledger.get_info().service_address, None);
 }

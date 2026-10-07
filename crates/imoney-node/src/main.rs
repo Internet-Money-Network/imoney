@@ -39,6 +39,11 @@ struct Args {
     #[arg(long)]
     mining_address: Option<String>,
 
+    /// Address that receives this node's half of the fee on payments it serves
+    /// (defaults to the mining address)
+    #[arg(long)]
+    service_address: Option<String>,
+
     /// Require this bearer token for block submission and the wallet's key-handling calls
     #[arg(long)]
     rpc_token: Option<String>,
@@ -108,7 +113,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("[+] PoW Context initialized successfully.");
 
     println!("[*] Opening persistent database at {:?}...", db_path);
-    let ledger_instance = DagLedger::open(&db_path, mining_address)?;
+    let mut ledger_instance = DagLedger::open(&db_path, mining_address)?;
+    if let Some(s) = &args.service_address {
+        ledger_instance.service_address = Some(Address::decode(s)?);
+    }
     let ledger: SharedLedger = Arc::new(RwLock::new(ledger_instance));
     {
         let r = ledger.read().await;

@@ -79,6 +79,9 @@ pub struct Transaction {
     pub subnetwork_id: [u8; 20],
     pub gas: u64,
     pub payload: Vec<u8>,
+    /// Optional script of the node that served this payment. When set, the ledger pays it half
+    /// of the transaction fee; the rest goes to the miner. Covered by the signature.
+    pub service: Option<ScriptPublicKey>,
 }
 
 impl Transaction {
@@ -94,6 +97,7 @@ impl Transaction {
             subnetwork_id: [0u8; 20],
             gas: 0,
             payload,
+            service: None,
         }
     }
 
@@ -118,6 +122,27 @@ impl Transaction {
         out.extend_from_slice(&self.subnetwork_id);
         out.extend_from_slice(&self.gas.to_be_bytes());
         put_bytes(out, &self.payload);
+        match &self.service {
+            None => out.push(0),
+            Some(script) => {
+                out.push(1);
+                out.push(script.version);
+                put_bytes(out, &script.script);
+            }
+        }
+    }
+
+    /// The share of `fee` paid to the service script: half, rounded down, when one is named.
+    pub fn service_share(&self, fee: u64) -> u64 {
+        match self.service {
+            Some(_) => fee / 2,
+            None => 0,
+        }
+    }
+
+    /// Where the ledger puts the service share: one past the transaction's own outputs.
+    pub fn service_outpoint(&self) -> Outpoint {
+        Outpoint { transaction_id: self.id(), index: self.outputs.len() as u32 }
     }
 
     fn unsigned_bytes(&self) -> Vec<u8> {
@@ -216,6 +241,7 @@ impl Transaction {
         amount_atoms: u64,
         fee_atoms: u64,
         available_utxos: Vec<(Outpoint, TxOutput)>,
+        service: Option<&Address>,
     ) -> Result<Self, String> {
         let verifying_key = signing_key.verifying_key();
         let sender_addr = Address::from_public_key(network, AddressType::PubKeyHash, verifying_key.as_bytes());
@@ -274,6 +300,7 @@ impl Transaction {
             subnetwork_id: [0u8; 20],
             gas: 0,
             payload: Vec::new(),
+            service: service.map(ScriptPublicKey::pay_to_address),
         };
 
         for i in 0..tx.inputs.len() {
@@ -355,6 +382,11 @@ impl Decode for Transaction {
             subnetwork_id: reader.take(20)?.try_into().unwrap(),
             gas: reader.u64()?,
             payload: reader.bytes(MAX_TX_BYTES)?,
+            service: match reader.u8()? {
+                0 => None,
+                1 => Some(ScriptPublicKey { version: reader.u8()?, script: reader.bytes(MAX_TX_BYTES)? }),
+                _ => return Err(DecodeError::Invalid("service flag")),
+            },
         })
     }
 }
@@ -396,6 +428,7 @@ mod tests {
             6_000_000,
             1_000,
             vec![(outpoint, utxo)],
+            None,
         )
         .expect("build_payment failed");
         (tx, sender_addr)
@@ -475,6 +508,7 @@ mod tests {
             subnetwork_id: [0u8; 20],
             gas: 0,
             payload: vec![0xdd],
+            service: Some(ScriptPublicKey { version: 0, script: vec![0xee; 2] }),
         };
         let expected = [
             "0001",                 // version
@@ -491,8 +525,36 @@ mod tests {
             &"00".repeat(20),       // subnetwork id
             "0000000000000000",     // gas
             "00000001dd",           // payload
+            "01",                   // service script present
+            "00",                   // service script version
+            "00000002eeee",         // service script
         ]
         .concat();
         assert_eq!(hex::encode(tx.to_bytes()), expected);
+    }
+
+    #[test]
+    fn service_script_is_signed_and_takes_half_the_fee() {
+        let (tx, sender_addr) = signed_payment();
+        assert_eq!(tx.service_share(1_001), 0);
+
+        let key = SigningKey::from_bytes(&[5u8; 32]);
+        let me = Address::from_public_key(Network::Testnet, AddressType::PubKeyHash, key.verifying_key().as_bytes());
+        let node = Address::from_public_key(Network::Testnet, AddressType::PubKeyHash, &[9u8; 32]);
+        let utxo = TxOutput { value_atoms: 50_000, script_public_key: ScriptPublicKey::pay_to_address(&me) };
+        let outpoint = Outpoint { transaction_id: Hash([7u8; 32]), index: 0 };
+        let mut with_service =
+            Transaction::build_payment(&key, Network::Testnet, &sender_addr, 10_000, 1_001, vec![(outpoint, utxo)], Some(&node))
+                .unwrap();
+
+        assert_eq!(with_service.service_share(1_001), 500);
+        assert_eq!(with_service.service_outpoint().index, 2);
+        assert_eq!(Transaction::from_bytes(&with_service.to_bytes()).unwrap(), with_service);
+
+        // Swapping the service script after signing invalidates the signature
+        let script = ScriptPublicKey::pay_to_address(&me);
+        assert!(with_service.verify_input(Network::Testnet, 0, &script).is_ok());
+        with_service.service = Some(ScriptPublicKey::pay_to_address(&sender_addr));
+        assert!(with_service.verify_input(Network::Testnet, 0, &script).is_err());
     }
 }

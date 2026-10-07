@@ -568,10 +568,10 @@ async fn wallet_send_handler(
     let fee_atoms = payload.fee_atoms.unwrap_or(10_000); // 0.0001 IMN fee
     let amount_atoms = (payload.amount_imn * imoney_core::constants::ATOMS_PER_IMN as f64).round() as u64;
 
-    let available_utxos = {
+    let (available_utxos, service_address) = {
         let ledger = state.ledger.read().await;
         match ledger.get_spendable_utxos(&sender_addr) {
-            Ok(u) => u,
+            Ok(u) => (u, ledger.service_address.clone()),
             Err(e) => {
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -593,6 +593,7 @@ async fn wallet_send_handler(
         amount_atoms,
         fee_atoms,
         available_utxos,
+        service_address.as_ref(),
     ) {
         Ok(t) => t,
         Err(e) => {

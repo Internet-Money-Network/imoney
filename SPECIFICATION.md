@@ -97,7 +97,9 @@ A block's own transactions do not change the ledger when the block is mined. The
 Because the order depends only on the DAG, every node with the same blocks computes the same ledger regardless of the order in which the blocks arrived.
 
 ### 6.3 Rewards and fees
-The coinbase transaction names the miner's payout script in at most one output worth at most the block subsidy. When a block is merged as blue, the ledger creates one reward output for its miner worth that amount plus the fees of the block's accepted transactions. Red blocks earn no reward, and the fees of transactions accepted from red blocks are burned. A reward may be spent once it is buried by the coinbase maturity depth (20 blue-score on testnet).
+The coinbase transaction names the miner's payout script in at most one output worth at most the block subsidy. When a block is merged as blue, the ledger creates one reward output for its miner worth that amount plus the miner's share of the fees of the block's accepted transactions. Red blocks earn no reward, and the miner's share of fees from transactions accepted out of red blocks is burned.
+
+A transaction may name a *service script*: the node that served the payment, chosen by the wallet and covered by the signature. When such a transaction is accepted, half of its fee (rounded down) is paid to that script as an extra output at index `outputs.len()`, spendable immediately, and the miner's share is the remainder. A transaction without a service script pays its whole fee to the miner. Because anyone may name their own address, this works as a fee discount for those who run a node rather than as an income guaranteed by the protocol. A reward may be spent once it is buried by the coinbase maturity depth (20 blue-score on testnet).
 
 ### 6.4 Chain reorganisation
 The selected chain ends in the tip with the most blue work. Each selected-chain block's exact ledger change is stored, so when a heavier chain appears the node undoes the old chain's changes back to the common block and applies the new chain's.
