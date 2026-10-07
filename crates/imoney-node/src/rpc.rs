@@ -189,6 +189,7 @@ pub fn create_router(
     Router::new()
         .route("/", get(dashboard_handler))
         .route("/wallet", get(wallet_gui_handler))
+        .route("/explorer", get(explorer_handler))
         .route("/wallet/pkg/imoney_wasm.js", get(wallet_wasm_js_handler))
         .route("/wallet/pkg/imoney_wasm_bg.wasm", get(wallet_wasm_handler))
         .route("/wallet/sdk.js", get(wallet_sdk_handler))
@@ -274,8 +275,14 @@ const WALLET_WASM_JS: &str = include_str!("../../../apps/imoney-wallet/pkg/imone
 const WALLET_WASM: &[u8] = include_bytes!("../../../apps/imoney-wallet/pkg/imoney_wasm_bg.wasm");
 const SDK_JS: &str = include_str!("../../../packages/imoney-sdk/dist/imoney.js");
 
+const EXPLORER_HTML: &str = include_str!("../../../apps/imoney-explorer/index.html");
+
 async fn wallet_gui_handler() -> Html<&'static str> {
     Html(WALLET_HTML)
+}
+
+async fn explorer_handler() -> Html<&'static str> {
+    Html(EXPLORER_HTML)
 }
 
 async fn wallet_wasm_js_handler() -> impl IntoResponse {
@@ -320,7 +327,7 @@ async fn dashboard_handler(State(state): State<Arc<AppState>>) -> Html<String> {
     <div class="card">
         <h1>Internet Money (IMN) Node <span class="badge">TESTNET-1 (PERSISTENT DB)</span></h1>
         <div class="row"><span>BlockDAG Interval:</span><b>{} seconds (0.2 BPS)</b></div>
-        <div class="row"><span>Proof of Work:</span><b>Money Printer (Memory-Hard GPU)</b></div>
+        <div class="row"><span>Proof of Work:</span><b>Money Printer (FishHash)</b></div>
         <div class="row"><span>Database Engine:</span><b>ACID On-Disk Storage (redb)</b></div>
         <div class="row"><span>Current Blue Score:</span><b>{}</b></div>
         <div class="row"><span>Total Blocks in DAG:</span><b>{}</b></div>
@@ -330,7 +337,8 @@ async fn dashboard_handler(State(state): State<Arc<AppState>>) -> Html<String> {
         <div class="row"><span>Virtual Selected Parent:</span><span class="hash">{}</span></div>
         
         <div style="margin-top: 1.5rem; text-align: center;">
-            <a href="/wallet" style="display: inline-block; background: #238636; color: white; padding: 0.75rem 1.5rem; border-radius: 6px; text-decoration: none; font-weight: bold; font-size: 1rem; box-shadow: 0 2px 8px rgba(35, 134, 54, 0.4);">👛 Launch Integrated Node & Wallet GUI</a>
+            <a href="/explorer" style="display: inline-block; background: #1f6feb; color: white; padding: 0.75rem 1.5rem; border-radius: 6px; text-decoration: none; font-weight: bold; font-size: 1rem; margin-right: 0.5rem;">Block Explorer</a>
+            <a href="/wallet" style="display: inline-block; background: #238636; color: white; padding: 0.75rem 1.5rem; border-radius: 6px; text-decoration: none; font-weight: bold; font-size: 1rem; box-shadow: 0 2px 8px rgba(35, 134, 54, 0.4);">Wallet</a>
         </div>
         
         <div class="api-box">

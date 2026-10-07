@@ -9,10 +9,10 @@ pub fn compact_to_u256(compact: u32) -> [u8; 32] {
     if size <= 3 {
         let shifted = word >> (8 * (3 - size));
         if size > 0 {
-            target[32 - size..32].copy_from_slice(&(shifted as u32).to_be_bytes()[4 - size..4]);
+            target[32 - size..32].copy_from_slice(&shifted.to_be_bytes()[4 - size..4]);
         }
     } else if size <= 32 {
-        let bytes = (word as u32).to_be_bytes();
+        let bytes = word.to_be_bytes();
         let start = 32 - size;
         target[start] = bytes[1];
         if start + 1 < 32 { target[start + 1] = bytes[2]; }
@@ -50,15 +50,8 @@ pub fn u256_to_compact(target: &[u8; 32]) -> u32 {
 
 /// Checks if a 32-byte hash meets the difficulty target defined by `bits`.
 pub fn is_valid_pow(hash: &Hash, bits: u32) -> bool {
-    let target = compact_to_u256(bits);
-    for i in 0..32 {
-        if hash.0[i] < target[i] {
-            return true;
-        } else if hash.0[i] > target[i] {
-            return false;
-        }
-    }
-    true
+    // Both are big-endian numbers, so comparing the bytes in order compares the values
+    hash.0 <= compact_to_u256(bits)
 }
 
 #[cfg(test)]

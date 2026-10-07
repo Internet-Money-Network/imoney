@@ -102,9 +102,15 @@ that the network splits or that a new node cannot find it.
 
 ## Growth
 
-Blocks that carry no payments add roughly 10 to 20 MB a day to an unpruned node. Block size is
-capped at 100 KB, so the most the chain can grow is about 1.7 GB a day, and only if every block is
-full. These figures are estimates from encoded sizes, not measurements of a long-running node.
+Measured over 6,000 empty blocks, a node's database grows by about 1.5 to 2.3 KB per block,
+which is 26 to 39 MB a day or roughly 10 to 14 GB a year. With `--prune` the same run grew by
+about 1.25 KB per block (22 MB a day): on a chain with few payments most of what a block costs is
+its header, its consensus record and its miner's reward coin, none of which pruning removes.
+Pruning saves the most when blocks carry many payments.
+
+Block size is capped at 100 KB, so the most the chain can grow is about 1.7 GB a day, and only if
+every block is full. You can repeat the measurement with
+`cargo test --release -p imoney-node -- --ignored disk_use --nocapture`.
 
 One limit is not solved yet: a node keeps every block header in memory, pruned or not. That
 grows by roughly 2 GB a year, so plan to move to a machine with more memory within the first year.

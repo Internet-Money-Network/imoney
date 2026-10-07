@@ -265,29 +265,36 @@
       </div>
     </div>
 
+    <div id="network-alert" style="display: none; background: #3d2e12; color: #e3b341; border: 1px solid #6b4f16; border-radius: 8px; padding: 12px 16px; margin-bottom: 20px; font-size: 14px;">
+      The network is unsettled right now: this node recently saw several blocks replaced, or is refusing a heavier chain. Wait longer than usual before treating a payment as final.
+    </div>
+
     <!-- Main Content Layout -->
     <div class="main-grid">
       <div>
         <!-- GHOSTDAG Parallel Block Visualizer -->
         <div class="card">
           <div class="card-title">
-            <span>⚡ Live GHOSTDAG Topology (k=8, 0.2 BPS)</span>
+            <span>Live block graph</span>
             <span style="font-size: 11px; color: #8b949e;">Auto-Refresh: 2s</span>
           </div>
           <canvas id="dag-canvas" width="800" height="280"></canvas>
           <div style="display: flex; gap: 16px; margin-top: 10px; font-size: 12px; color: #8b949e;">
             <span style="display: flex; align-items: center; gap: 6px;">
-              <span style="width: 10px; height: 10px; background: #39d353; border-radius: 50%; display: inline-block;"></span> Consensus Selected Blue Block
+              <span style="width: 10px; height: 10px; background: #39d353; border-radius: 50%; display: inline-block;"></span> On the selected chain
             </span>
             <span style="display: flex; align-items: center; gap: 6px;">
-              <span style="width: 10px; height: 10px; background: #58a6ff; border-radius: 50%; display: inline-block;"></span> Active BlockDAG Tip
+              <span style="width: 10px; height: 10px; background: #e3b341; border-radius: 50%; display: inline-block;"></span> Parallel block, merged
+            </span>
+            <span style="display: flex; align-items: center; gap: 6px;">
+              <span style="width: 8px; height: 8px; border: 3px solid #58a6ff; border-radius: 50%; display: inline-block;"></span> Tip
             </span>
           </div>
         </div>
 
         <!-- Latest Blocks Table -->
         <div class="card">
-          <div class="card-title">📦 Recent Mined Blocks</div>
+          <div class="card-title">Recent blocks (click one for details)</div>
           <div class="table-container">
             <table>
               <thead>
@@ -299,7 +306,7 @@
                 </tr>
               </thead>
               <tbody id="blocks-tbody">
-                <tr><td colspan="4" style="text-align: center; color: #8b949e;">Connecting to local node...</td></tr>
+                <tr><td colspan="4" style="text-align: center; color: #8b949e;">Connecting to the node...</td></tr>
               </tbody>
             </table>
           </div>
@@ -313,7 +320,7 @@
           <div style="font-size: 13px; line-height: 1.8;">
             <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #21262d; padding: 6px 0;">
               <span style="color: #8b949e;">Consensus:</span>
-              <b>PHANTOM / GHOSTDAG</b>
+              <b>GHOSTDAG</b>
             </div>
             <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #21262d; padding: 6px 0;">
               <span style="color: #8b949e;">Target Block Time:</span>
@@ -325,7 +332,7 @@
             </div>
             <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #21262d; padding: 6px 0;">
               <span style="color: #8b949e;">PoW Algorithm:</span>
-              <b>Money Printer (GPU)</b>
+              <b>Money Printer (FishHash)</b>
             </div>
             <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #21262d; padding: 6px 0;">
               <span style="color: #8b949e;">Storage Engine:</span>
@@ -369,180 +376,210 @@
   </div>
 
   <script>
-    const NODE_URL = 'http://127.0.0.1:18556';
-    let dagNodes = [];
+    // When served by a node at /explorer, talk to that node; otherwise to a local one
+    const NODE_URL = (window.location.protocol.startsWith('http') && window.location.pathname.startsWith('/explorer'))
+      ? window.location.origin
+      : 'http://127.0.0.1:18556';
+    document.getElementById('node-url-label').innerText = NODE_URL;
+
+    const $ = (id) => document.getElementById(id);
+    const short = (hash) => hash.slice(0, 10) + '…' + hash.slice(-6);
+    const escapeHtml = (text) => String(text).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+
+    function age(timestampMs) {
+      const seconds = Math.max(0, Math.round((Date.now() - timestampMs) / 1000));
+      if (seconds < 60) return seconds + 's ago';
+      if (seconds < 3600) return Math.floor(seconds / 60) + 'm ago';
+      if (seconds < 86400) return Math.floor(seconds / 3600) + 'h ago';
+      return Math.floor(seconds / 86400) + 'd ago';
+    }
+
+    async function getJson(path) {
+      const res = await fetch(NODE_URL + path);
+      if (!res.ok) throw new Error(res.status);
+      return res.json();
+    }
 
     async function fetchNodeData() {
       try {
-        const [infoRes, tipsRes, peersRes] = await Promise.all([
-          fetch(`${NODE_URL}/api/v1/info`),
-          fetch(`${NODE_URL}/api/v1/tips`),
-          fetch(`${NODE_URL}/api/v1/peers`).catch(() => ({ json: () => ({ total_connected: 0 }) }))
-        ]);
+        const [info, blocks] = await Promise.all([getJson('/api/v1/info'), getJson('/api/v1/blocks?limit=80')]);
+        $('kpi-blue-score').innerText = info.virtual_blue_score;
+        $('kpi-daa-score').innerText = '#' + info.virtual_daa_score;
+        $('kpi-reward').innerText = info.current_block_reward_imn.toFixed(4) + ' IMN';
+        $('kpi-bits').innerText = info.current_bits;
+        $('kpi-mempool').innerText = info.mempool_size;
+        $('tips-count').innerText = info.tips.length;
+        $('network-alert').style.display = info.network_alert ? 'block' : 'none';
 
-        if (infoRes.ok) {
-          const info = await infoRes.json();
-          document.getElementById('kpi-blue-score').innerText = info.virtual_blue_score;
-          document.getElementById('kpi-daa-score').innerText = '#' + info.virtual_daa_score;
-          document.getElementById('kpi-reward').innerText = info.current_block_reward_imn.toFixed(4) + ' IMN';
-          document.getElementById('kpi-bits').innerText = info.current_bits;
-          document.getElementById('kpi-mempool').innerText = info.mempool_size;
-
-          const tips = await tipsRes.json();
-          document.getElementById('tips-count').innerText = tips.length;
-
-          // Update DAG nodes simulation list for visualizer
-          updateDagVisual(info, tips);
-        }
-
-        if (peersRes.ok) {
-          const peers = await peersRes.json();
-          document.getElementById('kpi-peers').innerText = peers.total_connected || 0;
-        }
+        drawDag(blocks, info.virtual_selected_parent);
+        renderBlocksTable(blocks);
+        getJson('/api/v1/peers').then((peers) => ($('kpi-peers').innerText = peers.total_connected)).catch(() => {});
       } catch (err) {
-        console.warn('Node fetch warning (is node running?):', err);
+        $('blocks-tbody').innerHTML = '<tr><td colspan="4" style="text-align: center; color: #f85149;">Cannot reach the node at ' + escapeHtml(NODE_URL) + '</td></tr>';
       }
     }
 
-    // Render Canvas BlockDAG
-    function updateDagVisual(info, tips) {
-      const canvas = document.getElementById('dag-canvas');
+    // Draws the real block graph: one column per blue score, parallel blocks stacked in a column,
+    // a line from every block to each of its parents.
+    function drawDag(blocks, sink) {
+      const canvas = $('dag-canvas');
       const ctx = canvas.getContext('2d');
       const w = canvas.width;
       const h = canvas.height;
-
       ctx.clearRect(0, 0, w, h);
+      if (!blocks.length) return;
 
-      // Draw horizontal time tracks
-      ctx.strokeStyle = '#1b2330';
-      ctx.lineWidth = 1;
-      for (let y = 40; y < h; y += 50) {
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(w, y);
-        ctx.stroke();
+      const byHash = new Map(blocks.map((b) => [b.hash, b]));
+      // The selected chain: from the selected tip back through selected parents
+      const onChain = new Set();
+      for (let cursor = sink; cursor && byHash.has(cursor); cursor = byHash.get(cursor).selected_parent) {
+        onChain.add(cursor);
       }
 
-      // Populate nodes based on blue score progression
-      const blueScore = info.virtual_blue_score;
-      const nodesCount = 12;
-      const spacing = w / (nodesCount + 1);
-
-      const currentNodes = [];
-      for (let i = 0; i < nodesCount; i++) {
-        const score = Math.max(0, blueScore - (nodesCount - 1 - i));
-        const x = (i + 1) * spacing;
-        const y = 80 + (i % 3) * 50;
-        currentNodes.push({ score, x, y, isTip: i === nodesCount - 1 });
+      // The most recent columns that fit
+      const scores = [...new Set(blocks.map((b) => b.blue_score))].sort((a, b) => a - b).slice(-18);
+      const columns = new Map(scores.map((score, i) => [score, i]));
+      const spacing = w / (scores.length + 1);
+      const position = new Map();
+      for (const score of scores) {
+        const column = blocks.filter((b) => b.blue_score === score).sort((a, b) => {
+          // Selected-chain block in the middle lane, the rest around it
+          if (onChain.has(a.hash) !== onChain.has(b.hash)) return onChain.has(a.hash) ? -1 : 1;
+          return a.hash < b.hash ? -1 : 1;
+        });
+        column.forEach((block, lane) => {
+          const offset = lane === 0 ? 0 : Math.ceil(lane / 2) * (lane % 2 ? -1 : 1);
+          position.set(block.hash, { x: (columns.get(score) + 1) * spacing, y: h / 2 + offset * 46 });
+        });
       }
 
-      // Draw DAG Edges
-      ctx.strokeStyle = '#238636';
-      ctx.lineWidth = 2;
-      for (let i = 1; i < currentNodes.length; i++) {
-        const prev = currentNodes[i - 1];
-        const curr = currentNodes[i];
-        ctx.beginPath();
-        ctx.moveTo(prev.x, prev.y);
-        ctx.lineTo(curr.x, curr.y);
-        ctx.stroke();
-
-        // Cross edge for k-cluster
-        if (i > 1 && i % 2 === 0) {
-          const prev2 = currentNodes[i - 2];
+      // Edges first, so blocks are drawn over them
+      for (const [hash, at] of position) {
+        const block = byHash.get(hash);
+        for (const parent of block.parents) {
+          const to = position.get(parent);
+          if (!to) continue;
+          const chainEdge = onChain.has(hash) && parent === block.selected_parent;
+          ctx.strokeStyle = chainEdge ? '#238636' : 'rgba(139, 148, 158, 0.45)';
+          ctx.lineWidth = chainEdge ? 2.5 : 1;
           ctx.beginPath();
-          ctx.strokeStyle = 'rgba(88, 166, 255, 0.4)';
-          ctx.moveTo(prev2.x, prev2.y);
-          ctx.lineTo(curr.x, curr.y);
+          ctx.moveTo(at.x, at.y);
+          ctx.lineTo(to.x, to.y);
           ctx.stroke();
-          ctx.strokeStyle = '#238636';
         }
       }
 
-      // Draw Nodes
-      currentNodes.forEach((n) => {
+      for (const [hash, at] of position) {
+        const block = byHash.get(hash);
         ctx.beginPath();
-        ctx.arc(n.x, n.y, n.isTip ? 8 : 6, 0, Math.PI * 2);
-        ctx.fillStyle = n.isTip ? '#58a6ff' : '#39d353';
+        ctx.arc(at.x, at.y, block.is_tip ? 8 : 6, 0, Math.PI * 2);
+        ctx.fillStyle = onChain.has(hash) ? '#39d353' : '#e3b341';
         ctx.fill();
+        if (block.is_tip) {
+          ctx.strokeStyle = '#58a6ff';
+          ctx.lineWidth = 3;
+          ctx.stroke();
+        }
+      }
 
-        ctx.fillStyle = '#8b949e';
-        ctx.font = '10px monospace';
-        ctx.fillText('#' + n.score, n.x - 12, n.y - 12);
+      ctx.fillStyle = '#8b949e';
+      ctx.font = '10px monospace';
+      ctx.textAlign = 'center';
+      scores.forEach((score, i) => {
+        if (scores.length <= 12 || i % 2 === 0) ctx.fillText('#' + score, (i + 1) * spacing, h - 8);
       });
-
-      // Update recent blocks table
-      const tbody = document.getElementById('blocks-tbody');
-      tbody.innerHTML = `
-        <tr>
-          <td><b style="color: #39d353;">${info.virtual_blue_score}</b></td>
-          <td><span class="hash">${info.virtual_selected_parent}</span></td>
-          <td>${tips.length} tips</td>
-          <td>Just now</td>
-        </tr>
-      `;
     }
 
-    // Search functionality
-    document.getElementById('search-btn').addEventListener('click', async () => {
-      const q = document.getElementById('search-input').value.trim();
-      if (!q) return;
-
-      const overlay = document.getElementById('search-results-overlay');
-      const title = document.getElementById('modal-title');
-      const content = document.getElementById('modal-content');
-
-      overlay.style.display = 'flex';
-      content.innerHTML = 'Querying BlockDAG...';
-
-      // 1. Check if Address
-      if (q.startsWith('imn:') || q.startsWith('imntest:')) {
-        title.innerText = '👤 Address Details';
-        try {
-          const res = await fetch(`${NODE_URL}/api/v1/address/${encodeURIComponent(q)}/balance`);
-          if (res.ok) {
-            const data = await res.json();
-            content.innerHTML = `
-              <div style="margin-bottom: 8px;"><b>Address:</b> <code>${data.address}</code></div>
-              <div style="margin-bottom: 8px;"><b>Balance:</b> <span style="color: #39d353; font-weight: bold; font-size: 18px;">${data.balance_imn} IMN</span> (${data.balance_atoms} atoms)</div>
-              <div><b>Network:</b> Testnet-1</div>
-            `;
-          } else {
-            content.innerHTML = `<span style="color: #f85149;">Address not found or has 0 balance.</span>`;
-          }
-        } catch {
-          content.innerHTML = `<span style="color: #f85149;">Failed to reach node API.</span>`;
-        }
-        return;
+    function renderBlocksTable(blocks) {
+      const tbody = $('blocks-tbody');
+      tbody.innerHTML = '';
+      for (const block of blocks.slice(0, 15)) {
+        const row = document.createElement('tr');
+        row.style.cursor = 'pointer';
+        row.innerHTML =
+          '<td><b style="color: #39d353;">' + block.blue_score + '</b></td>' +
+          '<td><span class="hash">' + short(block.hash) + '</span>' + (block.is_tip ? ' <span style="color: #58a6ff; font-size: 11px;">tip</span>' : '') + '</td>' +
+          '<td>' + block.parents.length + '</td>' +
+          '<td>' + (block.parents.length ? age(block.timestamp_ms) : 'genesis') + '</td>';
+        row.addEventListener('click', () => showBlock(block.hash));
+        tbody.appendChild(row);
       }
+    }
 
-      // 2. Check if Transaction Hash
-      title.innerText = '🧾 Transaction Lookup';
+    // ---------------------------------------------------------------- details window
+    function openModal(title, html) {
+      $('modal-title').innerText = title;
+      $('modal-content').innerHTML = html;
+      $('search-results-overlay').style.display = 'flex';
+    }
+    const line = (label, value) => '<div style="margin-bottom: 8px;"><b>' + label + ':</b> ' + value + '</div>';
+    const code = (text) => '<code>' + escapeHtml(text) + '</code>';
+
+    async function showBlock(hash) {
       try {
-        const res = await fetch(`${NODE_URL}/api/v1/tx/${encodeURIComponent(q)}`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.status !== 'not_found') {
-            content.innerHTML = `
-              <div style="margin-bottom: 8px;"><b>TxID:</b> <code>${data.tx_id}</code></div>
-              <div style="margin-bottom: 8px;"><b>Status:</b> <span style="color: #39d353; font-weight: bold;">${data.status.toUpperCase()}</span></div>
-              <div style="margin-bottom: 8px;"><b>Confirming Block:</b> <code>${data.block_hash || 'Pending in Mempool'}</code></div>
-              <div style="margin-bottom: 8px;"><b>DAA Height:</b> ${data.daa_score || '-'}</div>
-              <div><b>Total Output:</b> ${data.total_output_imn} IMN</div>
-            `;
-            return;
-          }
-        }
-      } catch {}
+        const block = await getJson('/api/v1/block/' + encodeURIComponent(hash));
+        openModal('Block', [
+          line('Hash', code(block.hash)),
+          line('Blue score', block.blue_score + ' &nbsp; <b>DAA score:</b> ' + block.daa_score),
+          line('Mined', block.parents.length ? escapeHtml(new Date(block.timestamp_ms).toLocaleString()) + ' (' + age(block.timestamp_ms) + ')' : 'genesis'),
+          line('Difficulty bits', code(block.bits)),
+          line('Parents', block.parents.map(code).join('<br>') || 'none'),
+          line('Merges', (block.mergeset_blues.length) + ' blue, ' + block.mergeset_reds.length + ' red'),
+          line('Transactions (' + block.transaction_ids.length + ', the first is the miner reward)', block.transaction_ids.map(code).join('<br>')),
+        ].join(''));
+        return true;
+      } catch {
+        return false;
+      }
+    }
 
-      content.innerHTML = `<span style="color: #f85149;">No block, transaction, or address found matching "${q}".</span>`;
+    async function showAddress(address) {
+      try {
+        const [balance, utxos] = await Promise.all([
+          getJson('/api/v1/address/' + encodeURIComponent(address) + '/balance'),
+          getJson('/api/v1/address/' + encodeURIComponent(address) + '/utxos'),
+        ]);
+        const maturing = utxos.filter((u) => u.spendable === false).reduce((sum, u) => sum + u.value_atoms, 0);
+        openModal('Address', [
+          line('Address', code(balance.address)),
+          line('Balance', '<span style="color: #39d353; font-weight: bold; font-size: 18px;">' + balance.balance_imn + ' IMN</span>'),
+          maturing ? line('Of which mining rewards still maturing', (maturing / 1e8) + ' IMN') : '',
+          line('Unspent coins', utxos.length),
+        ].join(''));
+      } catch {
+        openModal('Address', '<span style="color: #f85149;">That is not a valid address for this network.</span>');
+      }
+    }
+
+    async function showTransaction(txId) {
+      try {
+        const tx = await getJson('/api/v1/tx/' + encodeURIComponent(txId));
+        if (tx.status === 'not_found') return false;
+        openModal('Transaction', [
+          line('ID', code(tx.tx_id)),
+          line('Status', tx.status === 'pending' ? 'Seen by the node, not yet in a block' : 'In a block, ' + tx.confirmations + ' confirmation' + (tx.confirmations === 1 ? '' : 's')),
+          tx.block_hash ? line('Block', code(tx.block_hash)) : '',
+          line('Total sent', tx.total_output_imn + ' IMN'),
+        ].join(''));
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+    async function search() {
+      const q = $('search-input').value.trim();
+      if (!q) return;
+      if (q.startsWith('imn:') || q.startsWith('imntest:')) return showAddress(q.split('?')[0]);
+      if (/^[0-9a-fA-F]{64}$/.test(q) && ((await showBlock(q.toLowerCase())) || (await showTransaction(q.toLowerCase())))) return;
+      openModal('Not found', 'No block, transaction or address matches <code>' + escapeHtml(q) + '</code>. A node that prunes old data no longer has transactions older than 36 hours.');
+    }
+    $('search-btn').addEventListener('click', search);
+    $('search-input').addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') search();
     });
+    $('modal-close').addEventListener('click', () => ($('search-results-overlay').style.display = 'none'));
 
-    document.getElementById('modal-close').addEventListener('click', () => {
-      document.getElementById('search-results-overlay').style.display = 'none';
-    });
-
-    // Initial load + interval
     fetchNodeData();
     setInterval(fetchNodeData, 2000);
   </script>

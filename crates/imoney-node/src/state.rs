@@ -171,6 +171,9 @@ pub struct InvoicePayment {
     pub confirmations: u64,
 }
 
+/// One page of blocks for a syncing peer, and the position to continue from if more remain.
+pub type BlockPage = (Vec<Block>, Option<(u64, Hash)>);
+
 /// The outpoint of the reward the ledger creates for a blue block.
 pub fn reward_outpoint(block_hash: &Hash) -> Outpoint {
     Outpoint {
@@ -1178,7 +1181,7 @@ impl DagLedger {
         cursor: (u64, Hash),
         max_blocks: usize,
         max_bytes: usize,
-    ) -> Result<(Vec<Block>, Option<(u64, Hash)>), StorageError> {
+    ) -> Result<BlockPage, StorageError> {
         let mut blocks = Vec::new();
         let mut bytes = 0usize;
         let mut last = None;

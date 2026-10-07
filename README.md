@@ -73,7 +73,7 @@ The codebase is structured as a modular mono-repository:
   - [`crates/imoney-miner`](crates/imoney-miner): Reference multi-threaded miner CLI and benchmark.
   - [`crates/imoney-wasm`](crates/imoney-wasm): WebAssembly build of key handling and signing, so wallets sign in the browser.
 - **Ecosystem Apps (`apps/`):**
-  - [`apps/imoney-explorer`](apps/imoney-explorer): Real-time BlockDAG visualizer, network metrics, and address/tx search.
+  - [`apps/imoney-explorer`](apps/imoney-explorer): Block explorer served by the node at `/explorer`: the live block graph, recent blocks, and block, transaction and address lookup.
   - [`apps/imoney-wallet`](apps/imoney-wallet): Web wallet served by the node at `/wallet`. Keys are created and kept in the browser, with a 12-word recovery phrase; the node only ever receives signed transactions.
   - [`apps/imoney-website`](apps/imoney-website): Official portal website for `internetmoneynetwork.org`.
 - **Developer Tools & Plugins:**

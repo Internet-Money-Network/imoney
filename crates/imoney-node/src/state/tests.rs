@@ -785,3 +785,41 @@ fn pruning_deletes_old_block_contents_but_not_the_ledger() {
     mine_tip(&mut reopened, &pow, &miner);
     assert_eq!(reopened.storage.total_utxo_atoms().unwrap(), expected_supply(&reopened));
 }
+
+/// Measures how much disk a block really takes. Not a pass/fail check, so it is skipped by default:
+/// `cargo test --release -p imoney-node -- --ignored disk_use --nocapture`
+#[test]
+#[ignore]
+fn disk_use_per_block() {
+    let path = fresh_db("disk-use");
+    let pow = test_pow();
+    let miner = address_of(&key(160));
+    let mut ledger = DagLedger::open_with_params(&path, None, test_params()).unwrap();
+    let size = |path: &PathBuf| std::fs::metadata(path).unwrap().len();
+
+    for _ in 0..2_000 {
+        mine_tip(&mut ledger, &pow, &miner);
+    }
+    let at_2000 = size(&path);
+    for _ in 0..6_000 {
+        mine_tip(&mut ledger, &pow, &miner);
+    }
+    let per_block = (size(&path) - at_2000) / 6_000;
+    println!("empty blocks: {} bytes each on disk, {:.1} MB a day", per_block, per_block as f64 * 17_280.0 / 1e6);
+
+    // The same with pruning on from the start (depths shortened so pruning is active throughout)
+    let pruned_path = fresh_db("disk-use-pruned");
+    let mut params = test_params();
+    params.finality_depth = 50;
+    let mut pruned = DagLedger::open_with_params(&pruned_path, None, params).unwrap();
+    pruned.enable_pruning(150).unwrap();
+    for _ in 0..2_000 {
+        mine_tip(&mut pruned, &pow, &miner);
+    }
+    let at_2000 = size(&pruned_path);
+    for _ in 0..6_000 {
+        mine_tip(&mut pruned, &pow, &miner);
+    }
+    let per_block = (size(&pruned_path) - at_2000) / 6_000;
+    println!("pruned node: {} bytes each on disk, {:.1} MB a day", per_block, per_block as f64 * 17_280.0 / 1e6);
+}
