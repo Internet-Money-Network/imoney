@@ -118,6 +118,12 @@
       </div>
     </div>
 
+    <label for="merchant-address" style="display: block; font-size: 13px; color: #8b949e; margin-bottom: 6px;">
+      The shop's receiving address (create one in the wallet at <code>/wallet</code>):
+    </label>
+    <input type="text" id="merchant-address" placeholder="imntest:q..." spellcheck="false" autocomplete="off"
+           style="width: 100%; box-sizing: border-box; margin-bottom: 14px; padding: 10px; background: #0d1117; color: #c9d1d9; border: 1px solid #30363d; border-radius: 6px; font-family: monospace; font-size: 12px;" />
+
     <button id="pay-btn" class="btn" style="width: 100%;">
       ⚡ Pay 2.50 IMN with Internet Money
     </button>
@@ -141,29 +147,42 @@
     </div>
   </div>
 
-  <!-- Include bundled Internet Money SDK -->
-  <script src="../../packages/imoney-sdk/dist/imoney.js"></script>
+  <script>
+    // Served by a node at /demo, the SDK comes from that node; opened as a file, from the repository
+    const servedByNode = window.location.protocol.startsWith('http');
+    const NODE_URL = servedByNode ? window.location.origin : 'http://127.0.0.1:18556';
+    document.write('<script src="' + (servedByNode ? '/wallet/sdk.js' : '../../packages/imoney-sdk/dist/imoney.js') + '"><\/script>');
+  </script>
   <script>
     const payBtn = document.getElementById('pay-btn');
     const receiptBox = document.getElementById('receipt');
     const receiptText = document.getElementById('receipt-text');
 
-    // Paste a testnet address you control here (generate one in the wallet at /wallet)
-    const MERCHANT_ADDRESS = '';
+    const addressInput = document.getElementById('merchant-address');
+    try {
+      addressInput.value = localStorage.getItem('imoney_demo_shop_address') || '';
+    } catch {
+      // Storage may be unavailable; the field simply starts empty
+    }
 
     payBtn.addEventListener('click', () => {
-      if (!MERCHANT_ADDRESS) {
-        alert('Set MERCHANT_ADDRESS in this page to a testnet address you control.');
+      const merchantAddress = addressInput.value.trim();
+      if (!/^imn(test)?:q[a-z0-9]{20,}$/.test(merchantAddress)) {
+        addressInput.focus();
+        addressInput.style.borderColor = '#f85149';
         return;
       }
-      const client = new IMoneyClient({
-        nodeUrl: 'http://127.0.0.1:18556',
-        network: 'testnet'
-      });
+      addressInput.style.borderColor = '#30363d';
+      try {
+        localStorage.setItem('imoney_demo_shop_address', merchantAddress);
+      } catch {
+        // Not remembered, which is fine
+      }
+      const client = new IMoneyClient({ nodeUrl: NODE_URL, network: 'testnet' });
 
       client.openCheckoutModal({
-        merchantAddress: MERCHANT_ADDRESS,
-        amountImn: 2.5,
+        merchantAddress,
+        amountImn: '2.5',
         invoiceId: IMoney.newInvoiceId('demo'),
         level: 'included',
         memo: 'T-Shirt Purchase',
@@ -174,11 +193,11 @@
           payBtn.innerText = '✓ Paid';
           payBtn.style.background = '#1f6feb';
         },
-        onExpire: () => {
-          alert('Invoice expired without payment.');
+        onSeen: () => {
+          payBtn.innerText = 'Payment seen, waiting for a block…';
         },
-        onCancel: () => {
-          console.log('Customer cancelled modal checkout.');
+        onExpire: () => {
+          payBtn.innerText = 'Invoice expired. Click to try again.';
         }
       });
     });

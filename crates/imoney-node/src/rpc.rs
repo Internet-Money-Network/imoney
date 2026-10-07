@@ -190,6 +190,7 @@ pub fn create_router(
         .route("/", get(dashboard_handler))
         .route("/wallet", get(wallet_gui_handler))
         .route("/explorer", get(explorer_handler))
+        .route("/demo", get(demo_handler))
         .route("/wallet/pkg/imoney_wasm.js", get(wallet_wasm_js_handler))
         .route("/wallet/pkg/imoney_wasm_bg.wasm", get(wallet_wasm_handler))
         .route("/wallet/sdk.js", get(wallet_sdk_handler))
@@ -285,6 +286,11 @@ async fn explorer_handler() -> Html<&'static str> {
     Html(EXPLORER_HTML)
 }
 
+/// A sample shop checkout that takes a payment through this node.
+async fn demo_handler() -> Html<&'static str> {
+    Html(include_str!("../../../examples/e2e-payment-demo/index.html"))
+}
+
 async fn wallet_wasm_js_handler() -> impl IntoResponse {
     ([(axum::http::header::CONTENT_TYPE, "text/javascript")], WALLET_WASM_JS)
 }
@@ -338,6 +344,7 @@ async fn dashboard_handler(State(state): State<Arc<AppState>>) -> Html<String> {
         
         <div style="margin-top: 1.5rem; text-align: center;">
             <a href="/explorer" style="display: inline-block; background: #1f6feb; color: white; padding: 0.75rem 1.5rem; border-radius: 6px; text-decoration: none; font-weight: bold; font-size: 1rem; margin-right: 0.5rem;">Block Explorer</a>
+            <a href="/demo" style="display: inline-block; background: #21262d; color: white; padding: 0.75rem 1.5rem; border-radius: 6px; text-decoration: none; font-weight: bold; font-size: 1rem; margin-right: 0.5rem;">Checkout Demo</a>
             <a href="/wallet" style="display: inline-block; background: #238636; color: white; padding: 0.75rem 1.5rem; border-radius: 6px; text-decoration: none; font-weight: bold; font-size: 1rem; box-shadow: 0 2px 8px rgba(35, 134, 54, 0.4);">Wallet</a>
         </div>
         
