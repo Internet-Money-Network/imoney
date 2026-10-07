@@ -1,0 +1,77 @@
+name: Build & Test Network Artifacts
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  rust-core-and-node:
+    name: Build & Test Node Daemons & Miner
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run Test Suite
+        run: cargo test --workspace --verbose
+
+      - name: Build Release Binaries
+        run: cargo build --release --workspace
+
+      - name: Archive Binaries (Linux/macOS)
+        if: matrix.os != 'windows-latest'
+        run: |
+          mkdir -p dist
+          cp target/release/imoney-node dist/
+          cp target/release/imoney-miner dist/
+          tar -czf imoney-${{ matrix.os }}.tar.gz -C dist .
+
+      - name: Archive Binaries (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist
+          Copy-Item target/release/imoney-node.exe -Destination dist/
+          Copy-Item target/release/imoney-miner.exe -Destination dist/
+          Compress-Archive -Path dist/* -DestinationPath imoney-windows.zip -Force
+
+      - name: Upload Binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-${{ matrix.os }}
+          path: |
+            imoney-*.tar.gz
+            imoney-*.zip
+
+  sdk-and-packages:
+    name: Build & Test Developer SDK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Verify SDK Distribution Bundle
+        run: |
+          node -e "const { IMoneyClient } = require('./packages/imoney-sdk/dist/index.js'); const c = new IMoneyClient(); console.log('Client nodeUrl:', c.nodeUrl);"
+
+      - name: Upload Packaged WooCommerce Gateway
+        uses: actions/upload-artifact@v4
+        with:
+          name: imoney-woocommerce-plugin
+          path: plugins/imoney-payments-for-woocommerce.zip

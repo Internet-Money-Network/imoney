@@ -60,6 +60,30 @@ pub struct UtxoItemResponse {
 }
 
 #[derive(Serialize)]
+pub struct WalletGenerateResponse {
+    pub address: String,
+    pub private_key_hex: String,
+    pub public_key_hex: String,
+}
+
+#[derive(Deserialize)]
+pub struct WalletSendRequest {
+    pub private_key_hex: String,
+    pub recipient_address: String,
+    pub amount_im: f64,
+    pub fee_atoms: Option<u64>,
+}
+
+#[derive(Serialize)]
+pub struct WalletSendResponse {
+    pub success: bool,
+    pub tx_id: Option<String>,
+    pub fee_atoms: u64,
+    pub error: Option<String>,
+}
+
+
+#[derive(Serialize)]
 pub struct TxStatusResponse {
     pub tx_id: String,
     pub status: String, // "pending", "confirmed", "not_found"
@@ -96,10 +120,20 @@ pub fn create_router(ledger: SharedLedger, pow: Arc<MoneyPrinterPow>, p2p: Arc<P
         .route("/api/v1/tx/:txid", get(tx_status_handler))
         .route("/api/v1/address/:addr/balance", get(balance_handler))
         .route("/api/v1/address/:addr/utxos", get(utxos_handler))
+        .route("/api/v1/wallet/generate", post(wallet_generate_handler))
+        .route("/api/v1/wallet/send", post(wallet_send_handler))
         .route("/api/v1/ws/address/:addr", get(ws_address_handler))
+        .route("/wallet", get(wallet_gui_handler))
         .layer(cors)
         .with_state(state)
 }
+
+const WALLET_HTML: &str = include_str!("../../../apps/imoney-wallet/index.html");
+
+async fn wallet_gui_handler() -> Html<&'static str> {
+    Html(WALLET_HTML)
+}
+
 
 
 
@@ -139,8 +173,13 @@ async fn dashboard_handler(State(state): State<Arc<AppState>>) -> Html<String> {
         <div class="row"><span>Active Mining Address:</span><span class="hash">{}</span></div>
         <div class="row"><span>Virtual Selected Parent:</span><span class="hash">{}</span></div>
         
+        <div style="margin-top: 1.5rem; text-align: center;">
+            <a href="/wallet" style="display: inline-block; background: #238636; color: white; padding: 0.75rem 1.5rem; border-radius: 6px; text-decoration: none; font-weight: bold; font-size: 1rem; box-shadow: 0 2px 8px rgba(35, 134, 54, 0.4);">👛 Launch Integrated Node & Wallet GUI</a>
+        </div>
+        
         <div class="api-box">
             <b>🔌 Merchant & Wallet API Endpoints:</b><br><br>
+            • GUI Wallet Interface: <code>GET /wallet</code><br>
             • Balance Lookup: <code>GET /api/v1/address/:addr/balance</code><br>
             • Unspent Coins (UTXOs): <code>GET /api/v1/address/:addr/utxos</code><br>
             • Mining Work: <code>GET /api/v1/mining/template</code><br>
@@ -315,6 +354,147 @@ async fn tx_status_handler(
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
     }
 }
+
+async fn wallet_generate_handler() -> (StatusCode, Json<WalletGenerateResponse>) {
+    let mut csprng = rand::rngs::OsRng;
+    let signing_key = ed25519_dalek::SigningKey::generate(&mut csprng);
+    let verifying_key = signing_key.verifying_key();
+
+    let addr = Address::from_public_key(
+        imoney_core::Network::Testnet,
+        imoney_core::AddressType::PubKeyHash,
+        verifying_key.as_bytes(),
+    );
+
+    let address_str = addr.to_string();
+    let private_key_hex = hex::encode(signing_key.to_bytes());
+    let public_key_hex = hex::encode(verifying_key.as_bytes());
+
+    (
+        StatusCode::OK,
+        Json(WalletGenerateResponse {
+            address: address_str,
+            private_key_hex,
+            public_key_hex,
+        }),
+    )
+}
+
+async fn wallet_send_handler(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<WalletSendRequest>,
+) -> (StatusCode, Json<WalletSendResponse>) {
+    let priv_bytes = match hex::decode(&payload.private_key_hex) {
+        Ok(b) if b.len() == 32 => {
+            let mut arr = [0u8; 32];
+            arr.copy_from_slice(&b);
+            arr
+        }
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(WalletSendResponse {
+                    success: false,
+                    tx_id: None,
+                    fee_atoms: 0,
+                    error: Some("Invalid 32-byte hex private key".to_string()),
+                }),
+            );
+        }
+    };
+
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&priv_bytes);
+    let verifying_key = signing_key.verifying_key();
+    let sender_addr = Address::from_public_key(
+        imoney_core::Network::Testnet,
+        imoney_core::AddressType::PubKeyHash,
+        verifying_key.as_bytes(),
+    );
+
+    let recipient_addr = match Address::decode(&payload.recipient_address) {
+        Ok(a) => a,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(WalletSendResponse {
+                    success: false,
+                    tx_id: None,
+                    fee_atoms: 0,
+                    error: Some(format!("Invalid recipient address: {}", e)),
+                }),
+            );
+        }
+    };
+
+    let fee_atoms = payload.fee_atoms.unwrap_or(10_000); // 0.0001 IM fee
+    let amount_atoms = (payload.amount_im * imoney_core::constants::SOMPI_PER_IM as f64).round() as u64;
+
+    let available_utxos = {
+        let ledger = state.ledger.read().await;
+        match ledger.get_utxos(&sender_addr) {
+            Ok(u) => u,
+            Err(e) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(WalletSendResponse {
+                        success: false,
+                        tx_id: None,
+                        fee_atoms,
+                        error: Some(format!("Failed to retrieve UTXOs: {}", e)),
+                    }),
+                );
+            }
+        }
+    };
+
+    let tx = match Transaction::build_payment(
+        &signing_key,
+        imoney_core::Network::Testnet,
+        &recipient_addr,
+        amount_atoms,
+        fee_atoms,
+        available_utxos,
+    ) {
+        Ok(t) => t,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(WalletSendResponse {
+                    success: false,
+                    tx_id: None,
+                    fee_atoms,
+                    error: Some(e),
+                }),
+            );
+        }
+    };
+
+    let mut ledger = state.ledger.write().await;
+    match ledger.broadcast_transaction(tx.clone()) {
+        Ok(tx_id) => {
+            state.p2p.broadcast_transaction(tx);
+            (
+                StatusCode::OK,
+                Json(WalletSendResponse {
+                    success: true,
+                    tx_id: Some(tx_id.to_hex()),
+                    fee_atoms,
+                    error: None,
+                }),
+            )
+        }
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(WalletSendResponse {
+                success: false,
+                tx_id: None,
+                fee_atoms,
+                error: Some(e.to_string()),
+            }),
+        ),
+    }
+}
+
 
 
 async fn ws_address_handler(
