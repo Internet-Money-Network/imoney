@@ -16,3 +16,6 @@ Thumbs.db
 *.log
 *.bin
 data/
+release_assets/
+dist_release/
+*.tgz
