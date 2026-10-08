@@ -62,7 +62,7 @@ jobs:
           Compress-Archive -Path dist/* -DestinationPath imoney-windows.zip -Force
 
       - name: Upload Binaries
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: binaries-${{ matrix.os }}
           path: |
@@ -90,7 +90,7 @@ jobs:
         run: git diff --exit-code -- packages/imoney-sdk/dist plugins/imoney-payments-for-woocommerce/imoney.js
 
       - name: Upload Packaged WooCommerce Gateway
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: imoney-woocommerce-plugin
           path: plugins/imoney-payments-for-woocommerce.zip
