@@ -109,7 +109,7 @@ A node recomputes the expected value for every block it receives; a header carry
 ## 6. Block Validity and Transaction Acceptance
 
 ### 6.1 Header rules
-A node recomputes `blue_score`, `blue_work`, `daa_score` and `bits` from the block's parents and rejects the block if any differ. A block's timestamp must be later than the median timestamp of the 41 most recent blocks in its past and at most 2 minutes ahead of the local clock. No parent may be an ancestor of another parent, and a block may merge at most $10k = 80$ blocks.
+A node recomputes `blue_score`, `blue_work`, `daa_score` and `bits` from the block's parents and rejects the block if any differ. A block's timestamp must be later than the median timestamp of the 41 most recent blocks in its past and at most 30 seconds ahead of the local clock. No parent may be an ancestor of another parent, and a block may merge at most $10k = 80$ blocks.
 
 A block may not name a parent whose blue score is more than the finality depth (8,640) below that of its best parent. Such a block could no longer change the ledger, and the limit bounds the work of checking any block's parents.
 
