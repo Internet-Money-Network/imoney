@@ -22,6 +22,11 @@ Notable changes to Internet Money. Nothing has been released yet: everything bel
 - `SECURITY.md`, `CONTRIBUTING.md`, `TRADEMARKS.md`, an integration guide and this file.
 
 ### Changed
+- **Transactions are smaller.** The unused lock time, subnetwork ID, gas and per-input sequence
+  fields are gone: 44 bytes less for a simple payment (about 240 bytes now), so lower fees.
+  A future feature that needs a new field takes a new transaction version. Resets the chain.
+- **A block may not name a parent more than the finality depth behind its best parent.** This
+  bounds the work a node does to check any block.
 - **The proof of work is now called Hallmark** (it was "Money Printer"). It is still FishHash
   with a network-specific seed; the seed's label changed with the name, so the test chain
   was restarted again.

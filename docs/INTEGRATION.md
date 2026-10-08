@@ -19,7 +19,7 @@ arithmetic; the `_imn` fields are floating-point conveniences for display.
 | Confirmations | 0 while pending, 1 once accepted into the ledger, then one more per blue block added on top. |
 | Finality | Blocks more than 12 hours deep are never reorganised. |
 | Reward maturity | Mining rewards are spendable after 20 confirmations (test network). |
-| Minimum fee | 10 atoms per byte of transaction (a simple payment is about 280 bytes). |
+| Minimum fee | 10 atoms per byte of transaction (a simple payment is about 240 bytes). |
 
 One thing differs from single-chain coins: **being in a block is not the same as being
 accepted.** Two parallel blocks may carry conflicting payments, and only one is accepted. Never

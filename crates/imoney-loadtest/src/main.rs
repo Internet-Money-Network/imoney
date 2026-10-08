@@ -115,12 +115,9 @@ fn spend(inputs: Vec<Outpoint>, outputs: Vec<TxOutput>, key: &SigningKey) -> Tra
         version: 1,
         inputs: inputs
             .into_iter()
-            .map(|previous_outpoint| TxInput { previous_outpoint, signature_script: Vec::new(), sequence: 0 })
+            .map(|previous_outpoint| TxInput { previous_outpoint, signature_script: Vec::new() })
             .collect(),
         outputs,
-        lock_time: 0,
-        subnetwork_id: [0u8; 20],
-        gas: 0,
         payload: Vec::new(),
         service: None,
     };

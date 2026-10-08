@@ -63,6 +63,8 @@ pub enum StateError {
     Transaction(String),
     #[error("Transaction not admitted: {0}")]
     Mempool(#[from] MempoolError),
+    #[error("Parent {0} is more than the finality depth behind the block's other parents")]
+    ParentTooOld(Hash),
     #[error("The database holds a different network's chain. Use another --data-dir, or delete this one to start again.")]
     WrongNetwork,
 }
@@ -749,9 +751,36 @@ impl DagLedger {
         self.chain_ancestor_at_or_below(sink, sink_score.saturating_sub(self.params.finality_depth))
     }
 
+    /// True when `parent` is too far behind a block whose best parent has `best_blue_score`.
+    fn too_old_to_be_a_parent(&self, parent: &Hash, best_blue_score: u64) -> bool {
+        self.dag.get(parent).ghostdag.blue_score + self.params.finality_depth < best_blue_score
+    }
+
+    /// Checks a new block's parent list. Besides the structural rules, no parent may be more
+    /// than the finality depth behind the best one. A block that old can no longer change the
+    /// ledger, and without the limit a block naming an ancient parent would make every node
+    /// walk the DAG all the way back to it.
+    fn check_parents(&self, parents: &[Hash]) -> Result<(), StateError> {
+        // Only known parents can be measured; an unknown one is reported by the checks below
+        if parents.iter().all(|p| self.dag.contains(p)) {
+            let best = parents.iter().map(|p| self.dag.get(p).ghostdag.blue_score).max().unwrap_or(0);
+            if let Some(old) = parents.iter().find(|p| self.too_old_to_be_a_parent(p, best)) {
+                return Err(StateError::ParentTooOld(*old));
+            }
+        }
+        Ok(self.dag.check_parents(parents)?)
+    }
+
     /// Chooses the virtual block's parents: the sink plus as many other tips as can be merged.
     fn pick_virtual_parents(&self, sink: &Hash) -> Vec<Hash> {
-        let mut others: Vec<Hash> = self.tips.iter().filter(|t| *t != sink).copied().collect();
+        let sink_score = self.dag.get(sink).ghostdag.blue_score;
+        // A tip left behind for longer than the finality depth is never merged
+        let mut others: Vec<Hash> = self
+            .tips
+            .iter()
+            .filter(|t| *t != sink && !self.too_old_to_be_a_parent(t, sink_score))
+            .copied()
+            .collect();
         others.sort_by_key(|h| std::cmp::Reverse(self.dag.sort_key(h)));
 
         let mut parents = vec![*sink];
@@ -869,7 +898,7 @@ impl DagLedger {
         if header.parents.len() > MAX_BLOCK_PARENTS {
             return Err(StateError::TooManyParents(header.parents.len(), MAX_BLOCK_PARENTS));
         }
-        self.dag.check_parents(&header.parents)?;
+        self.check_parents(&header.parents)?;
         let ghostdag = self.dag.ghostdag(&header.parents)?;
 
         // Every consensus field must equal what this node computes
@@ -1102,7 +1131,7 @@ impl DagLedger {
     ) -> Result<Block, StateError> {
         let mut parents = parents.to_vec();
         parents.sort();
-        self.dag.check_parents(&parents)?;
+        self.check_parents(&parents)?;
         let ghostdag = self.dag.ghostdag(&parents)?;
         let daa_score = self.dag.daa_score(&ghostdag);
 

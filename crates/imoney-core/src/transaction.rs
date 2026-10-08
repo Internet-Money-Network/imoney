@@ -60,7 +60,6 @@ pub struct TxInput {
     /// Spending an ordinary address: [32-byte Ed25519 public key] ++ [64-byte signature].
     /// Spending a multi-signature address: see `multisig`.
     pub signature_script: Vec<u8>,
-    pub sequence: u64,
 }
 
 /// Versioned locking script of an output.
@@ -88,14 +87,14 @@ pub struct TxOutput {
 }
 
 /// UTXO-based Internet Money transaction. A transaction without inputs is a coinbase.
+///
+/// The format carries only what the ledger uses. A later feature that needs a new field
+/// (a time lock, say) takes a new `version`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Transaction {
     pub version: u16,
     pub inputs: Vec<TxInput>,
     pub outputs: Vec<TxOutput>,
-    pub lock_time: u64,
-    pub subnetwork_id: [u8; 20],
-    pub gas: u64,
     pub payload: Vec<u8>,
     /// Optional script of the node that served this payment. When set, the ledger pays it half
     /// of the transaction fee; the rest goes to the miner. Covered by the signature.
@@ -111,9 +110,6 @@ impl Transaction {
             version: 1,
             inputs: Vec::new(),
             outputs,
-            lock_time: 0,
-            subnetwork_id: [0u8; 20],
-            gas: 0,
             payload,
             service: None,
         }
@@ -140,12 +136,8 @@ impl Transaction {
             } else {
                 put_bytes(out, &[]);
             }
-            out.extend_from_slice(&input.sequence.to_be_bytes());
         }
         put_list(out, &self.outputs);
-        out.extend_from_slice(&self.lock_time.to_be_bytes());
-        out.extend_from_slice(&self.subnetwork_id);
-        out.extend_from_slice(&self.gas.to_be_bytes());
         put_bytes(out, &self.payload);
         match &self.service {
             None => out.push(0),
@@ -290,12 +282,9 @@ impl Transaction {
             version: 1,
             inputs: utxos
                 .into_iter()
-                .map(|(outpoint, _)| TxInput { previous_outpoint: outpoint, signature_script: Vec::new(), sequence: 0 })
+                .map(|(outpoint, _)| TxInput { previous_outpoint: outpoint, signature_script: Vec::new() })
                 .collect(),
             outputs: vec![TxOutput { value_atoms: total - fee_atoms, script_public_key: ScriptPublicKey::pay_to_address(&owner) }],
-            lock_time: 0,
-            subnetwork_id: [0u8; 20],
-            gas: 0,
             payload: Vec::new(),
             service: service.map(ScriptPublicKey::pay_to_address),
         };
@@ -369,7 +358,6 @@ impl Transaction {
             .map(|(outpoint, _)| TxInput {
                 previous_outpoint: outpoint.clone(),
                 signature_script: Vec::new(),
-                sequence: 0,
             })
             .collect();
 
@@ -389,9 +377,6 @@ impl Transaction {
             version: 1,
             inputs,
             outputs,
-            lock_time: 0,
-            subnetwork_id: [0u8; 20],
-            gas: 0,
             payload,
             service: service.map(ScriptPublicKey::pay_to_address),
         };
@@ -425,7 +410,6 @@ impl Encode for TxInput {
     fn encode(&self, out: &mut Vec<u8>) {
         self.previous_outpoint.encode(out);
         put_bytes(out, &self.signature_script);
-        out.extend_from_slice(&self.sequence.to_be_bytes());
     }
 }
 
@@ -434,7 +418,6 @@ impl Decode for TxInput {
         Ok(Self {
             previous_outpoint: Outpoint::decode(reader)?,
             signature_script: reader.bytes(MAX_TX_BYTES)?,
-            sequence: reader.u64()?,
         })
     }
 }
@@ -471,9 +454,6 @@ impl Decode for Transaction {
             version: reader.u16()?,
             inputs: reader.list(MAX_TX_BYTES)?,
             outputs: reader.list(MAX_TX_BYTES)?,
-            lock_time: reader.u64()?,
-            subnetwork_id: reader.take(20)?.try_into().unwrap(),
-            gas: reader.u64()?,
             payload: reader.bytes(MAX_TX_BYTES)?,
             service: match reader.u8()? {
                 0 => None,
@@ -591,15 +571,11 @@ mod tests {
             inputs: vec![TxInput {
                 previous_outpoint: Outpoint { transaction_id: Hash([0xaa; 32]), index: 2 },
                 signature_script: vec![0xbb; 3],
-                sequence: 5,
             }],
             outputs: vec![TxOutput {
                 value_atoms: 0x0102,
                 script_public_key: ScriptPublicKey { version: 0, script: vec![0xcc; 2] },
             }],
-            lock_time: 0,
-            subnetwork_id: [0u8; 20],
-            gas: 0,
             payload: vec![0xdd],
             service: Some(ScriptPublicKey { version: 0, script: vec![0xee; 2] }),
         };
@@ -609,14 +585,10 @@ mod tests {
             &"aa".repeat(32),       // previous transaction id
             "00000002",             // previous output index
             "00000003bbbbbb",       // signature script
-            "0000000000000005",     // sequence
             "00000001",             // output count
             "0000000000000102",     // value
             "00",                   // script version
             "00000002cccc",         // script
-            "0000000000000000",     // lock time
-            &"00".repeat(20),       // subnetwork id
-            "0000000000000000",     // gas
             "00000001dd",           // payload
             "01",                   // service script present
             "00",                   // service script version

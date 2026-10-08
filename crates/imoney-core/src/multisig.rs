@@ -220,7 +220,7 @@ impl Transaction {
         let mut inputs = Vec::new();
         for (outpoint, output) in available_utxos {
             gathered = gathered.checked_add(output.value_atoms).ok_or_else(|| "Selected inputs overflow".to_string())?;
-            inputs.push(TxInput { previous_outpoint: outpoint, signature_script: Vec::new(), sequence: 0 });
+            inputs.push(TxInput { previous_outpoint: outpoint, signature_script: Vec::new() });
             if gathered >= required {
                 break;
             }
@@ -240,9 +240,6 @@ impl Transaction {
             version: 1,
             inputs,
             outputs,
-            lock_time: 0,
-            subnetwork_id: [0u8; 20],
-            gas: 0,
             payload,
             service: service.map(ScriptPublicKey::pay_to_address),
         })

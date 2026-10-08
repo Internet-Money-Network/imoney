@@ -211,15 +211,12 @@ fn mempool_rejects_output_total_overflow() {
     let script = ScriptPublicKey::pay_to_address(&address_of(&miner));
     let mut tx = Transaction {
         version: 1,
-        inputs: vec![TxInput { previous_outpoint: outpoint, signature_script: Vec::new(), sequence: 0 }],
+        inputs: vec![TxInput { previous_outpoint: outpoint, signature_script: Vec::new() }],
         // Wraps to 1 atom with unchecked u64 addition
         outputs: vec![
             TxOutput { value_atoms: u64::MAX, script_public_key: script.clone() },
             TxOutput { value_atoms: 2, script_public_key: script },
         ],
-        lock_time: 0,
-        subnetwork_id: [0u8; 20],
-        gas: 0,
         payload: Vec::new(),
         service: None,
     };
@@ -566,14 +563,11 @@ fn unspendable_transaction_in_block_is_skipped_not_applied() {
     // The thief signs a spend of the miner's coin with their own key
     let mut theft = Transaction {
         version: 1,
-        inputs: vec![TxInput { previous_outpoint: outpoint, signature_script: Vec::new(), sequence: 0 }],
+        inputs: vec![TxInput { previous_outpoint: outpoint, signature_script: Vec::new() }],
         outputs: vec![TxOutput {
             value_atoms: utxo.value_atoms,
             script_public_key: ScriptPublicKey::pay_to_address(&address_of(&thief)),
         }],
-        lock_time: 0,
-        subnetwork_id: [0u8; 20],
-        gas: 0,
         payload: Vec::new(),
         service: None,
     };
@@ -1005,6 +999,41 @@ fn blocks_with_payments_are_stored_smaller_and_read_back_exactly() {
     let reopened = DagLedger::open_with_params(path, None, test_params()).unwrap();
     assert_eq!(balance(&reopened, &address_of(&key(171))), balance_before);
     assert_eq!(reopened.storage.get_block(&hash).unwrap().unwrap(), block);
+}
+
+#[test]
+fn a_parent_older_than_the_finality_depth_is_refused() {
+    let mut params = test_params();
+    params.finality_depth = 10;
+    let mut ledger = DagLedger::open_with_params(fresh_db("old-parent"), None, params).unwrap();
+    ledger.mempool = test_mempool();
+    let pow = test_pow();
+    let miner = address_of(&key(190));
+
+    // A block is mined beside the chain and never built on, while the chain moves on
+    let fork_point = ledger.virtual_selected_parent;
+    let first = mine_tip(&mut ledger, &pow, &miner);
+    let stray = ledger.add_block(mine_on(&ledger, &pow, &[fork_point], &miner, Vec::new()), &pow).unwrap();
+    assert_ne!(stray, first);
+    // The next block merges it, as parallel blocks normally are
+    let merged = mine_tip(&mut ledger, &pow, &miner);
+    assert!(ledger.blocks[&merged].parents.contains(&stray));
+
+    // A second stray block, this time left alone until the chain is far ahead
+    let old_tip = ledger.virtual_selected_parent;
+    let tip = extend(&mut ledger, &pow, old_tip, 3, &miner);
+    let late = mine_on(&ledger, &pow, &[old_tip], &miner, Vec::new());
+    let tip = extend(&mut ledger, &pow, tip, 12, &miner);
+    let late_hash = ledger.add_block(late, &pow).unwrap();
+    assert!(ledger.tips.contains(&late_hash));
+
+    // Naming it as a parent next to the current tip is refused...
+    let result = ledger.build_block(&[tip, late_hash], Some(&miner), Vec::new());
+    assert!(matches!(result, Err(StateError::ParentTooOld(hash)) if hash == late_hash), "{:?}", result.err());
+    // ...and the node's own next block leaves it out
+    let next = mine_tip(&mut ledger, &pow, &miner);
+    assert_eq!(ledger.blocks[&next].parents, vec![tip]);
+    assert_supply_total_is_exact(&ledger);
 }
 
 #[test]

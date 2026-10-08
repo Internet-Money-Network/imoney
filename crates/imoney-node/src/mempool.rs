@@ -249,15 +249,11 @@ mod tests {
             inputs: vec![TxInput {
                 previous_outpoint: Outpoint { transaction_id: Hash([spends; 32]), index: 0 },
                 signature_script: vec![0u8; 96],
-                sequence: 0,
             }],
             outputs: vec![TxOutput {
                 value_atoms: 1,
                 script_public_key: ScriptPublicKey { version: 0, script: vec![spends; 32] },
             }],
-            lock_time: 0,
-            subnetwork_id: [0u8; 20],
-            gas: 0,
             payload: vec![0u8; payload_len],
             service: None,
         }
