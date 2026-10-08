@@ -53,8 +53,9 @@ Payments that a shop can accept without trusting anyone else. Three things make 
 - [ ] **Multi-signature in the wallet.** The protocol and the Rust crate have it; the browser
       wallet and the WebAssembly build do not.
 - [ ] **Hardware-wallet support.**
-- [ ] **Block index out of memory.** Headers and DAG data are held in memory, about 1 KB per
-      block.
+- [x] **Block index out of memory.** A node holds its recent blocks in memory (four finality
+      depths, about two days) and reads older ones from disk when a rule reaches that far, so
+      memory no longer grows with the chain.
 - [ ] **Less contention in the node.** One lock guards the ledger, and ancestry checks walk the
       DAG. Fine at measured loads (see [docs/LOAD-TESTING.md](docs/LOAD-TESTING.md)); it is the
       ceiling.
@@ -68,6 +69,9 @@ Payments that a shop can accept without trusting anyone else. Three things make 
   there. It would be run by named signers, capped, deposit-only at first, with users paying
   their own gas and a stated bridge fee funding development. Not started.
 - **The wallet as an installable app**, with the bridge as a screen in it.
+- **A paid-API example**: a small service that quotes a price as an invoice and serves the
+  request once its own node sees the payment, with a client that pays without a person in the
+  loop. An example built on the existing invoice API, not a new protocol feature.
 
 ## Not planned
 

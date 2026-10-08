@@ -1,4 +1,4 @@
-use crate::dag::Dag;
+use crate::dag::{Dag, DagBlock};
 use crate::ghostdag::GhostdagData;
 use imoney_core::constants::TARGET_TIME_PER_BLOCK_MS;
 use imoney_core::Hash;
@@ -83,8 +83,9 @@ impl Dag {
     /// fixed timestamp says nothing about how fast blocks are being found.
     pub fn block_window(&self, ghostdag: &GhostdagData, size: usize) -> Vec<Hash> {
         let mut window = Vec::with_capacity(size);
-        let mut data = ghostdag;
+        let mut block: Option<std::sync::Arc<DagBlock>> = None;
         loop {
+            let data = block.as_ref().map_or(ghostdag, |block| &block.ghostdag);
             for (hash, _) in data.ordered_mergeset(self) {
                 if self.get(&hash).parents.is_empty() {
                     continue;
@@ -97,7 +98,8 @@ impl Dag {
             if data.is_genesis() {
                 return window;
             }
-            data = &self.get(&data.selected_parent).ghostdag;
+            let next = data.selected_parent;
+            block = Some(self.get(&next));
         }
     }
 

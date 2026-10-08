@@ -18,7 +18,6 @@ use imoney_emission::{block_subsidy_atoms, block_subsidy_imn};
 use imoney_pow::{compact_to_u256, is_valid_pow, HallmarkPow};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, HashMap, HashSet};
-use std::ops::Bound;
 use std::path::Path;
 use std::sync::Arc;
 use thiserror::Error;
@@ -26,6 +25,11 @@ use tokio::sync::{broadcast, RwLock};
 
 /// Selected-chain blocks pruned per database transaction.
 const PRUNE_CHUNK: usize = 500;
+/// Blocks stay in memory for this many finality depths of levels below the tip. Finality and
+/// pruning both look that far back on every block, so they never have to read the disk.
+const LEVELS_IN_MEMORY_PER_FINALITY_DEPTH: u64 = 4;
+/// Never fewer levels than this, however short the finality depth.
+const MIN_LEVELS_IN_MEMORY: u64 = 2_000;
 
 /// Confirmations after which this node reports a payment as final, unless configured otherwise.
 pub const DEFAULT_FINAL_CONFIRMATIONS: u64 = 60;
@@ -366,7 +370,12 @@ pub struct DagLedger {
     pub network: Network,
     pub params: ConsensusParams,
     pub dag: Dag,
+    /// Headers of the recent blocks, the ones held in memory. `header` finds any block.
     pub blocks: HashMap<Hash, BlockHeader>,
+    /// How many levels below the tip stay in memory. Older blocks are read from disk when
+    /// something asks for them, so memory use does not grow with the chain.
+    pub keep_levels: u64,
+    block_count: u64,
     pub tips: HashSet<Hash>,
     /// The tip the selected chain ends in.
     pub virtual_selected_parent: Hash,
@@ -394,8 +403,7 @@ pub struct DagLedger {
     pub final_confirmations: u64,
     /// Depth and local time (ms) of the last selected-chain switch of `REORG_ALARM_DEPTH` or more.
     pub last_reorg: Option<(usize, u64)>,
-    /// Every block ordered by `(level, hash)`: an order in which parents precede children,
-    /// used to page through the DAG when another node syncs from this one.
+    /// The blocks held in memory ordered by `(level, hash)`, lowest first.
     level_index: BTreeSet<(u64, Hash)>,
     virtual_acceptance: AcceptanceData,
 }
@@ -408,10 +416,21 @@ impl DagLedger {
         mining_address: Option<Address>,
         params: ConsensusParams,
     ) -> Result<Self, StateError> {
+        let keep_levels = (LEVELS_IN_MEMORY_PER_FINALITY_DEPTH * params.finality_depth).max(MIN_LEVELS_IN_MEMORY);
+        Self::open_with_memory(db_path, mining_address, params, keep_levels)
+    }
+
+    /// Opens the ledger, holding the blocks of the top `keep_levels` levels in memory.
+    pub fn open_with_memory(
+        db_path: impl AsRef<Path>,
+        mining_address: Option<Address>,
+        params: ConsensusParams,
+        keep_levels: u64,
+    ) -> Result<Self, StateError> {
         let storage = Storage::open(db_path)?;
-        let loaded = storage.load_blocks()?;
+        let stored_blocks = storage.block_count()?;
         let genesis = params.genesis.clone();
-        if !loaded.is_empty() && !loaded.iter().any(|(hash, _, _)| *hash == genesis.hash()) {
+        if stored_blocks > 0 && !storage.has_block(&genesis.hash())? {
             return Err(StateError::WrongNetwork);
         }
 
@@ -421,6 +440,8 @@ impl DagLedger {
             dag: Dag::new(params.ghostdag.clone()),
             params,
             blocks: HashMap::new(),
+            keep_levels,
+            block_count: stored_blocks.max(1),
             tips: HashSet::new(),
             virtual_selected_parent: Hash::ZERO,
             virtual_parents: Vec::new(),
@@ -442,16 +463,23 @@ impl DagLedger {
             virtual_acceptance: AcceptanceData::default(),
         };
 
+        let old_blocks = ledger.storage.clone();
+        ledger.dag.set_loader(Box::new(move |hash| {
+            let (header, meta) = old_blocks.get_header_and_meta(hash).ok().flatten()?;
+            Some(dag_block(&header, meta))
+        }));
+
         let mut view = LedgerView::new(ledger.storage.clone());
-        if loaded.is_empty() {
+        let genesis_hash = genesis.hash();
+        if stored_blocks == 0 {
             // Genesis initialization
-            let genesis_hash = genesis.hash();
             ledger
                 .dag
                 .insert_genesis(genesis_hash, genesis.header.timestamp_ms, genesis.header.bits);
             let meta = BlockMeta { level: 0, ghostdag: GhostdagData::default() };
             view.batch.blocks.push((genesis_hash, genesis.to_bytes()));
             view.batch.block_meta.push((genesis_hash, meta.to_bytes()));
+            view.batch.levels.push((0, genesis_hash));
             ledger.blocks.insert(genesis_hash, genesis.header.clone());
             ledger.level_index.insert((0, genesis_hash));
             ledger.tips.insert(genesis_hash);
@@ -461,29 +489,31 @@ impl DagLedger {
             ledger.storage.commit(&view.batch)?;
             ledger.set_virtual(virtual_state);
         } else {
-            // Recover from disk
+            // Recover from disk: the recent blocks, and genesis
+            let floor = ledger.storage.top_level()?.unwrap_or(0).saturating_sub(keep_levels).max(1);
+            let mut loaded = ledger.storage.load_blocks_from_level(floor)?;
+            let (genesis_header, genesis_meta) = ledger
+                .storage
+                .get_header_and_meta(&genesis_hash)?
+                .ok_or(StorageError::MissingBlock(genesis_hash))?;
+            loaded.push((genesis_hash, genesis_header, genesis_meta));
+
             let mut non_tips = HashSet::new();
             for (hash, header, meta) in loaded {
                 for p in &header.parents {
                     non_tips.insert(*p);
                 }
                 ledger.level_index.insert((meta.level, hash));
-                ledger.dag.restore(
-                    hash,
-                    DagBlock {
-                        parents: header.parents.clone(),
-                        level: meta.level,
-                        timestamp_ms: header.timestamp_ms,
-                        bits: header.bits,
-                        daa_score: header.daa_score,
-                        work: work_from_bits(header.bits),
-                        ghostdag: meta.ghostdag,
-                    },
-                );
+                ledger.dag.restore(hash, dag_block(&header, meta));
                 ledger.blocks.insert(hash, header);
             }
-            // Tips: all blocks that are not parents of any other block
-            ledger.tips = ledger.blocks.keys().filter(|h| !non_tips.contains(h)).copied().collect();
+            // Tips: recent blocks that are not parents of any other block
+            ledger.tips = ledger
+                .blocks
+                .keys()
+                .filter(|h| !non_tips.contains(h) && (**h != genesis_hash || stored_blocks == 1))
+                .copied()
+                .collect();
 
             let sink_bytes = ledger.storage.get_metadata(META_SINK)?.expect("Metadata must exist if blocks exist");
             ledger.virtual_selected_parent = <Hash as Decode>::from_bytes(&sink_bytes).map_err(StorageError::from)?;
@@ -735,11 +765,53 @@ impl DagLedger {
         Ok(acceptance)
     }
 
+    /// True when the node has this block, however old.
+    pub fn has_block(&self, hash: &Hash) -> bool {
+        self.blocks.contains_key(hash) || self.storage.has_block(hash).unwrap_or(false)
+    }
+
+    /// The header of any block the node has.
+    pub fn header(&self, hash: &Hash) -> Option<BlockHeader> {
+        match self.blocks.get(hash) {
+            Some(header) => Some(header.clone()),
+            None => self.storage.get_header_and_meta(hash).ok().flatten().map(|(header, _)| header),
+        }
+    }
+
+    /// How many blocks the node has, in memory or on disk.
+    pub fn block_count(&self) -> u64 {
+        self.block_count
+    }
+
+    /// Lets go of blocks that have sunk more than `keep_levels` below the selected tip. They
+    /// stay on disk, and the consensus index reads them back if a rule ever reaches that far.
+    /// Runs in batches, so most blocks cost nothing here.
+    fn release_old_blocks(&mut self) {
+        let floor = self.dag.get(&self.virtual_selected_parent).level.saturating_sub(self.keep_levels);
+        // Genesis sits at level 0 and stays
+        let lowest = (1, Hash::ZERO);
+        let Some(&(oldest, _)) = self.level_index.range(lowest..).next() else {
+            return;
+        };
+        if oldest + self.keep_levels / 8 >= floor {
+            return;
+        }
+        let old: Vec<(u64, Hash)> = self.level_index.range(lowest..(floor, Hash::ZERO)).copied().collect();
+        for position in old {
+            self.level_index.remove(&position);
+            self.blocks.remove(&position.1);
+            self.dag.forget(&position.1);
+            // A block left unmerged this long can no longer be anyone's parent
+            self.tips.remove(&position.1);
+        }
+    }
+
     /// The selected-chain ancestor of `from` with the highest blue score not above `blue_score`.
     fn chain_ancestor_at_or_below(&self, from: Hash, blue_score: u64) -> Hash {
         let mut cursor = from;
         loop {
-            let data = &self.dag.get(&cursor).ghostdag;
+            let block = self.dag.get(&cursor);
+            let data = &block.ghostdag;
             if data.blue_score <= blue_score || data.is_genesis() {
                 return cursor;
             }
@@ -891,7 +963,7 @@ impl DagLedger {
         let header = &block.header;
         let block_hash = header.hash();
 
-        if self.blocks.contains_key(&block_hash) {
+        if self.has_block(&block_hash) {
             return Err(StateError::BlockAlreadyExists(block_hash));
         }
         if header.version != 1 {
@@ -991,6 +1063,7 @@ impl DagLedger {
         let meta = BlockMeta { level: self.dag.get(&block_hash).level, ghostdag };
         view.batch.blocks.push((block_hash, block.to_bytes()));
         view.batch.block_meta.push((block_hash, meta.to_bytes()));
+        view.batch.levels.push((meta.level, block_hash));
 
         let result = self
             .resolve_virtual(&mut view, Some((&block_hash, &block)))
@@ -1009,7 +1082,8 @@ impl DagLedger {
             }
         };
         self.blocks.insert(block_hash, block.header.clone());
-        self.level_index.insert((self.dag.get(&block_hash).level, block_hash));
+        self.level_index.insert((meta.level, block_hash));
+        self.block_count += 1;
         self.set_virtual(virtual_state);
 
         // Drop pending transactions that were accepted or can no longer be spent. A block can
@@ -1027,6 +1101,7 @@ impl DagLedger {
         if let Err(e) = self.prune() {
             eprintln!("[-] Pruning failed: {}", e);
         }
+        self.release_old_blocks();
 
         Ok(block_hash)
     }
@@ -1066,7 +1141,8 @@ impl DagLedger {
         let mut chain = Vec::new();
         let mut cursor = self.chain_ancestor_at_or_below(sink, target);
         loop {
-            let data = &self.dag.get(&cursor).ghostdag;
+            let block = self.dag.get(&cursor);
+            let data = &block.ghostdag;
             if data.blue_score <= self.pruned_floor || data.is_genesis() {
                 break;
             }
@@ -1079,14 +1155,15 @@ impl DagLedger {
             let mut batch = WriteBatch::default();
             let mut floor = self.pruned_floor;
             for hash in chunk {
-                let data = &self.dag.get(hash).ghostdag;
+                let block = self.dag.get(hash);
+                let data = &block.ghostdag;
                 floor = floor.max(data.blue_score);
                 for merged in data.mergeset_blues.iter().chain(&data.mergeset_reds) {
                     // Genesis keeps its body: it is how a network is identified
-                    let Some(header) = self.blocks.get(merged).filter(|h| !h.parents.is_empty()) else {
+                    let Some(header) = self.header(merged).filter(|h| !h.parents.is_empty()) else {
                         continue;
                     };
-                    let stub = Block { header: header.clone(), transactions: Vec::new() };
+                    let stub = Block { header, transactions: Vec::new() };
                     batch.blocks.push((*merged, stub.to_bytes()));
                 }
                 if let Some(acceptance) = self.storage.get_acceptance(hash)? {
@@ -1308,8 +1385,10 @@ impl DagLedger {
         }))
     }
 
-    /// Selected-chain block hashes from the tip back to genesis, dense near the tip and
-    /// exponentially sparser further back. A peer uses it to find the newest block we share.
+    /// Selected-chain block hashes from the tip backwards, dense near the tip and
+    /// exponentially sparser further back, ending with genesis. A peer uses it to find the
+    /// newest block we share. It reaches as far back as the blocks held in memory: a chain
+    /// that parted from ours earlier than that is beyond the finality depth anyway.
     pub fn locator(&self) -> Vec<Hash> {
         let mut locator = Vec::new();
         let mut cursor = self.virtual_selected_parent;
@@ -1323,6 +1402,10 @@ impl DagLedger {
                 let parent = self.dag.get(&cursor).ghostdag.selected_parent;
                 if parent == Hash::ZERO {
                     break;
+                }
+                if !self.dag.holds(&parent) {
+                    locator.push(self.genesis_hash);
+                    return locator;
                 }
                 cursor = parent;
             }
@@ -1351,7 +1434,7 @@ impl DagLedger {
         let mut blocks = Vec::new();
         let mut bytes = 0usize;
         let mut last = None;
-        for position in self.level_index.range((Bound::Excluded(cursor), Bound::Unbounded)) {
+        for position in self.storage.levels_after(cursor, max_blocks.saturating_add(1))? {
             if blocks.len() >= max_blocks || bytes >= max_bytes {
                 // More remain: resume after the last block sent
                 return Ok((blocks, last));
@@ -1359,7 +1442,7 @@ impl DagLedger {
             let block = self.storage.get_block(&position.1)?.ok_or(StorageError::MissingBlock(position.1))?;
             bytes += block.to_bytes().len();
             blocks.push(block);
-            last = Some(*position);
+            last = Some(position);
         }
         Ok((blocks, None))
     }
@@ -1449,7 +1532,15 @@ impl DagLedger {
 
     /// The most recent blocks by DAA score, newest first.
     pub fn recent_blocks(&self, limit: usize) -> Vec<(Hash, &BlockHeader)> {
-        let mut blocks: Vec<(Hash, &BlockHeader)> = self.blocks.iter().map(|(hash, header)| (*hash, header)).collect();
+        // The newest blocks are among the highest levels; a few levels more than asked for
+        // covers blocks mined side by side
+        let mut blocks: Vec<(Hash, &BlockHeader)> = self
+            .level_index
+            .iter()
+            .rev()
+            .take(limit.saturating_mul(4).saturating_add(64))
+            .filter_map(|(_, hash)| self.blocks.get(hash).map(|header| (*hash, header)))
+            .collect();
         blocks.sort_by_key(|(hash, header)| (std::cmp::Reverse(header.daa_score), *hash));
         blocks.truncate(limit);
         blocks
@@ -1464,7 +1555,7 @@ impl DagLedger {
             }
             .to_string(),
             genesis_hash: self.genesis_hash.to_hex(),
-            total_blocks: self.blocks.len(),
+            total_blocks: self.block_count as usize,
             virtual_selected_parent: self.virtual_selected_parent.to_hex(),
             virtual_blue_score: self.virtual_blue_score,
             virtual_daa_score: self.virtual_daa_score,
@@ -1488,6 +1579,19 @@ impl DagLedger {
 }
 
 
+
+/// What the consensus index keeps about a stored block.
+fn dag_block(header: &BlockHeader, meta: BlockMeta) -> DagBlock {
+    DagBlock {
+        parents: header.parents.clone(),
+        level: meta.level,
+        timestamp_ms: header.timestamp_ms,
+        bits: header.bits,
+        daa_score: header.daa_score,
+        work: work_from_bits(header.bits),
+        ghostdag: meta.ghostdag,
+    }
+}
 
 pub type SharedLedger = Arc<RwLock<DagLedger>>;
 

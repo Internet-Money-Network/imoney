@@ -2,6 +2,13 @@ use crate::daa::work_from_bits;
 use crate::ghostdag::{GhostdagData, GhostdagParams};
 use imoney_core::Hash;
 use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex};
+
+/// Reads a block that is no longer held in memory.
+pub type BlockLoader = Box<dyn Fn(&Hash) -> Option<DagBlock> + Send + Sync>;
+
+/// Old blocks read back from disk that are kept at hand before starting over.
+const RECALLED_BLOCKS: usize = 4_096;
 
 /// What consensus needs to know about a block already in the DAG.
 #[derive(Clone, Debug)]
@@ -17,10 +24,16 @@ pub struct DagBlock {
     pub ghostdag: GhostdagData,
 }
 
-/// In-memory index of the block DAG used by the consensus rules.
+/// Index of the block DAG used by the consensus rules.
+///
+/// Recent blocks are held in memory. A node may `forget` old ones and give the index a loader
+/// that reads them back when a rule reaches that far, so the rules see the same DAG either
+/// way and memory stays level as the chain grows.
 pub struct Dag {
     pub params: GhostdagParams,
-    blocks: HashMap<Hash, DagBlock>,
+    blocks: HashMap<Hash, Arc<DagBlock>>,
+    loader: Option<BlockLoader>,
+    recalled: Mutex<HashMap<Hash, Arc<DagBlock>>>,
 }
 
 impl Dag {
@@ -28,9 +41,17 @@ impl Dag {
         Self {
             params,
             blocks: HashMap::new(),
+            loader: None,
+            recalled: Mutex::new(HashMap::new()),
         }
     }
 
+    /// Sets where blocks that were forgotten are read from.
+    pub fn set_loader(&mut self, loader: BlockLoader) {
+        self.loader = Some(loader);
+    }
+
+    /// Number of blocks held in memory.
     pub fn len(&self) -> usize {
         self.blocks.len()
     }
@@ -40,16 +61,39 @@ impl Dag {
     }
 
     pub fn contains(&self, hash: &Hash) -> bool {
+        self.try_get(hash).is_some()
+    }
+
+    /// True when the block is held in memory.
+    pub fn holds(&self, hash: &Hash) -> bool {
         self.blocks.contains_key(hash)
     }
 
     /// Returns a block that is known to be in the DAG.
-    pub fn get(&self, hash: &Hash) -> &DagBlock {
-        self.blocks.get(hash).expect("block must be in the DAG")
+    pub fn get(&self, hash: &Hash) -> Arc<DagBlock> {
+        self.try_get(hash).expect("block must be in the DAG")
     }
 
-    pub fn try_get(&self, hash: &Hash) -> Option<&DagBlock> {
-        self.blocks.get(hash)
+    pub fn try_get(&self, hash: &Hash) -> Option<Arc<DagBlock>> {
+        if let Some(block) = self.blocks.get(hash) {
+            return Some(block.clone());
+        }
+        let loader = self.loader.as_ref()?;
+        let mut recalled = self.recalled.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(block) = recalled.get(hash) {
+            return Some(block.clone());
+        }
+        let block = Arc::new(loader(hash)?);
+        if recalled.len() >= RECALLED_BLOCKS {
+            recalled.clear();
+        }
+        recalled.insert(*hash, block.clone());
+        Some(block)
+    }
+
+    /// Drops a block from memory. It must be readable through the loader from now on.
+    pub fn forget(&mut self, hash: &Hash) {
+        self.blocks.remove(hash);
     }
 
     pub fn hashes(&self) -> impl Iterator<Item = &Hash> {
@@ -60,7 +104,7 @@ impl Dag {
     pub fn insert_genesis(&mut self, hash: Hash, timestamp_ms: u64, bits: u32) {
         self.blocks.insert(
             hash,
-            DagBlock {
+            Arc::new(DagBlock {
                 parents: Vec::new(),
                 level: 0,
                 timestamp_ms,
@@ -68,7 +112,7 @@ impl Dag {
                 daa_score: 0,
                 work: work_from_bits(bits),
                 ghostdag: GhostdagData::default(),
-            },
+            }),
         );
     }
 
@@ -77,7 +121,7 @@ impl Dag {
         let level = 1 + parents.iter().map(|p| self.get(p).level).max().unwrap_or(0);
         self.blocks.insert(
             hash,
-            DagBlock {
+            Arc::new(DagBlock {
                 parents,
                 level,
                 timestamp_ms,
@@ -85,7 +129,7 @@ impl Dag {
                 daa_score,
                 work: work_from_bits(bits),
                 ghostdag,
-            },
+            }),
         );
     }
 
@@ -96,7 +140,7 @@ impl Dag {
 
     /// Restores a block loaded from storage.
     pub fn restore(&mut self, hash: Hash, block: DagBlock) {
-        self.blocks.insert(hash, block);
+        self.blocks.insert(hash, Arc::new(block));
     }
 
     /// Total order used to pick the selected parent and to order a mergeset:

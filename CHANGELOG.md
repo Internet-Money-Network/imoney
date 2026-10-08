@@ -28,6 +28,8 @@ Notable changes to Internet Money. Nothing has been released yet: everything bel
 - `SECURITY.md`, `CONTRIBUTING.md`, `TRADEMARKS.md`, an integration guide and this file.
 
 ### Changed
+- **A node's memory no longer grows with the chain.** Only recent blocks are held in memory;
+  older ones are read from disk when needed. Existing databases are upgraded when first opened.
 - **A faster difficulty rule.** Each block's difficulty now follows from how far the last step
   of its selected chain was off schedule (100-second half life, at most a factor of two per
   step), replacing a 144-block average. It follows a hashrate jump within minutes and recovers

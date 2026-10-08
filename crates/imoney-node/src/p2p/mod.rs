@@ -517,7 +517,7 @@ impl PeerManager {
             let mut orphans = self.orphans.lock().unwrap();
             let ready: Vec<Hash> = orphans
                 .iter()
-                .filter(|(_, orphan)| orphan.header.parents.iter().all(|p| ledger.blocks.contains_key(p)))
+                .filter(|(_, orphan)| orphan.header.parents.iter().all(|p| ledger.has_block(p)))
                 .map(|(orphan_hash, _)| *orphan_hash)
                 .collect();
             for orphan_hash in ready {
@@ -534,14 +534,14 @@ impl PeerManager {
         // The ledger lock is released before anything is queued for sending
         let (missing_parents, connected, valid) = {
             let mut ledger = self.ledger.write().await;
-            if ledger.blocks.contains_key(&block.hash()) {
+            if ledger.has_block(&block.hash()) {
                 return;
             }
             let missing: Vec<Hash> = block
                 .header
                 .parents
                 .iter()
-                .filter(|p| !ledger.blocks.contains_key(p))
+                .filter(|p| !ledger.has_block(p))
                 .copied()
                 .collect();
             if missing.is_empty() {
@@ -581,7 +581,7 @@ impl PeerManager {
                 // Request any unknown tip blocks
                 let unknown: Vec<Hash> = {
                     let ledger = self.ledger.read().await;
-                    tips.into_iter().filter(|t| !ledger.blocks.contains_key(t)).collect()
+                    tips.into_iter().filter(|t| !ledger.has_block(t)).collect()
                 };
                 if unknown.is_empty() {
                     self.mark_synced_if_caught_up();
@@ -593,7 +593,7 @@ impl PeerManager {
                 }
             }
             Message::InvBlock(hash) => {
-                let known = self.ledger.read().await.blocks.contains_key(&hash);
+                let known = self.ledger.read().await.has_block(&hash);
                 if !known && !self.is_orphan(&hash) {
                     let _ = sender.try_send(Message::GetBlock(hash));
                 }

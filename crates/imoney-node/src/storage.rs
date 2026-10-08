@@ -40,6 +40,23 @@ const INVOICE_TABLE: TableDefinition<&[u8], ()> = TableDefinition::new("v4/invoi
 /// What each locking script received and sent, oldest first: key is
 /// `script key ++ accepting blue score ++ transaction id`.
 const HISTORY_TABLE: TableDefinition<&[u8], &[u8]> = TableDefinition::new("v4/script_history");
+/// Every block by `level ++ hash`, with no value: an order in which parents come before
+/// children. It is how a node finds its most recent blocks at startup without reading the
+/// whole chain, and how it pages through the chain for a peer that is syncing.
+const LEVEL_TABLE: TableDefinition<&[u8], ()> = TableDefinition::new("v4/levels");
+
+fn level_key(level: u64, hash: &Hash) -> [u8; 40] {
+    let mut key = [0u8; 40];
+    key[..8].copy_from_slice(&level.to_be_bytes());
+    key[8..].copy_from_slice(&hash.0);
+    key
+}
+
+fn parse_level_key(key: &[u8]) -> Result<(u64, Hash), DecodeError> {
+    let mut reader = Reader::new(key);
+    Ok((reader.u64()?, reader.hash()?))
+}
+
 /// Bytes of a history key after the script: blue score and transaction id.
 const HISTORY_POSITION_LEN: usize = 40;
 
@@ -369,6 +386,8 @@ impl Decode for BlockMeta {
 pub struct WriteBatch {
     pub blocks: Vec<(Hash, Vec<u8>)>,
     pub block_meta: Vec<(Hash, Vec<u8>)>,
+    /// New blocks' places in the level order.
+    pub levels: Vec<(u64, Hash)>,
     pub acceptance: Vec<(Hash, Vec<u8>)>,
     pub acceptance_deletes: Vec<Hash>,
     pub metadata: Vec<(&'static str, Vec<u8>)>,
@@ -418,10 +437,12 @@ impl Storage {
             let _ = write_tx.open_table(SCRIPT_UTXO_TABLE)?;
             let _ = write_tx.open_table(INVOICE_TABLE)?;
             let _ = write_tx.open_table(HISTORY_TABLE)?;
+            let _ = write_tx.open_table(LEVEL_TABLE)?;
         }
         write_tx.commit()?;
 
         let storage = Self { db: Arc::new(db) };
+        storage.build_level_index_if_missing()?;
         // A database from before the running total existed: count once and remember
         if storage.get_metadata(META_SUPPLY)?.is_none() {
             let total = storage.scan_utxo_atoms()?;
@@ -447,6 +468,11 @@ impl Storage {
             let mut meta_table = write_tx.open_table(BLOCK_META_TABLE)?;
             for (hash, bytes) in &batch.block_meta {
                 meta_table.insert(&hash.0, bytes.as_slice())?;
+            }
+
+            let mut level_table = write_tx.open_table(LEVEL_TABLE)?;
+            for (level, hash) in &batch.levels {
+                level_table.insert(level_key(*level, hash).as_slice(), ())?;
             }
 
             let mut acceptance_table = write_tx.open_table(ACCEPTANCE_TABLE)?;
@@ -526,24 +552,102 @@ impl Storage {
         Ok(())
     }
 
-    /// Loads every block header with its consensus data on node startup.
-    pub fn load_blocks(&self) -> Result<Vec<(Hash, BlockHeader, BlockMeta)>, StorageError> {
+    /// A database written before the level index existed gets one, once.
+    fn build_level_index_if_missing(&self) -> Result<(), StorageError> {
+        let write_tx = self.db.begin_write()?;
+        {
+            let mut level_table = write_tx.open_table(LEVEL_TABLE)?;
+            if level_table.first()?.is_none() {
+                let meta_table = write_tx.open_table(BLOCK_META_TABLE)?;
+                for entry in meta_table.iter()? {
+                    let (key, value) = entry?;
+                    let level = BlockMeta::from_bytes(value.value())?.level;
+                    level_table.insert(level_key(level, &Hash(*key.value())).as_slice(), ())?;
+                }
+            }
+        }
+        write_tx.commit()?;
+        Ok(())
+    }
+
+    /// Removes the level index, leaving a database as older versions wrote it.
+    #[cfg(test)]
+    pub fn drop_level_index(&self) -> Result<(), StorageError> {
+        let write_tx = self.db.begin_write()?;
+        write_tx.delete_table(LEVEL_TABLE)?;
+        write_tx.commit()?;
+        Ok(())
+    }
+
+    /// How many blocks the database holds.
+    pub fn block_count(&self) -> Result<u64, StorageError> {
         let read_tx = self.db.begin_read()?;
+        Ok(redb::ReadableTableMetadata::len(&read_tx.open_table(LEVEL_TABLE)?)?)
+    }
+
+    /// The highest level any stored block has.
+    pub fn top_level(&self) -> Result<Option<u64>, StorageError> {
+        let read_tx = self.db.begin_read()?;
+        let table = read_tx.open_table(LEVEL_TABLE)?;
+        let top = match table.last()? {
+            Some((key, _)) => Some(parse_level_key(key.value())?.0),
+            None => None,
+        };
+        Ok(top)
+    }
+
+    /// Loads the headers and consensus data of every block at `min_level` or above. A node
+    /// starting up needs only its recent blocks in memory.
+    pub fn load_blocks_from_level(&self, min_level: u64) -> Result<Vec<(Hash, BlockHeader, BlockMeta)>, StorageError> {
+        let start = level_key(min_level, &Hash::ZERO);
+        let read_tx = self.db.begin_read()?;
+        let level_table = read_tx.open_table(LEVEL_TABLE)?;
         let blocks_table = read_tx.open_table(BLOCKS_TABLE)?;
         let meta_table = read_tx.open_table(BLOCK_META_TABLE)?;
         let mut loaded = Vec::new();
-
-        for entry in blocks_table.iter()? {
-            let (key, val) = entry?;
-            let hash = Hash(*key.value());
-            let block = Block::from_bytes(&unpack(val.value())?)?;
-            let meta = match meta_table.get(&hash.0)? {
-                Some(bytes) => BlockMeta::from_bytes(bytes.value())?,
-                None => return Err(StorageError::MissingBlock(hash)),
+        for entry in level_table.range::<&[u8]>(start.as_slice()..)? {
+            let (_, hash) = parse_level_key(entry?.0.value())?;
+            let (Some(block), Some(meta)) = (blocks_table.get(&hash.0)?, meta_table.get(&hash.0)?) else {
+                return Err(StorageError::MissingBlock(hash));
             };
-            loaded.push((hash, block.header, meta));
+            let header = Block::from_bytes(&unpack(block.value())?)?.header;
+            loaded.push((hash, header, BlockMeta::from_bytes(meta.value())?));
         }
         Ok(loaded)
+    }
+
+    /// Up to `limit` positions after `cursor` in `(level, hash)` order.
+    pub fn levels_after(&self, cursor: (u64, Hash), limit: usize) -> Result<Vec<(u64, Hash)>, StorageError> {
+        let read_tx = self.db.begin_read()?;
+        let table = read_tx.open_table(LEVEL_TABLE)?;
+        let start = level_key(cursor.0, &cursor.1);
+        let mut positions = Vec::new();
+        for entry in table.range::<&[u8]>((std::ops::Bound::Excluded(start.as_slice()), std::ops::Bound::Unbounded))? {
+            positions.push(parse_level_key(entry?.0.value())?);
+            if positions.len() >= limit {
+                break;
+            }
+        }
+        Ok(positions)
+    }
+
+    /// True when the block is stored, in full or as a pruned header.
+    pub fn has_block(&self, hash: &Hash) -> Result<bool, StorageError> {
+        let read_tx = self.db.begin_read()?;
+        Ok(read_tx.open_table(BLOCK_META_TABLE)?.get(&hash.0)?.is_some())
+    }
+
+    /// A stored block's header and consensus data, whether or not its body was pruned.
+    pub fn get_header_and_meta(&self, hash: &Hash) -> Result<Option<(BlockHeader, BlockMeta)>, StorageError> {
+        let read_tx = self.db.begin_read()?;
+        let blocks_table = read_tx.open_table(BLOCKS_TABLE)?;
+        let meta_table = read_tx.open_table(BLOCK_META_TABLE)?;
+        let Some(block) = blocks_table.get(&hash.0)? else { return Ok(None) };
+        let header = Block::from_bytes(&unpack(block.value())?)?.header;
+        match meta_table.get(&hash.0)? {
+            Some(meta) => Ok(Some((header, BlockMeta::from_bytes(meta.value())?))),
+            None => Err(StorageError::MissingBlock(*hash)),
+        }
     }
 
     /// Returns a full block (header and transactions) by its hash. A block whose transactions

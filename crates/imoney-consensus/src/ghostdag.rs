@@ -1,8 +1,9 @@
-use crate::dag::Dag;
+use crate::dag::{Dag, DagBlock};
 use imoney_core::constants::GHOSTDAG_K;
 use imoney_core::serialize::{put_list, Decode, DecodeError, Encode, Reader};
 use imoney_core::Hash;
 use std::collections::{BTreeMap, HashSet, VecDeque};
+use std::sync::Arc;
 use thiserror::Error;
 
 /// Parameters for GHOSTDAG consensus.
@@ -184,7 +185,8 @@ impl Dag {
             }
         }
 
-        let parent_data = &self.get(&selected_parent).ghostdag;
+        let parent_block = self.get(&selected_parent);
+        let parent_data = &parent_block.ghostdag;
         data.blue_score = parent_data.blue_score + data.mergeset_blues.len() as u64;
         data.blue_work = data
             .mergeset_blues
@@ -239,8 +241,9 @@ impl Dag {
 
         // Walk the selected chain backwards, starting with the block being built
         let mut chain_hash: Option<Hash> = None;
-        let mut chain_data = new_data;
+        let mut chain_block: Option<Arc<DagBlock>> = None;
         loop {
+            let chain_data = chain_block.as_ref().map_or(new_data, |block| &block.ghostdag);
             // Once a chain block is in the candidate's past, so is everything behind it
             if let Some(hash) = chain_hash {
                 if self.is_ancestor(&hash, candidate) {
@@ -264,8 +267,9 @@ impl Dag {
             if chain_data.is_genesis() {
                 break;
             }
-            chain_hash = Some(chain_data.selected_parent);
-            chain_data = &self.get(&chain_data.selected_parent).ghostdag;
+            let next = chain_data.selected_parent;
+            chain_hash = Some(next);
+            chain_block = Some(self.get(&next));
         }
 
         Colour::Blue(anticone_size, changed)
@@ -273,15 +277,17 @@ impl Dag {
 
     /// The blue anticone size of `blue` as seen from the block being built.
     fn blue_anticone_size(&self, blue: &Hash, new_data: &GhostdagData) -> u32 {
-        let mut data = new_data;
+        let mut block: Option<Arc<DagBlock>> = None;
         loop {
+            let data = block.as_ref().map_or(new_data, |block| &block.ghostdag);
             if let Some(size) = data.blues_anticone_sizes.get(blue) {
                 return *size;
             }
             if data.is_genesis() {
                 return 0;
             }
-            data = &self.get(&data.selected_parent).ghostdag;
+            let next = data.selected_parent;
+            block = Some(self.get(&next));
         }
     }
 }

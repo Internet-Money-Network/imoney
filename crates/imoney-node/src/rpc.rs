@@ -376,13 +376,14 @@ async fn block_handler(
 ) -> Result<Json<BlockDetailResponse>, StatusCode> {
     let hash = Hash::from_hex(&hash_hex).map_err(|_| StatusCode::BAD_REQUEST)?;
     let ledger = state.ledger.read().await;
-    let header = ledger.blocks.get(&hash).ok_or(StatusCode::NOT_FOUND)?;
+    let header = &ledger.header(&hash).ok_or(StatusCode::NOT_FOUND)?;
     let block = ledger
         .storage
         .get_block(&hash)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
-    let ghostdag = &ledger.dag.get(&hash).ghostdag;
+    let dag_block = ledger.dag.get(&hash);
+    let ghostdag = &dag_block.ghostdag;
 
     Ok(Json(BlockDetailResponse {
         summary: block_summary(&ledger, &hash, header),
@@ -396,7 +397,7 @@ async fn block_handler(
             .and_then(|output| script_address(ledger.network, &output.script_public_key)),
         reward_imn: imoney_emission::block_subsidy_imn(header.daa_score),
         size_bytes: imoney_core::Encode::to_bytes(&block).len(),
-        difficulty: ledger.dag.get(&hash).work as f64,
+        difficulty: dag_block.work as f64,
         nonce: header.nonce,
     }))
 }
@@ -683,7 +684,7 @@ async fn tx_status_handler(
             let total_out_atoms: u64 = info.tx.outputs.iter().map(|o| o.value_atoms).sum();
             let total_out_imn = (total_out_atoms as f64) / (imoney_core::constants::ATOMS_PER_IMN as f64);
             let status = if info.block_hash.is_some() { "confirmed" } else { "pending" };
-            let daa_score = info.block_hash.and_then(|b| ledger.blocks.get(&b)).map(|h| h.daa_score);
+            let daa_score = info.block_hash.and_then(|b| ledger.header(&b)).map(|h| h.daa_score);
 
             Ok(Json(TxStatusResponse {
                 tx_id: txid_hex,

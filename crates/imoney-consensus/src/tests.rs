@@ -367,13 +367,13 @@ fn random_dags_keep_the_ghostdag_invariants() {
 
             // The blue set: this block's blues and those of every selected-chain ancestor
             let mut blues: Vec<Hash> = Vec::new();
-            let mut cursor = data;
+            let mut cursor = data.clone();
             loop {
                 blues.extend(&cursor.mergeset_blues);
                 if cursor.is_genesis() {
                     break;
                 }
-                cursor = &dag.get(&cursor.selected_parent).ghostdag;
+                cursor = dag.get(&cursor.selected_parent).ghostdag.clone();
             }
             assert_eq!(data.blue_score as usize, blues.len(), "seed {} block {}", seed, id);
 

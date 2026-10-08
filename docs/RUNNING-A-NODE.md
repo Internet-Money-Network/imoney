@@ -7,7 +7,7 @@ This covers the test network. There is no main network yet.
 | | Verifying node | Mining node |
 | :--- | :--- | :--- |
 | CPU | 2 cores | as many as you want to mine with |
-| Memory | 2 GB to start; see [Growth](#growth) | the same, plus the 4.6 GB mining dataset if the node mines by itself |
+| Memory | 2 GB | the same, plus the 4.6 GB mining dataset if the node mines by itself |
 | Disk | 40 GB SSD | the same |
 | Network | one open TCP port (18555) | the same |
 
@@ -124,8 +124,9 @@ Block size is capped at 100 KB, so the most the chain can grow is about 1.7 GB a
 every block is full. You can repeat the measurement with
 `cargo test --release -p imoney-node -- --ignored disk_use --nocapture`.
 
-One limit is not solved yet: a node keeps every block header in memory, pruned or not. That
-grows by roughly 2 GB a year, so plan to move to a machine with more memory within the first year.
+Memory does not grow with the chain. A node holds the blocks of roughly the last two days in
+memory and reads older ones from disk on the rare occasions something needs them, such as a
+peer syncing from the start or a lookup of an old block.
 
 ## Upgrading during testnet
 

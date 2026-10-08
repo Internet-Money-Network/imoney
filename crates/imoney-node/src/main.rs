@@ -154,7 +154,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let r = ledger.read().await;
         println!(
             "[+] Persistent ledger active: {} blocks loaded | Blue Score: {}",
-            r.blocks.len(),
+            r.block_count(),
             r.virtual_blue_score
         );
     }

@@ -112,10 +112,10 @@ fn assert_history_adds_up(ledger: &DagLedger, address: &Address) {
 /// Rewards exist for every block in the virtual block's past that was merged as blue.
 fn expected_supply(ledger: &DagLedger) -> u128 {
     let mut total = 0u128;
-    let mut data = &ledger.virtual_ghostdag;
+    let mut data = ledger.virtual_ghostdag.clone();
     loop {
         for blue in &data.mergeset_blues {
-            let header = &ledger.blocks[blue];
+            let header = ledger.header(blue).expect("a merged block is stored");
             if !header.parents.is_empty() {
                 total += block_subsidy_atoms(header.daa_score) as u128;
             }
@@ -123,7 +123,7 @@ fn expected_supply(ledger: &DagLedger) -> u128 {
         if data.is_genesis() {
             return total;
         }
-        data = &ledger.dag.get(&data.selected_parent).ghostdag;
+        data = ledger.dag.get(&data.selected_parent).ghostdag.clone();
     }
 }
 
@@ -1107,4 +1107,135 @@ fn compression_ratio() {
         let packed = zstd::bulk::compress(&bytes, level).unwrap();
         println!("level {:>2}: {} -> {} bytes ({:.1}% saved)", level, bytes.len(), packed.len(), 100.0 * (1.0 - packed.len() as f64 / bytes.len() as f64));
     }
+}
+
+#[test]
+fn old_blocks_leave_memory_and_every_rule_still_sees_them() {
+    const KEEP: u64 = 8;
+    let pow = test_pow();
+    let miner = address_of(&key(210));
+    let rival_miner = address_of(&key(211));
+    let path = fresh_db("memory-small");
+    let mut params = test_params();
+    // Finality and pruning both reach further back than the eight levels held in memory
+    params.finality_depth = 5;
+
+    // Two nodes are fed the same blocks; one of them keeps almost nothing in memory
+    let mut small = DagLedger::open_with_memory(&path, None, params.clone(), KEEP).unwrap();
+    let mut full = DagLedger::open_with_params(fresh_db("memory-full"), None, params.clone()).unwrap();
+    let mut all: Vec<Block> = Vec::new();
+    for round in 0..60 {
+        let template = small.get_mining_template(Some(&miner)).block;
+        let mut found = Vec::new();
+        if round % 7 == 3 {
+            // Two miners find a block at once
+            found.push(mine_on(&small, &pow, &template.header.parents, &rival_miner, Vec::new()));
+        }
+        found.push(solve(template, &pow));
+        for block in found {
+            small.add_block(block.clone(), &pow).unwrap();
+            full.add_block(block.clone(), &pow).unwrap();
+            all.push(block);
+        }
+    }
+    let agree = |a: &DagLedger, b: &DagLedger| {
+        assert_eq!(a.virtual_selected_parent, b.virtual_selected_parent);
+        assert_eq!(a.virtual_parents, b.virtual_parents);
+        assert_eq!(a.virtual_blue_score, b.virtual_blue_score);
+        assert_eq!(a.virtual_daa_score, b.virtual_daa_score);
+        assert_eq!(a.finality_point(), b.finality_point());
+        assert_eq!(a.pruned_floor, b.pruned_floor);
+        assert_eq!(a.storage.total_utxo_atoms().unwrap(), b.storage.total_utxo_atoms().unwrap());
+    };
+    agree(&small, &full);
+
+    // Only the recent blocks are in memory, and every block is still known
+    assert_eq!(full.dag.len(), all.len() + 1);
+    assert!(small.dag.len() <= 2 * KEEP as usize, "{} blocks in memory", small.dag.len());
+    assert_eq!(small.blocks.len(), small.dag.len());
+    assert_eq!(small.block_count(), all.len() as u64 + 1);
+    assert_eq!(small.get_info().total_blocks, all.len() + 1);
+    let oldest = &all[0];
+    assert!(!small.dag.holds(&oldest.hash()));
+    assert!(small.has_block(&oldest.hash()));
+    assert_eq!(small.header(&oldest.hash()), Some(oldest.header.clone()));
+    assert!(!small.has_block(&Hash([7u8; 32])));
+    assert!(matches!(small.add_block(oldest.clone(), &pow), Err(StateError::BlockAlreadyExists(_))));
+    assert_eq!(small.storage.total_utxo_atoms().unwrap(), expected_supply(&small));
+
+    // A stray block built on a parent that left memory is judged the same by both
+    let stray = mine_on(&small, &pow, &[all[1].hash()], &rival_miner, Vec::new());
+    small.add_block(stray.clone(), &pow).unwrap();
+    full.add_block(stray.clone(), &pow).unwrap();
+    all.push(stray.clone());
+    let tip = small.virtual_selected_parent;
+    assert!(small.build_block(&[tip, stray.hash()], Some(&miner), Vec::new()).is_err());
+    assert!(full.build_block(&[tip, stray.hash()], Some(&miner), Vec::new()).is_err());
+    agree(&small, &full);
+
+    // The locator stays short and still ends at genesis; an old shared block is still found
+    let locator = small.locator();
+    assert_eq!(locator.first(), Some(&small.virtual_selected_parent));
+    assert_eq!(locator.last(), Some(&small.genesis_hash));
+    assert!(locator.len() < 20, "{}", locator.len());
+    assert!(small.sync_start_level(&[Hash([9u8; 32]), all[5].hash()]) > 0);
+
+    // A new node syncs the whole chain from the node that holds little of it in memory
+    let mut joiner = DagLedger::open_with_params(fresh_db("memory-joiner"), None, params.clone()).unwrap();
+    let mut cursor = (0, Hash([0xff; 32]));
+    loop {
+        let (blocks, next) = small.blocks_after(cursor, 7, usize::MAX).unwrap();
+        for block in blocks {
+            joiner.add_block(block, &pow).unwrap();
+        }
+        match next {
+            Some(position) => cursor = position,
+            None => break,
+        }
+    }
+    assert_eq!(joiner.block_count(), small.block_count());
+    agree(&joiner, &full);
+
+    // Restarting loads only the recent blocks, and the node carries on, pruning as it goes
+    drop(small);
+    let mut small = DagLedger::open_with_memory(&path, None, params, KEEP).unwrap();
+    assert!(small.dag.len() <= 2 * KEEP as usize, "{} blocks in memory", small.dag.len());
+    assert_eq!(small.block_count(), all.len() as u64 + 1);
+    agree(&small, &full);
+    small.enable_pruning(10).unwrap();
+    full.enable_pruning(10).unwrap();
+    agree(&small, &full);
+    for _ in 0..15 {
+        let block = solve(small.get_mining_template(Some(&miner)).block, &pow);
+        small.add_block(block.clone(), &pow).unwrap();
+        full.add_block(block, &pow).unwrap();
+    }
+    agree(&small, &full);
+    assert!(small.pruned_floor > 40);
+    assert_supply_total_is_exact(&small);
+    assert_eq!(small.storage.total_utxo_atoms().unwrap(), expected_supply(&small));
+}
+
+#[test]
+fn a_database_from_before_the_level_index_gains_one_when_opened() {
+    let pow = test_pow();
+    let miner = address_of(&key(212));
+    let path = fresh_db("level-upgrade");
+    let (tip, blue_score) = {
+        let mut ledger = DagLedger::open_with_params(&path, None, test_params()).unwrap();
+        for _ in 0..12 {
+            mine_tip(&mut ledger, &pow, &miner);
+        }
+        ledger.storage.drop_level_index().unwrap();
+        (ledger.virtual_selected_parent, ledger.virtual_blue_score)
+    };
+
+    let mut reopened = DagLedger::open_with_params(&path, None, test_params()).unwrap();
+    assert_eq!(reopened.block_count(), 13);
+    assert_eq!(reopened.dag.len(), 13);
+    assert_eq!((reopened.virtual_selected_parent, reopened.virtual_blue_score), (tip, blue_score));
+    let (blocks, next) = reopened.blocks_after((0, Hash([0xff; 32])), 100, usize::MAX).unwrap();
+    assert_eq!((blocks.len(), next), (12, None));
+    mine_tip(&mut reopened, &pow, &miner);
+    assert_eq!(reopened.block_count(), 14);
 }
