@@ -8,7 +8,7 @@
 //! is loaded, the card is compared with the CPU on a set of nonces before any mining.
 
 use clap::Parser;
-use imoney_core::{Block, Hash};
+use imoney_core::Hash;
 use imoney_pow::target::compact_to_u256;
 use imoney_pow::{HallmarkPow, PowMode, PowParams};
 use opencl3::command_queue::CommandQueue;
@@ -104,7 +104,10 @@ struct Args {
 
 #[derive(Deserialize)]
 struct Template {
-    block: Block,
+    /// Kept as the node sent it and returned with only the nonce filled in, so the miner
+    /// does not need to understand the block's contents.
+    block: Value,
+    pre_pow_hash: Hash,
 }
 
 #[derive(Deserialize)]
@@ -652,8 +655,9 @@ fn mine(gpu: &mut GpuSearcher, pow: &HallmarkPow, node: &str, args: &Args, batch
             }
         };
         let mut block = template.block;
-        let pre_pow_hash = block.header.pre_pow_hash()?;
-        gpu.set_work(&pre_pow_hash, &compact_to_u256(block.header.bits))?;
+        let pre_pow_hash = template.pre_pow_hash;
+        let bits = block["header"]["bits"].as_u64().ok_or("the node's work has no difficulty")? as u32;
+        gpu.set_work(&pre_pow_hash, &compact_to_u256(bits))?;
 
         let fetched = Instant::now();
         let mut nonce = rand::random::<u64>();
@@ -663,7 +667,7 @@ fn mine(gpu: &mut GpuSearcher, pow: &HallmarkPow, node: &str, args: &Args, batch
             nonce = nonce.wrapping_add(batch as u64);
             hashes += batch as u64;
             for candidate in candidates {
-                if pow.verify(&pre_pow_hash, candidate, block.header.bits) {
+                if pow.verify(&pre_pow_hash, candidate, bits) {
                     found = Some(candidate);
                     break;
                 }
@@ -672,7 +676,7 @@ fn mine(gpu: &mut GpuSearcher, pow: &HallmarkPow, node: &str, args: &Args, batch
         }
 
         if let Some(nonce) = found {
-            block.header.nonce = nonce;
+            block["header"]["nonce"] = json!(nonce);
             let mut request = ureq::post(&submit_url);
             if let Some(token) = &args.rpc_token {
                 request = request.set("Authorization", &format!("Bearer {}", token));
@@ -685,7 +689,7 @@ fn mine(gpu: &mut GpuSearcher, pow: &HallmarkPow, node: &str, args: &Args, batch
                         println!(
                             "[+] Block accepted: {} | DAA score {} | {} found so far",
                             result.block_hash.unwrap_or_default(),
-                            block.header.daa_score,
+                            block["header"]["daa_score"],
                             blocks_found
                         );
                     }
