@@ -36,7 +36,7 @@
     .figures { display: grid; grid-template-columns: repeat(4, 1fr); border-bottom: 2px solid var(--rule); }
     .figure { padding: 24px 18px 20px; border-left: 1px solid var(--rule-soft); min-width: 0; }
     .figure:first-child { border-left: 0; padding-left: 0; }
-    .figure b { display: block; font-weight: 600; font-size: clamp(28px, 4vw, 44px); line-height: 1.1; margin-top: 6px; white-space: nowrap; }
+    .figure b { display: block; font-weight: 600; font-size: clamp(28px, 4vw, 44px); line-height: 1.1; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .figure small { font-size: 14px; font-weight: 400; color: var(--ink-soft); margin-left: 4px; }
     h2 { font-weight: 600; font-size: 22px; margin: 34px 0 12px; }
     dl { margin: 0; }
@@ -150,7 +150,8 @@
         $('hashrate').innerText = rate(s.hashrate_hps);
         $('miners').innerText = s.miners;
         $('blocks').innerText = s.blocks_found;
-        $('paid').innerText = imn(s.paid_atoms);
+        // Headline: whole coins only, so it fits its column; exact amounts are in the lists below
+        $('paid').innerHTML = Math.floor(s.paid_atoms / 1e8).toLocaleString('en-US') + '<small>IMN</small>';
         $('fee').innerText = s.fee_percent + '% of each block reward';
         $('minimum').innerText = imn(s.min_payout_atoms);
         $('maturing').innerText = s.blocks_maturing;
