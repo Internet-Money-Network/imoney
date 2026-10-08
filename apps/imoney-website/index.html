@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Internet Money (IMN)</title>
-  <meta name="description" content="Internet Money is an open-source proof-of-work BlockDAG currency built for payments. No premine, no developer fee. Testnet in development.">
+  <meta name="description" content="Internet Money is an open-source proof-of-work BlockDAG currency built for payments. No premine, no developer fee. A test network is running.">
   <link rel="canonical" href="https://internetmoneynetwork.org/">
   <meta property="og:title" content="Internet Money (IMN)">
   <meta property="og:description" content="A proof-of-work BlockDAG currency built for payments a shop can check for itself. No premine, no developer fee.">
@@ -449,41 +449,40 @@ client.openCheckoutModal({
       <section class="block" id="status">
         <div class="label"><span class="num">§5</span>Where it stands</div>
         <div class="body">
-          <h2>Not launched. Here is exactly how far along it is.</h2>
-          <p>There is no public network and no coin to buy. Anyone offering IMN for sale today is not us.</p>
+          <h2>A test network is running. Here is exactly how far along it is.</h2>
+          <p>The coins on the test network have no value and the chain can be restarted. There is no main network and no coin to buy. Anyone offering IMN for sale today is not us.</p>
           <div class="status" style="margin-top: 30px;">
             <div class="done">
               <h3><i></i>Works today</h3>
               <ul>
-                <li>Addresses and Ed25519 signatures</li>
-                <li>Blocks carrying transactions, with miner rewards</li>
-                <li>Node with on-disk storage and an HTTP / WebSocket API</li>
+                <li>A test network with nodes on three continents</li>
+                <li><a href="/explorer">Explorer</a> and <a href="/wallet">wallet</a> you can use from this site</li>
                 <li>GHOSTDAG ordering: nodes agree even when blocks conflict</li>
-                <li>Difficulty that adjusts itself to five-second blocks</li>
-                <li>Fees shared between the miner and the node that served the payment</li>
-                <li>Network sync, peer discovery and bans for misbehaving peers</li>
-                <li>Hallmark proof of work (FishHash), verified by nodes from a small cache</li>
-                <li>CPU miner that works for any node</li>
-                <li>Wallet that signs in your browser, with a recovery phrase</li>
+                <li>Hallmark proof of work (FishHash), mined with graphics cards</li>
+                <li>Difficulty that follows the hashrate within minutes</li>
+                <li>A <a href="/pool/">mining pool</a>, and a pool protocol for other miners</li>
                 <li>Invoice numbers with seen, in-a-block and final levels</li>
+                <li>Shared wallets that need several people to approve a payment</li>
+                <li>Fees shared between the miner and the node that served the payment</li>
                 <li>12-hour finality: older payments cannot be rewritten</li>
                 <li>Pruning, so a shop's node stays small</li>
-                <li>Explorer showing the live block graph</li>
+                <li><a href="https://github.com/Internet-Money-Network/imoney/releases">Downloads</a> for Windows, Linux and macOS</li>
               </ul>
             </div>
             <div class="doing">
               <h3><i></i>Being built</h3>
               <ul>
-                <li>Seed nodes for a public test network</li>
+                <li>A desktop app for the wallet and node</li>
                 <li>Keeping block headers out of memory</li>
+                <li>A faster graphics-card miner</li>
               </ul>
             </div>
             <div class="todo">
               <h3><i></i>Not started</h3>
               <ul>
-                <li>GPU miner</li>
-                <li>Public test network</li>
                 <li>Independent security review</li>
+                <li>Hardware-wallet support</li>
+                <li>Main network</li>
               </ul>
             </div>
           </div>

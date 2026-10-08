@@ -45,6 +45,38 @@ pub struct PoolRuntime {
     started: Instant,
 }
 
+/// Undoes URL percent-encoding: browsers send the `:` in an address as `%3A`.
+fn percent_decode(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let hex = (bytes[i] == b'%').then(|| text.get(i + 1..i + 3)).flatten();
+        match hex.and_then(|digits| u8::from_str_radix(digits, 16).ok()) {
+            Some(byte) => {
+                out.push(byte);
+                i += 3;
+            }
+            None => {
+                out.push(bytes[i]);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn addresses_arrive_percent_encoded() {
+        assert_eq!(super::percent_decode("imntest%3Aqq7d"), "imntest:qq7d");
+        assert_eq!(super::percent_decode("imntest:qq7d"), "imntest:qq7d");
+        assert_eq!(super::percent_decode("100%"), "100%");
+        assert_eq!(super::percent_decode("%zz%3a"), "%zz:");
+    }
+}
+
 /// The coin the ledger creates for a blue block's reward (the same rule the node applies).
 pub fn reward_tx_id(block_hash: &Hash) -> Hash {
     tagged_hash("IMN 2026 block reward", &[&block_hash.0])
@@ -318,9 +350,9 @@ impl PoolRuntime {
             let (status, kind, body) = match path.split('?').next().unwrap_or("/") {
                 "/" => ("200 OK", "text/html; charset=utf-8", POOL_PAGE.to_string()),
                 "/api/stats" => ("200 OK", "application/json", self.stats().to_string()),
-                other => match other.strip_prefix("/api/miner/") {
-                    Some(address) if Address::decode(address).is_ok() => {
-                        ("200 OK", "application/json", self.miner(address).to_string())
+                other => match other.strip_prefix("/api/miner/").map(percent_decode) {
+                    Some(address) if Address::decode(&address).is_ok() => {
+                        ("200 OK", "application/json", self.miner(&address).to_string())
                     }
                     _ => ("404 Not Found", "text/plain", "Not found".to_string()),
                 },
