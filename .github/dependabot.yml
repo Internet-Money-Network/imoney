@@ -1,16 +1,24 @@
+# One grouped pull request a month for each kind of dependency, instead of one per package.
 version: 2
 updates:
   - package-ecosystem: cargo
     directory: /
     schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
+      interval: monthly
+    groups:
+      rust:
+        patterns: ["*"]
   - package-ecosystem: npm
     directory: /packages/imoney-sdk
     schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
+      interval: monthly
+    groups:
+      sdk:
+        patterns: ["*"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
