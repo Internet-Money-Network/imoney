@@ -11,42 +11,54 @@
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://internetmoneynetwork.org/">
   <meta property="og:image" content="https://internetmoneynetwork.org/banner.png">
-  <meta name="theme-color" content="#f3efe6" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#0f1115" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#0f2e23" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#06140f" media="(prefers-color-scheme: dark)">
   <link rel="icon" type="image/svg+xml" href="icon.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
+    /* Banknote: engraver's green on note paper, a band across the head of the page,
+       wave-line borders as on printed money. The explorer and wallet share it. */
     :root {
-      --paper: #f3efe6;
-      --paper-raised: #fbf9f3;
-      --ink: #14130f;
-      --ink-soft: #5f5a4e;
-      --rule: #14130f;
-      --rule-soft: #cfc8b8;
-      --accent: #0a7d45;
-      --dot: #00c263;
-      --code-bg: #14130f;
-      --code-ink: #ebe6d9;
-      --code-dim: #8f897a;
-      --serif: "Instrument Serif", "Iowan Old Style", Georgia, serif;
-      --sans: "IBM Plex Sans", "Segoe UI", Helvetica, Arial, sans-serif;
-      --mono: "IBM Plex Mono", "Cascadia Mono", Consolas, monospace;
+      --paper: #eef0e6;
+      --paper-raised: #f6f7ef;
+      --ink: #0f2e23;
+      --ink-soft: #3d6652;
+      --rule: #0f2e23;
+      --rule-soft: #a9b89a;
+      --accent: #0b7a4b;
+      --dot: #6fe0a6;
+      --band: #0f2e23;
+      --band-ink: #eef0e6;
+      --band-soft: #b9c9a4;
+      --wave: #1f5a43;
+      --wave-bed: #dfe5d2;
+      --code-bg: #0f2e23;
+      --code-ink: #eef0e6;
+      --code-dim: #9db39a;
+      --serif: "Fraunces", "Iowan Old Style", Georgia, serif;
+      --sans: "Fraunces", "Iowan Old Style", Georgia, serif;
+      --mono: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
     }
     @media (prefers-color-scheme: dark) {
       :root {
-        --paper: #0f1115;
-        --paper-raised: #171a20;
-        --ink: #ece8dd;
-        --ink-soft: #9a9588;
-        --rule: #ece8dd;
-        --rule-soft: #2c3038;
-        --accent: #00e575;
-        --dot: #00e575;
-        --code-bg: #07080a;
-        --code-ink: #ece8dd;
-        --code-dim: #7d7a70;
+        --paper: #0b1f18;
+        --paper-raised: #12291f;
+        --ink: #e9eddc;
+        --ink-soft: #9db39a;
+        --rule: #e9eddc;
+        --rule-soft: #2c4a3b;
+        --accent: #6fe0a6;
+        --dot: #6fe0a6;
+        --band: #06140f;
+        --band-ink: #e9eddc;
+        --band-soft: #9db39a;
+        --wave: #3f7a5f;
+        --wave-bed: #0e261d;
+        --code-bg: #06140f;
+        --code-ink: #e9eddc;
+        --code-dim: #7f9a84;
       }
     }
 
@@ -67,14 +79,17 @@
     .wrap { max-width: 1180px; margin: 0 auto; padding: 0 28px; }
 
     /* Masthead */
-    .masthead { display: flex; align-items: center; justify-content: space-between; padding: 18px 0; gap: 16px; }
-    .wordmark { display: flex; align-items: center; gap: 11px; text-decoration: none; font-weight: 600; letter-spacing: -0.01em; }
+    .band { background: var(--band); color: var(--band-ink); }
+    .guilloche { display: block; color: var(--wave); background: var(--wave-bed); }
+    .masthead { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; padding: 16px 0; gap: 10px 16px; }
+    .wordmark { display: flex; align-items: center; gap: 12px; text-decoration: none; font-size: 24px; line-height: 1; color: var(--band-ink); }
+    .wordmark:hover { color: var(--band-ink); }
     .wordmark svg { width: 30px; height: 30px; display: block; }
-    .masthead nav { display: flex; gap: 22px; font-family: var(--mono); font-size: 13px; }
-    .masthead nav a { text-decoration: none; }
-    .masthead nav a:hover { text-decoration: underline; }
+    .masthead nav { display: flex; gap: 22px; font-family: var(--mono); font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; }
+    .masthead nav a { text-decoration: none; color: var(--band-soft); }
+    .masthead nav a:hover { color: var(--band-ink); }
     .strapline {
-      border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule);
+      border-bottom: 1px solid var(--rule);
       font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase;
       display: flex; flex-wrap: wrap; gap: 6px 26px; padding: 9px 0;
     }
@@ -86,15 +101,15 @@
     /* Hero */
     .hero { display: grid; grid-template-columns: 7fr 5fr; gap: 56px; padding: 72px 0 84px; align-items: start; }
     h1 {
-      font-family: var(--serif); font-weight: 400; font-size: clamp(46px, 7.2vw, 96px);
-      line-height: 0.98; letter-spacing: -0.02em; margin: 0 0 28px;
+      font-family: var(--serif); font-weight: 600; font-size: clamp(42px, 6.4vw, 84px);
+      line-height: 1.0; letter-spacing: -0.02em; margin: 0 0 28px;
     }
-    h1 em { font-style: italic; color: var(--accent); }
+    h1 em { font-style: italic; font-weight: 400; color: var(--accent); }
     .lede { font-size: 20px; line-height: 1.5; max-width: 34em; margin: 0 0 30px; }
     .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 26px; }
     .button {
       display: inline-block; background: var(--ink); color: var(--paper); text-decoration: none;
-      padding: 13px 22px; font-weight: 500; font-size: 16px;
+      padding: 14px 22px; font-family: var(--mono); font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase;
     }
     .button:hover { background: var(--accent); color: var(--paper); }
     .textlink { font-family: var(--mono); font-size: 14px; }
@@ -131,7 +146,7 @@
     section.block > *, .split > *, .hero > * { min-width: 0; }
     .label { font-family: var(--mono); font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; }
     .label .num { display: block; color: var(--ink-soft); margin-bottom: 6px; }
-    h2 { font-family: var(--serif); font-weight: 400; font-size: clamp(32px, 4vw, 48px); line-height: 1.05; letter-spacing: -0.01em; margin: 0 0 22px; max-width: 18em; }
+    h2 { font-family: var(--serif); font-weight: 600; font-size: clamp(30px, 3.6vw, 44px); line-height: 1.05; letter-spacing: -0.01em; margin: 0 0 22px; max-width: 18em; }
     .body p { max-width: 40em; margin: 0 0 16px; }
     .body p.note { color: var(--ink-soft); font-size: 15px; }
 
@@ -147,7 +162,7 @@
     .arguments li { display: grid; grid-template-columns: 64px 1fr; gap: 0 12px; padding: 22px 0; border-top: 1px solid var(--rule-soft); counter-increment: arg; }
     .arguments li:first-child { border-top: 0; padding-top: 0; }
     .arguments li::before { content: counter(arg, decimal-leading-zero); font-family: var(--mono); font-size: 13px; color: var(--ink-soft); padding-top: 9px; }
-    .arguments h3 { font-family: var(--serif); font-weight: 400; font-size: 28px; line-height: 1.15; margin: 0 0 8px; }
+    .arguments h3 { font-family: var(--serif); font-weight: 600; font-size: 25px; line-height: 1.15; margin: 0 0 8px; }
     .arguments p { margin: 0; max-width: 38em; }
 
     /* Code */
@@ -157,7 +172,7 @@
       font-family: var(--mono); font-size: 13px; line-height: 1.65; overflow-x: auto;
     }
     pre .c { color: var(--code-dim); }
-    pre .s { color: #7fdca6; }
+    pre .s { color: #6fe0a6; }
     .filetab { font-family: var(--mono); font-size: 12px; background: var(--code-bg); color: var(--code-dim); padding: 10px 22px 0; display: flex; justify-content: space-between; }
     ul.plain { list-style: none; padding: 0; margin: 20px 0 0; }
     ul.plain li { padding: 10px 0 10px 22px; border-top: 1px solid var(--rule-soft); position: relative; }
@@ -209,28 +224,40 @@
   </style>
 </head>
 <body>
+  <div class="band">
+    <div class="wrap">
+      <header class="masthead">
+        <a class="wordmark" href="/">
+          <svg viewBox="0 0 512 512" aria-hidden="true">
+            <rect width="512" height="512" fill="#eef0e6"/>
+            <rect x="30" y="30" width="452" height="452" fill="none" stroke="#3d6652" stroke-width="5"/>
+            <rect x="86" y="128" width="56" height="256" fill="#0f2e23"/>
+            <path d="M182 384 L182 232 L242 128 L298 128 L238 232 L238 384 Z" fill="#0f2e23"/>
+            <path d="M310 384 L310 232 L370 128 L426 128 L366 232 L366 384 Z" fill="#0f2e23"/>
+            <circle cx="114" cy="94" r="16" fill="#0b7a4b"/>
+          </svg>
+          Internet Money
+        </a>
+        <nav>
+          <a class="optional" href="#why">Why</a>
+          <a class="optional" href="#merchants">Merchants</a>
+          <a class="optional" href="#supply">Supply</a>
+          <a href="#status">Status</a>
+          <a href="https://github.com/Internet-Money-Network/imoney">GitHub</a>
+        </nav>
+      </header>
+    </div>
+  </div>
+  <svg class="guilloche" height="14" width="100%" aria-hidden="true">
+    <defs>
+      <pattern id="guilloche-wave" width="34" height="14" patternUnits="userSpaceOnUse">
+        <path d="M0 7 Q8.5 -3 17 7 T34 7" fill="none" stroke="currentColor" stroke-width="1"/>
+        <path d="M0 7 Q8.5 17 17 7 T34 7" fill="none" stroke="currentColor" stroke-width="1"/>
+      </pattern>
+    </defs>
+    <rect width="100%" height="14" fill="url(#guilloche-wave)"/>
+  </svg>
   <div class="wrap">
-    <header class="masthead">
-      <a class="wordmark" href="/">
-        <svg viewBox="0 0 512 512" aria-hidden="true">
-          <rect width="512" height="512" rx="128" fill="#0f1115"/>
-          <g fill="#f0f2f5">
-            <rect x="116" y="128" width="56" height="256" rx="12"/>
-            <path d="M212 384V232l60-104h56l-60 104v152z"/>
-            <path d="M340 384V232l60-104h56l-60 104v152z"/>
-          </g>
-          <circle cx="144" cy="100" r="16" fill="#00e575"/>
-        </svg>
-        Internet Money
-      </a>
-      <nav>
-        <a class="optional" href="#why">Why</a>
-        <a class="optional" href="#merchants">Merchants</a>
-        <a class="optional" href="#supply">Supply</a>
-        <a href="#status">Status</a>
-        <a href="https://github.com/Internet-Money-Network/imoney">GitHub</a>
-      </nav>
-    </header>
     <div class="strapline">
       <span class="live">Testnet in development</span>
       <span>Ticker IMN</span>
