@@ -3,7 +3,7 @@
  * Plugin Name: Internet Money (IMN) Payments for WooCommerce
  * Plugin URI: https://internetmoneynetwork.org
  * Description: Accept Internet Money (IMN) payments straight to your own address. Each order gets its own invoice number, and your own node confirms the payment on the server. No intermediary holds the money.
- * Version: 2.1.0
+ * Version: 2.2.0
  * Author: Internet Money Network Developers
  * Author URI: https://github.com/Internet-Money-Network
  * License: MIT OR Apache-2.0
@@ -132,7 +132,7 @@ function imoney_register_blocks_support() {
                 'imoney-blocks',
                 plugins_url('blocks.js', __FILE__),
                 array('wc-blocks-registry', 'wc-settings', 'wp-element', 'wp-html-entities'),
-                '2.1.0',
+                '2.2.0',
                 true
             );
             return array('imoney-blocks');
@@ -309,7 +309,7 @@ function imoney_payments_init_gateway_class() {
             // Check with the node now, in case the payment has already arrived
             $state = imoney_check_order($order);
             if ($state['paid']) {
-                echo '<p style="color: #238636; font-size: 16px; font-weight: bold;">' . esc_html__('Payment received. Thank you!', 'imoney-payments') . '</p>';
+                echo '<p style="color: #0b7a4b; font-size: 16px; font-weight: bold;">' . esc_html__('Payment received. Thank you!', 'imoney-payments') . '</p>';
                 return;
             }
 
@@ -335,15 +335,24 @@ function imoney_payments_init_gateway_class() {
                 ),
             );
             ?>
-            <div id="imoney-checkout-container" style="margin: 20px 0; padding: 20px; background: #0d1117; color: #f0f6fc; border-radius: 8px; border: 1px solid #30363d; max-width: 520px;">
-                <h3 style="color: #58a6ff; margin-top: 0;"><?php esc_html_e('Pay with Internet Money', 'imoney-payments'); ?></h3>
-                <p style="font-size: 22px; font-weight: bold; color: #39d353; margin: 0 0 4px;"><?php echo esc_html($amount_imn); ?> IMN</p>
-                <p style="font-size: 12px; color: #8b949e; margin: 0 0 14px;"><?php echo esc_html(sprintf(__('Invoice %s', 'imoney-payments'), $invoice_id)); ?></p>
-                <div id="imoney-qr" style="background: #fff; padding: 10px; width: 200px; height: 200px; box-sizing: border-box; border-radius: 8px; margin-bottom: 14px;"></div>
-                <p style="font-size: 12px; color: #8b949e; margin: 0 0 4px;"><?php esc_html_e('Scan the code with your IMN wallet, or paste this payment request into it. It includes the invoice number, which is how we match your payment to this order.', 'imoney-payments'); ?></p>
-                <code id="imoney-uri" style="display: block; word-break: break-all; background: #161b22; color: #79c0ff; padding: 8px; border-radius: 6px; font-size: 12px;"><?php echo esc_html($payment_uri); ?></code>
-                <button type="button" id="imoney-copy" style="margin-top: 8px; background: #21262d; color: #c9d1d9; border: 1px solid #30363d; border-radius: 4px; padding: 4px 10px; cursor: pointer;"><?php esc_html_e('Copy', 'imoney-payments'); ?></button>
-                <p id="imoney-status" role="status" style="margin: 14px 0 0; color: #e3b341; font-weight: bold;"><?php esc_html_e('Waiting for your payment…', 'imoney-payments'); ?></p>
+            <div id="imoney-checkout-container" style="margin: 20px 0; background: #f6f7ef; color: #0f2e23; border: 2px solid #0f2e23; max-width: 520px;">
+                <div style="background: #0f2e23; color: #eef0e6; padding: 12px 16px; display: flex; align-items: center; gap: 10px; font-family: Georgia, 'Times New Roman', serif; font-size: 17px;">
+                    <svg viewBox="0 0 512 512" width="22" height="22" aria-hidden="true"><rect width="512" height="512" fill="#eef0e6"/><rect x="86" y="128" width="56" height="256" fill="#0f2e23"/><path d="M182 384V232l60-104h56l-60 104v152z" fill="#0f2e23"/><path d="M310 384V232l60-104h56l-60 104v152z" fill="#0f2e23"/><circle cx="114" cy="94" r="16" fill="#0b7a4b"/></svg>
+                    <?php esc_html_e('Pay with Internet Money', 'imoney-payments'); ?>
+                </div>
+                <div style="padding: 18px 20px 20px;">
+                    <div style="border: 2px solid #0f2e23; padding: 3px; margin: 0 0 16px; max-width: 320px;">
+                        <div style="border: 1px solid #0f2e23; padding: 12px 14px 10px;">
+                            <p style="font-family: Georgia, 'Times New Roman', serif; font-size: 30px; font-weight: bold; line-height: 1.15; color: #0f2e23; margin: 0 0 4px;"><?php echo esc_html($amount_imn); ?> IMN</p>
+                            <p style="font-family: ui-monospace, Consolas, Menlo, monospace; font-size: 12px; color: #3d6652; margin: 0;"><?php echo esc_html(sprintf(__('Invoice %s', 'imoney-payments'), $invoice_id)); ?></p>
+                        </div>
+                    </div>
+                    <div id="imoney-qr" style="background: #fff; border: 1px solid #0f2e23; padding: 8px; width: 200px; height: 200px; box-sizing: border-box; margin-bottom: 14px;"></div>
+                    <p style="font-size: 13px; color: #3d6652; margin: 0 0 6px;"><?php esc_html_e('Scan the code with your IMN wallet, or paste this payment request into it. It includes the invoice number, which is how we match your payment to this order.', 'imoney-payments'); ?></p>
+                    <code id="imoney-uri" style="display: block; word-break: break-all; background: #e9edde; color: #0f2e23; border: 1px solid #a9b89a; padding: 8px 10px; font-size: 12px;"><?php echo esc_html($payment_uri); ?></code>
+                    <button type="button" id="imoney-copy" style="margin-top: 8px; background: none; color: #0f2e23; border: 1px solid #0f2e23; border-radius: 0; padding: 5px 12px; cursor: pointer; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase;"><?php esc_html_e('Copy', 'imoney-payments'); ?></button>
+                    <p id="imoney-status" role="status" style="margin: 16px 0 0; color: #3d6652; font-weight: bold;"><?php esc_html_e('Waiting for your payment…', 'imoney-payments'); ?></p>
+                </div>
             </div>
 
             <script src="<?php echo esc_url(plugins_url('imoney.js', __FILE__)); ?>"></script>
@@ -369,12 +378,13 @@ function imoney_payments_init_gateway_class() {
                         .then(function (response) { return response.json(); })
                         .then(function (state) {
                             if (state.paid) {
-                                statusEl.style.color = '#39d353';
+                                statusEl.style.color = '#0b7a4b';
                                 statusEl.textContent = config.texts.paid;
                                 setTimeout(function () { window.location.reload(); }, 1500);
                                 return;
                             }
                             if (state.seen) {
+                                statusEl.style.color = '#94580a';
                                 statusEl.textContent = state.network_alert
                                     ? config.texts.alert
                                     : (state.included ? config.texts.included : config.texts.seen);

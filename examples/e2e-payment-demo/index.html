@@ -3,134 +3,113 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Internet Money (IMN) - 1-Click Merchant Checkout Demo</title>
+  <title>Internet Money Checkout Demo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: #090d13;
-      color: #c9d1d9;
-      margin: 0;
-      padding: 40px 20px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
+    /* Banknote, as in the explorer and the wallet */
+    :root {
+      --paper: #eef0e6; --paper-raised: #e3e8d7; --ink: #0f2e23; --ink-soft: #3d6652; --rule: #0f2e23; --rule-soft: #a9b89a;
+      --accent: #0b7a4b; --negative: #9b2c1f; --band: #0f2e23; --band-ink: #eef0e6; --band-soft: #b9c9a4; --wave: #1f5a43; --wave-bed: #dfe5d2;
+      --serif: "Fraunces", "Iowan Old Style", Georgia, serif;
+      --mono: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
     }
-    .container {
-      max-width: 680px;
-      width: 100%;
-      background: #161b22;
-      border: 1px solid #30363d;
-      border-radius: 12px;
-      padding: 32px;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --paper: #0b1f18; --paper-raised: #12291f; --ink: #e9eddc; --ink-soft: #9db39a; --rule: #e9eddc; --rule-soft: #2c4a3b;
+        --accent: #6fe0a6; --negative: #ff8a7a; --band: #06140f; --band-ink: #e9eddc; --band-soft: #9db39a; --wave: #3f7a5f; --wave-bed: #0e261d;
+      }
     }
-    h1 {
-      color: #58a6ff;
-      margin-top: 0;
-      display: flex;
-      align-items: center;
-      gap: 10px;
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--serif); font-size: 15px; line-height: 1.5; }
+    a { color: inherit; text-underline-offset: 3px; }
+    .band { background: var(--band); color: var(--band-ink); }
+    .masthead { max-width: 680px; margin: 0 auto; padding: 16px 18px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .brand svg { width: 30px; height: 30px; flex: none; }
+    .brand h1 { margin: 0; font-weight: 400; font-size: 24px; line-height: 1; }
+    .brand h1 em { color: var(--band-soft); }
+    .badge { font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em; color: var(--band-soft); border: 1px solid var(--band-soft); padding: 4px 10px; }
+    .guilloche { display: block; color: var(--wave); background: var(--wave-bed); }
+    .container { max-width: 680px; margin: 0 auto; padding: 0 18px 56px; }
+    .lede { font-size: 20px; line-height: 1.35; margin: 30px 0 22px; }
+    code { font-family: var(--mono); font-size: 0.88em; }
+    label { display: block; font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-soft); margin-bottom: 6px; }
+    .product-card { border: 2px solid var(--rule); padding: 18px 20px; margin: 0 0 22px; display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+    .product-card h3 { margin: 0 0 4px; font-weight: 600; font-size: 20px; }
+    .product-card p { margin: 0; color: var(--ink-soft); font-size: 14px; }
+    .price { font-weight: 600; font-size: 30px; line-height: 1.1; white-space: nowrap; }
+    input {
+      width: 100%; margin-bottom: 14px; padding: 11px 12px; background: var(--paper-raised); color: var(--ink);
+      border: 1px solid var(--rule-soft); border-radius: 0; font-family: var(--mono); font-size: 13px;
     }
-    .badge {
-      background: #238636;
-      color: white;
-      font-size: 12px;
-      padding: 4px 8px;
-      border-radius: 4px;
-      font-weight: bold;
-    }
-    .product-card {
-      background: #0d1117;
-      border: 1px solid #21262d;
-      border-radius: 8px;
-      padding: 20px;
-      margin: 20px 0;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-    .price {
-      font-size: 24px;
-      font-weight: bold;
-      color: #39d353;
-    }
+    input:focus { outline: none; border-color: var(--rule); }
     .btn {
-      background: #238636;
-      color: white;
-      border: none;
-      border-radius: 6px;
-      padding: 12px 24px;
-      font-size: 16px;
-      font-weight: bold;
-      cursor: pointer;
-      transition: background 0.2s;
+      width: 100%; background: var(--ink); color: var(--paper); border: 1px solid var(--ink); border-radius: 0; padding: 14px;
+      font-family: var(--mono); font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; cursor: pointer;
     }
-    .btn:hover {
-      background: #2ea043;
-    }
-    .specs {
-      font-size: 13px;
-      color: #8b949e;
-      line-height: 1.6;
-      border-top: 1px solid #21262d;
-      padding-top: 16px;
-    }
-    .code-box {
-      background: #05070a;
-      border: 1px solid #21262d;
-      border-radius: 6px;
-      padding: 12px;
-      font-family: monospace;
-      font-size: 12px;
-      color: #79c0ff;
-      margin-top: 16px;
-    }
-    #receipt {
-      display: none;
-      margin-top: 20px;
-      padding: 16px;
-      background: #0d2218;
-      border: 1px solid #238636;
-      border-radius: 8px;
-      color: #39d353;
-    }
+    .btn:hover { background: var(--accent); border-color: var(--accent); }
+    #receipt { display: none; margin-top: 18px; padding: 14px 16px; border: 1px solid var(--accent); color: var(--accent); }
+    #receipt h3 { margin: 0 0 4px; font-weight: 600; font-size: 18px; }
+    .code-box { background: var(--band); color: var(--band-ink); padding: 16px 18px; font-family: var(--mono); font-size: 12.5px; line-height: 1.6; margin-top: 30px; overflow-x: auto; white-space: nowrap; }
+    .specs { margin: 26px 0 0; padding: 0; list-style: none; font-size: 14.5px; }
+    .specs li { padding: 9px 0; border-bottom: 1px solid var(--rule-soft); }
+    .specs li:first-child { border-top: 1px solid var(--rule); }
   </style>
 </head>
 <body>
 
+  <div class="band">
+    <div class="masthead">
+      <div class="brand">
+        <svg viewBox="0 0 512 512" aria-hidden="true">
+          <rect width="512" height="512" fill="#eef0e6"/>
+          <rect x="30" y="30" width="452" height="452" fill="none" stroke="#3d6652" stroke-width="5"/>
+          <rect x="86" y="128" width="56" height="256" fill="#0f2e23"/>
+          <path d="M182 384 L182 232 L242 128 L298 128 L238 232 L238 384 Z" fill="#0f2e23"/>
+          <path d="M310 384 L310 232 L370 128 L426 128 L366 232 L366 384 Z" fill="#0f2e23"/>
+          <circle cx="114" cy="94" r="16" fill="#0b7a4b"/>
+        </svg>
+        <h1>Internet Money <em>Checkout demo</em></h1>
+      </div>
+      <span class="badge">TESTNET</span>
+    </div>
+  </div>
+  <svg class="guilloche" height="14" width="100%" aria-hidden="true">
+    <defs>
+      <pattern id="guilloche-wave" width="34" height="14" patternUnits="userSpaceOnUse">
+        <path d="M0 7 Q8.5 -3 17 7 T34 7" fill="none" stroke="currentColor" stroke-width="1"/>
+        <path d="M0 7 Q8.5 17 17 7 T34 7" fill="none" stroke="currentColor" stroke-width="1"/>
+      </pattern>
+    </defs>
+    <rect width="100%" height="14" fill="url(#guilloche-wave)"/>
+  </svg>
+
   <div class="container">
-    <h1>
-      ⚡ Web Store Checkout
-      <span class="badge">TESTNET-1</span>
-    </h1>
-    <p style="color: #8b949e; margin-bottom: 24px;">
+    <p class="lede">
       A shop page taking one payment with <code>@imoney/sdk</code>: an invoice number per order, matched by your own node.
     </p>
 
     <div class="product-card">
       <div>
-        <h3 style="margin: 0 0 6px 0; color: #f0f6fc;">Hardware Miner T-Shirt</h3>
-        <p style="margin: 0; color: #8b949e; font-size: 13px;">Official 100% cotton tee</p>
+        <h3>Hardware Miner T-Shirt</h3>
+        <p>Official 100% cotton tee</p>
       </div>
       <div style="text-align: right;">
         <div class="price">2.50 IMN</div>
-        <div style="font-size: 11px; color: #8b949e;">≈ $2.50 USD • No Intermediary Fees</div>
+        <p>no intermediary fees</p>
       </div>
     </div>
 
-    <label for="merchant-address" style="display: block; font-size: 13px; color: #8b949e; margin-bottom: 6px;">
-      The shop's receiving address (create one in the wallet at <code>/wallet</code>):
-    </label>
-    <input type="text" id="merchant-address" placeholder="imntest:q..." spellcheck="false" autocomplete="off"
-           style="width: 100%; box-sizing: border-box; margin-bottom: 14px; padding: 10px; background: #0d1117; color: #c9d1d9; border: 1px solid #30363d; border-radius: 6px; font-family: monospace; font-size: 12px;" />
+    <label for="merchant-address">The shop's receiving address (create one in the <a href="/wallet">wallet</a>)</label>
+    <input type="text" id="merchant-address" placeholder="imntest:q..." spellcheck="false" autocomplete="off" />
 
-    <button id="pay-btn" class="btn" style="width: 100%;">
-      ⚡ Pay 2.50 IMN with Internet Money
-    </button>
+    <button id="pay-btn" class="btn">Pay 2.50 IMN with Internet Money</button>
 
     <div id="receipt">
-      <h3 style="margin: 0 0 8px 0;">Payment received</h3>
-      <p style="margin: 0; font-size: 14px;" id="receipt-text"></p>
+      <h3>Payment received</h3>
+      <p style="margin: 0;" id="receipt-text"></p>
     </div>
 
     <div class="code-box">
@@ -139,12 +118,12 @@
       &nbsp;&nbsp;invoiceId: "ORDER-1042", level: "included", onSuccess: markOrderPaid });
     </div>
 
-    <div class="specs">
-      • <b>Matched by invoice number</b>: only a payment naming this order's invoice counts<br>
-      • <b>Three levels</b>: seen (under a second), in a block (~5 seconds), final<br>
-      • <b>No intermediary</b>: funds go straight to your own address<br>
-      • For real orders, confirm on your server too: a browser page can be tampered with
-    </div>
+    <ul class="specs">
+      <li><b>Matched by invoice number.</b> Only a payment naming this order's invoice counts.</li>
+      <li><b>Three levels.</b> Seen (under a second), in a block (about 5 seconds), final.</li>
+      <li><b>No intermediary.</b> Funds go straight to your own address.</li>
+      <li>For real orders, confirm on your server too: a browser page can be tampered with.</li>
+    </ul>
   </div>
 
   <script>
@@ -169,10 +148,10 @@
       const merchantAddress = addressInput.value.trim();
       if (!/^imn(test)?:q[a-z0-9]{20,}$/.test(merchantAddress)) {
         addressInput.focus();
-        addressInput.style.borderColor = '#f85149';
+        addressInput.style.borderColor = 'var(--negative)';
         return;
       }
-      addressInput.style.borderColor = '#30363d';
+      addressInput.style.borderColor = '';
       try {
         localStorage.setItem('imoney_demo_shop_address', merchantAddress);
       } catch {
@@ -190,8 +169,7 @@
         onSuccess: (payment) => {
           receiptBox.style.display = 'block';
           receiptText.innerText = `Received ${payment.imn} IMN for invoice ${payment.invoiceId}. The payment is in a block.`;
-          payBtn.innerText = '✓ Paid';
-          payBtn.style.background = '#1f6feb';
+          payBtn.innerText = 'Paid';
         },
         onSeen: () => {
           payBtn.innerText = 'Payment seen, waiting for a block…';

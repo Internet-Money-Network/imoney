@@ -1930,31 +1930,43 @@ var IMoneyClient = class {
     overlay.id = "imoney-modal-overlay";
     overlay.setAttribute(
       "style",
-      'position: fixed; inset: 0; background: rgba(0,0,0,0.75); display: flex; align-items: center; justify-content: center; z-index: 999999; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;'
+      'position: fixed; inset: 0; background: rgba(8, 20, 15, 0.72); display: flex; align-items: center; justify-content: center; z-index: 999999; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;'
     );
+    const serif = "Georgia, 'Iowan Old Style', 'Times New Roman', serif";
+    const mono = "ui-monospace, 'Cascadia Mono', Consolas, Menlo, monospace";
+    const caps = `font-family: ${mono}; font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: #3d6652;`;
     overlay.innerHTML = `
-      <div style="background: #161b22; border: 1px solid #30363d; border-radius: 12px; width: 90%; max-width: 440px; max-height: 94vh; overflow-y: auto; padding: 24px; color: #f0f6fc; box-shadow: 0 10px 30px rgba(0,0,0,0.8); text-align: center; position: relative;">
-        <button data-imoney="close" aria-label="Close" style="position: absolute; top: 14px; right: 14px; background: none; border: none; color: #8b949e; font-size: 20px; cursor: pointer;">&times;</button>
-        <h2 style="margin: 0 0 4px; font-size: 20px; color: #58a6ff;">Pay with Internet Money</h2>
-        <p style="margin: 0 0 16px; color: #8b949e; font-size: 13px;">${escapeHtml(memo || "Scan with your IMN wallet, or copy the payment request")}</p>
-
-        <div style="background: #0d1117; border: 1px solid #21262d; border-radius: 8px; padding: 12px; margin-bottom: 16px;">
-          <div style="font-size: 12px; color: #8b949e;">Amount</div>
-          <div style="font-size: 26px; font-weight: bold; color: #39d353; margin: 4px 0;">${escapeHtml(invoice.amountImn)} IMN</div>
-          <div style="font-size: 11px; color: #8b949e;">Invoice ${escapeHtml(invoice.invoiceId)}</div>
+      <div style="background: #f6f7ef; border: 2px solid #0f2e23; width: 92%; max-width: 420px; max-height: 94vh; overflow-y: auto; color: #0f2e23; box-shadow: 0 18px 50px rgba(0,0,0,0.45); text-align: center; position: relative;">
+        <div style="background: #0f2e23; color: #eef0e6; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+          <span style="display: flex; align-items: center; gap: 10px; font-family: ${serif}; font-size: 17px;">
+            <svg viewBox="0 0 512 512" width="22" height="22" aria-hidden="true"><rect width="512" height="512" fill="#eef0e6"/><rect x="86" y="128" width="56" height="256" fill="#0f2e23"/><path d="M182 384V232l60-104h56l-60 104v152z" fill="#0f2e23"/><path d="M310 384V232l60-104h56l-60 104v152z" fill="#0f2e23"/><circle cx="114" cy="94" r="16" fill="#0b7a4b"/></svg>
+            Pay with Internet Money
+          </span>
+          <button data-imoney="close" aria-label="Close" style="background: none; border: 1px solid #b9c9a4; color: #eef0e6; font-family: ${mono}; font-size: 10.5px; letter-spacing: 0.12em; padding: 4px 8px; cursor: pointer;">CLOSE</button>
         </div>
+        <div style="padding: 18px 22px 20px;">
+          <p style="margin: 0 0 14px; color: #3d6652; font-size: 13.5px;">${escapeHtml(memo || "Scan with your IMN wallet, or copy the payment request")}</p>
 
-        <div style="background: white; border-radius: 8px; padding: 10px; display: inline-block; margin-bottom: 16px; width: 200px; height: 200px; box-sizing: border-box;">${qrSvg(invoice.uri)}</div>
-
-        <div style="margin-bottom: 16px; text-align: left;">
-          <label style="font-size: 11px; color: #8b949e; display: block; margin-bottom: 4px;">Payment request (includes the invoice number)</label>
-          <div style="background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 8px 10px; font-family: monospace; font-size: 11px; word-break: break-all; color: #79c0ff; display: flex; align-items: center; justify-content: space-between; gap: 6px;">
-            <span>${escapeHtml(invoice.uri)}</span>
-            <button data-imoney="copy" style="background: #21262d; border: 1px solid #30363d; color: #c9d1d9; border-radius: 4px; padding: 2px 6px; font-size: 10px; cursor: pointer; flex: none;">Copy</button>
+          <div style="border: 2px solid #0f2e23; padding: 3px; margin-bottom: 16px;">
+            <div style="border: 1px solid #0f2e23; padding: 12px 10px 10px;">
+              <div style="${caps}">Amount</div>
+              <div style="font-family: ${serif}; font-size: 32px; font-weight: bold; line-height: 1.15; margin: 4px 0;">${escapeHtml(invoice.amountImn)} IMN</div>
+              <div style="font-family: ${mono}; font-size: 11.5px; color: #3d6652;">Invoice ${escapeHtml(invoice.invoiceId)}</div>
+            </div>
           </div>
-        </div>
 
-        <div data-imoney="status" role="status" style="font-size: 13px; color: #db61a2; font-weight: 500;">Waiting for payment (<span data-imoney="countdown">${timeoutSeconds}</span>s)</div>
+          <div style="background: #ffffff; border: 1px solid #0f2e23; padding: 8px; display: inline-block; margin-bottom: 16px; width: 200px; height: 200px; box-sizing: border-box;">${qrSvg(invoice.uri)}</div>
+
+          <div style="margin-bottom: 16px; text-align: left;">
+            <label style="${caps} display: block; margin-bottom: 5px;">Payment request (includes the invoice number)</label>
+            <div style="background: #e9edde; border: 1px solid #a9b89a; padding: 8px 10px; font-family: ${mono}; font-size: 11.5px; word-break: break-all; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+              <span style="min-width: 0;">${escapeHtml(invoice.uri)}</span>
+              <button data-imoney="copy" style="background: none; border: 1px solid #0f2e23; color: #0f2e23; font-family: ${mono}; font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; padding: 3px 7px; cursor: pointer; flex: none;">Copy</button>
+            </div>
+          </div>
+
+          <div data-imoney="status" role="status" style="font-size: 14px; color: #3d6652; font-weight: 500;">Waiting for payment (<span data-imoney="countdown">${timeoutSeconds}</span>s)</div>
+        </div>
       </div>
     `;
     document.body.appendChild(overlay);
@@ -2001,14 +2013,14 @@ var IMoneyClient = class {
           onSeen?.(status);
         }
         if (!statusEl || !seenReported) return;
-        statusEl.style.color = "#e3b341";
+        statusEl.style.color = "#94580a";
         statusEl.innerText = status.network_alert ? "Payment seen. The network is unsettled, so confirmation is taking longer." : status.included_atoms >= invoice.amountAtoms ? "Payment is in a block. Waiting for it to be buried deeper." : "Payment seen. Waiting for it to enter a block.";
       }
     }).then(
       (status) => {
         const statusEl = part("status");
         if (statusEl) {
-          statusEl.style.color = "#39d353";
+          statusEl.style.color = "#0b7a4b";
           statusEl.innerText = level === "seen" ? "Payment seen." : level === "final" ? "Payment is final." : "Payment received.";
         }
         setTimeout(() => {
