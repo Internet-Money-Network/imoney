@@ -6,6 +6,8 @@ Notable changes to Internet Money. Nothing has been released yet: everything bel
 ## Unreleased
 
 ### Added
+- **The GPU miner keeps its dataset on disk**, so only the first start takes minutes. Every
+  start checks the card against the CPU before mining; a damaged file is rebuilt.
 - **Address history.** `GET /api/v1/address/{address}/history` lists what an address received
   and sent, newest first, with paging. Shown in the explorer and the wallet, and available in
   the SDK as `getHistory`.

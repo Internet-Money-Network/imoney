@@ -27,6 +27,8 @@ dataset, which a graphics card mines far faster than a CPU:
 
 ```bash
 ./target/release/imoney-gpu-miner --node http://127.0.0.1:18556 --address imntest:q...
+# (the first start builds the 4.6 GB dataset, which takes minutes; it is then kept in a folder
+#  named imoney-cache beside the miner, so later starts take seconds. --cache-dir moves it.)
 # or with the CPU (slow: it builds the dataset in memory first, which takes minutes)
 ./target/release/imoney-miner --node http://127.0.0.1:18556 --address imntest:q...
 # or let the node mine with its own CPU (the same cost, inside the node)

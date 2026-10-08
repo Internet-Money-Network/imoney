@@ -3,6 +3,9 @@
 //! The dataset is built on the CPU with the same code the node uses and copied to the graphics
 //! card; the card searches nonces. Every nonce the card reports is checked on the CPU before it
 //! is submitted, so a faulty driver or card cannot produce an invalid block.
+//!
+//! Building the full-size dataset takes minutes, so it is kept on disk between runs. Whatever
+//! is loaded, the card is compared with the CPU on a set of nonces before any mining.
 
 use clap::Parser;
 use imoney_core::{Block, Hash};
@@ -18,7 +21,8 @@ use opencl3::program::Program;
 use opencl3::types::{cl_uint, cl_ulong, CL_BLOCKING};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
+use std::path::PathBuf;
 use std::net::TcpStream;
 use std::ptr;
 use std::sync::{Arc, Mutex};
@@ -76,6 +80,15 @@ struct Args {
     /// Stop mining after this many seconds (default: run until stopped)
     #[arg(long)]
     duration: Option<u64>,
+
+    /// Where the mining dataset is kept between runs (4.6 GB at full size).
+    /// Default: a folder named imoney-cache beside this program.
+    #[arg(long)]
+    cache_dir: Option<PathBuf>,
+
+    /// Build the dataset afresh every time and keep nothing on disk
+    #[arg(long, default_value_t = false)]
+    no_cache: bool,
 }
 
 #[derive(Deserialize)]
@@ -115,14 +128,14 @@ struct GpuSearcher {
 }
 
 impl GpuSearcher {
-    fn new(device: &Device, dataset_words: &[[u32; 32]]) -> Result<Self, Error> {
+    /// `flat` is the dataset as 32 little-endian words per item.
+    fn new(device: &Device, flat: &[u32]) -> Result<Self, Error> {
         let context = Context::from_device(device)?;
         let queue = CommandQueue::create_default(&context, 0)?;
         let program = Program::create_and_build_from_source(&context, KERNEL_SOURCE, "")
             .map_err(|log| format!("the OpenCL kernel did not compile:\n{}", log))?;
         let kernel = Kernel::create(&program, "search")?;
 
-        let flat = dataset_words.as_flattened();
         // SAFETY: each buffer is created with no host pointer and written from a slice of
         // exactly the length it was created with.
         let (dataset, header, target, results) = unsafe {
@@ -140,7 +153,7 @@ impl GpuSearcher {
             queue,
             kernel,
             dataset,
-            dataset_items: dataset_words.len() as cl_uint,
+            dataset_items: (flat.len() / 32) as cl_uint,
             header,
             target,
             results,
@@ -233,16 +246,14 @@ fn run(args: Args) -> Result<(), Error> {
             "dev" => PowParams::dev(),
             other => return Err(format!("unknown --pow-size {}", other).into()),
         };
-        let pow = HallmarkPow::new(params, Hash::from_bytes([0x42; 32]), PowMode::Full);
-        let mut gpu = load(device, &pow)?;
+        let (mut gpu, pow) = load(device, params, Hash::from_bytes([0x42; 32]), &args)?;
         return benchmark(&mut gpu, &pow, batch);
     };
 
     // The node's genesis hash seeds the proof of work for its network
     let info: serde_json::Value = ureq::get(&format!("{}/api/v1/info", node)).call()?.into_json()?;
     let genesis = Hash::from_hex(info["genesis_hash"].as_str().ok_or("node did not report a genesis hash")?)?;
-    let pow = HallmarkPow::new(pow_params_of(&info), genesis, PowMode::Full);
-    let mut gpu = load(device, &pow)?;
+    let (mut gpu, pow) = load(device, pow_params_of(&info), genesis, &args)?;
     println!("[+] Connected to {} ({})", node, info["network"].as_str().unwrap_or("unknown network"));
     mine(&mut gpu, &pow, node, &args, batch)
 }
@@ -256,21 +267,114 @@ fn pow_params_of(info: &serde_json::Value) -> PowParams {
     }
 }
 
-/// Builds the dataset on the CPU and copies it to the card.
-fn load(device: &Device, pow: &HallmarkPow) -> Result<GpuSearcher, Error> {
-    println!("[*] Building the mining dataset on the CPU...");
-    let started = Instant::now();
-    let context = pow.context();
-    let words = context.dataset_words().ok_or("the dataset was not built")?;
-    println!("[+] {} items ({} MB) in {:.1?}", words.len(), words.len() * 128 / (1 << 20), started.elapsed());
-    let started = Instant::now();
-    let gpu = GpuSearcher::new(device, words)?;
-    println!("[+] Copied to the card and compiled the kernel in {:.1?}", started.elapsed());
-    Ok(gpu)
+/// Datasets smaller than this build in a moment and are not worth keeping on disk.
+const CACHE_MIN_BYTES: usize = 256 << 20;
+
+/// Where the dataset for one network is kept. The name carries what the dataset depends on:
+/// the network's genesis hash (which seeds it) and both sizes.
+fn cache_path(args: &Args, params: PowParams, genesis: &Hash) -> Option<PathBuf> {
+    if args.no_cache {
+        return None;
+    }
+    let dir = match &args.cache_dir {
+        Some(dir) => dir.clone(),
+        // Small datasets are only kept when a folder is named for them
+        None if (params.dataset_items as usize * 128) < CACHE_MIN_BYTES => return None,
+        // Beside the program: on the drive the user chose to put it on, and easy to find
+        None => std::env::current_exe().ok()?.parent()?.join("imoney-cache"),
+    };
+    Some(dir.join(format!(
+        "hallmark-{}-{}-{}.dataset",
+        &genesis.to_hex()[..16],
+        params.light_cache_items,
+        params.dataset_items
+    )))
 }
 
-/// Checks the card against the CPU for a set of nonces, then measures its hashrate.
-fn benchmark(gpu: &mut GpuSearcher, pow: &HallmarkPow, batch: usize) -> Result<(), Error> {
+/// The bytes of a dataset as they are stored: each word little-endian.
+fn as_bytes(flat: &[u32]) -> &[u8] {
+    // SAFETY: any u32 is four valid bytes, and the length is exactly the slice's size
+    unsafe { std::slice::from_raw_parts(flat.as_ptr().cast::<u8>(), std::mem::size_of_val(flat)) }
+}
+
+/// Reads a stored dataset, or `None` if there is no usable file.
+fn read_cache(path: &PathBuf, params: PowParams) -> Option<Vec<u32>> {
+    let words = params.dataset_items as usize * 32;
+    let mut file = std::fs::File::open(path).ok()?;
+    if file.metadata().ok()?.len() != words as u64 * 4 {
+        return None;
+    }
+    let mut flat = vec![0u32; words];
+    // SAFETY: as in `as_bytes`, and every byte pattern is a valid u32
+    let bytes = unsafe { std::slice::from_raw_parts_mut(flat.as_mut_ptr().cast::<u8>(), words * 4) };
+    file.read_exact(bytes).ok()?;
+    if cfg!(target_endian = "big") {
+        flat.iter_mut().for_each(|word| *word = u32::from_le(*word));
+    }
+    Some(flat)
+}
+
+/// Stores a dataset. Written under another name first, so a run that is stopped halfway
+/// never leaves a file that looks complete.
+fn write_cache(path: &PathBuf, flat: &[u32]) -> std::io::Result<()> {
+    if cfg!(target_endian = "big") {
+        return Ok(());
+    }
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let partial = path.with_extension("partial");
+    std::fs::write(&partial, as_bytes(flat))?;
+    std::fs::rename(&partial, path)
+}
+
+/// Gets the dataset onto the card, from disk when it is there and from the CPU otherwise, and
+/// confirms the card computes the same hashes as the CPU. Returns the card and a light engine
+/// for checking what it finds.
+fn load(device: &Device, params: PowParams, genesis: Hash, args: &Args) -> Result<(GpuSearcher, HallmarkPow), Error> {
+    let megabytes = params.dataset_items as usize * 128 / (1 << 20);
+    let light = HallmarkPow::new(params, genesis, PowMode::Light);
+    light.context();
+    let cache = cache_path(args, params, &genesis);
+
+    if let Some(path) = &cache {
+        let started = Instant::now();
+        if let Some(flat) = read_cache(path, params) {
+            let mut gpu = GpuSearcher::new(device, &flat)?;
+            match check_against_cpu(&mut gpu, &light) {
+                Ok(()) => {
+                    println!("[+] Dataset ({} MB) loaded from {} in {:.1?}; the card matches the CPU", megabytes, path.display(), started.elapsed());
+                    return Ok((gpu, light));
+                }
+                Err(e) => {
+                    eprintln!("[-] The stored dataset is not usable ({}). Building it again.", e);
+                    let _ = std::fs::remove_file(path);
+                }
+            }
+        }
+    }
+
+    println!("[*] Building the mining dataset ({} MB) on the CPU...", megabytes);
+    let started = Instant::now();
+    let full = HallmarkPow::new(params, genesis, PowMode::Full);
+    let context = full.context();
+    let flat = context.dataset_words().ok_or("the dataset was not built")?.as_flattened();
+    println!("[+] Built in {:.1?}", started.elapsed());
+    let mut gpu = GpuSearcher::new(device, flat)?;
+    check_against_cpu(&mut gpu, &light)?;
+    println!("[+] Copied to the card; the card matches the CPU");
+    if let Some(path) = &cache {
+        match write_cache(path, flat) {
+            Ok(()) => println!("[+] Kept in {} for next time", path.display()),
+            Err(e) => eprintln!("[-] Could not keep the dataset on disk: {}", e),
+        }
+    }
+    Ok((gpu, light))
+}
+
+/// Compares the card with the CPU on a set of nonces: for each, the card must accept the
+/// nonce against a target equal to the CPU's hash and reject it against a target one lower.
+fn check_against_cpu(gpu: &mut GpuSearcher, pow: &HallmarkPow) -> Result<(), Error> {
     let header = Hash::from_bytes([0x01; 32]);
     for i in 0..32u64 {
         let nonce = i.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ (i << 7);
@@ -295,8 +399,12 @@ fn benchmark(gpu: &mut GpuSearcher, pow: &HallmarkPow, batch: usize) -> Result<(
             return Err(format!("the card accepted nonce {} against a target below its hash", nonce).into());
         }
     }
-    println!("[+] The card's hashes match the CPU's for 32 nonces");
+    Ok(())
+}
 
+/// Measures the card's hashrate. `load` has already compared it with the CPU.
+fn benchmark(gpu: &mut GpuSearcher, _pow: &HallmarkPow, batch: usize) -> Result<(), Error> {
+    let header = Hash::from_bytes([0x01; 32]);
     // An unreachable target, so every batch runs in full
     gpu.set_work(&header, &[0u8; 32])?;
     gpu.search(0, batch)?;
@@ -359,8 +467,7 @@ fn mine_stratum(device: &Device, server: &str, args: &Args, batch: usize) -> Res
         dataset_items: network["dataset_items"].as_u64().ok_or("the server did not give the dataset size")? as u32,
     };
 
-    let pow = HallmarkPow::new(params, genesis, PowMode::Full);
-    let mut gpu = load(device, &pow)?;
+    let (mut gpu, pow) = load(device, params, genesis, args)?;
 
     send(json!({ "id": 2, "method": "mining.authorize", "params": [address, "x"] }))?;
     println!("[+] Connected to {}", server);
