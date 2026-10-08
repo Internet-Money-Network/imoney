@@ -29,6 +29,30 @@ imoney-gpu-miner --stratum 127.0.0.1:18557 --address imntest:q...
 | `--max-miners` | `256` | Connections accepted at once |
 | `--pow-size` | `testnet` | Dataset size of the network: `testnet` or `mainnet` |
 
+## Running a pool
+
+With `--pool` the same program is a complete small pool:
+
+```bash
+imoney-stratum --node http://127.0.0.1:18556 --pool --fee-percent 1.5 --min-payout 1
+```
+
+- Every miner works on blocks paid to the pool's own address. The key is created on first run
+  in `pool-key.hex`: whoever has that file can spend the pool's coins, so keep it private and
+  backed up.
+- When a block's reward is 30 blocks deep, the pool keeps its fee and credits the rest to the
+  miners whose shares came before the block, in proportion to the work the shares prove. The
+  shares counted are the most recent ones adding up to two blocks' work.
+- Balances over the minimum are paid in one transaction, a payout at a time. A payout counts
+  as made at 10 confirmations; one that drops out of the ledger is paid afresh, spending the
+  same coin so both can never be accepted.
+- A block the network merges as red earns nothing, and the pool credits nothing for it.
+- What the pool owes is kept in `pool-state.json`. Shares not yet attached to a block are held
+  in memory and are lost if the pool restarts.
+- A status page with per-miner lookup is served on port 18558 (`--status-bind`).
+
+It is a reference pool: one process, no accounts, no TLS, and it trusts its node.
+
 ## Protocol
 
 JSON objects, one per line, in the style of Bitcoin's Stratum. A request has `id`, `method` and

@@ -72,7 +72,7 @@ The codebase is structured as a modular mono-repository:
   - [`crates/imoney-node`](crates/imoney-node): Full node daemon with embedded pure-Rust `redb` ACID storage, REST/WebSocket API, and TCP P2P gossip sync.
   - [`crates/imoney-miner`](crates/imoney-miner): Reference multi-threaded miner CLI and benchmark.
   - [`crates/imoney-gpu-miner`](crates/imoney-gpu-miner): OpenCL GPU miner. `--list-devices` shows the cards; `--benchmark` checks the card against the CPU and measures its hashrate.
-  - [`crates/imoney-stratum`](crates/imoney-stratum): Stratum bridge between a node and mining software. See [docs/STRATUM.md](docs/STRATUM.md).
+  - [`crates/imoney-stratum`](crates/imoney-stratum): Stratum bridge between a node and mining software, and with `--pool` a complete small mining pool. See [docs/STRATUM.md](docs/STRATUM.md).
   - [`crates/imoney-loadtest`](crates/imoney-loadtest): Floods a test node with payments and watchers and reports how it copes. See [docs/LOAD-TESTING.md](docs/LOAD-TESTING.md).
   - [`crates/imoney-wasm`](crates/imoney-wasm): WebAssembly build of key handling and signing, so wallets sign in the browser.
 - **Ecosystem Apps (`apps/`):**

@@ -227,10 +227,11 @@ per miner, checks shares with the light cache, adjusts share difficulty, and sub
 Each miner mines to the address it logs in with. The protocol and options are in
 [STRATUM.md](STRATUM.md).
 
-### What a pool has to build
+### Pools
 
-Accounting. Run the bridge with miners logged in under the pool's address (or adapt it), record
-the shares each miner sends, and pay out from the pool's wallet. The bridge holds no coins.
+`imoney-stratum --pool` is a complete small pool: shared work, share accounting, a fee, payouts
+and a status page. See [STRATUM.md](STRATUM.md#running-a-pool). Larger pools can use it as a
+starting point or speak to the node directly.
 
 Rewards: the coinbase names one payout script. The ledger pays that script the block subsidy
 plus the miner's share of fees when the block is merged as blue. A red block earns nothing, so

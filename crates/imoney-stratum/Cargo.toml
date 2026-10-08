@@ -17,4 +17,6 @@ clap.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 hex.workspace = true
+rand.workspace = true
+ed25519-dalek.workspace = true
 ureq = { version = "2", default-features = false, features = ["json"] }

@@ -6,6 +6,10 @@ Notable changes to Internet Money. Nothing has been released yet: everything bel
 ## Unreleased
 
 ### Added
+- **A mining pool.** `imoney-stratum --pool` shares out each matured block reward among miners
+  by the work their shares prove, less a fee (1.5% by default), pays out automatically and
+  serves a status page.
+- **The explorer and wallet are on the website**, reading a public node through `/api`.
 - **The GPU miner keeps its dataset on disk**, so only the first start takes minutes. Every
   start checks the card against the CPU before mining; a damaged file is rebuilt.
 - **Address history.** `GET /api/v1/address/{address}/history` lists what an address received

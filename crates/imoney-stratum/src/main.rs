@@ -2,10 +2,17 @@
 //!
 //! Mining software connects here over a plain socket; the bridge fetches work from a node's
 //! HTTP API, hands it out, checks what comes back with the light cache, and submits full blocks
-//! to the node. Each miner mines to the address it logs in with: the bridge keeps no balances
-//! and pays nobody. A pool adds its own accounting on top of the shares it sees.
+//! to the node.
+//!
+//! It runs in one of two ways. As a plain bridge, each miner mines to the address it logs in
+//! with, and the bridge keeps no balances and pays nobody. With `--pool`, every miner works on
+//! blocks paid to the pool's own address, and the pool divides each matured reward among the
+//! miners by the work their shares prove, less its fee (see `pool.rs`).
 //!
 //! The protocol is described in docs/STRATUM.md.
+
+mod pool;
+mod runtime;
 
 use clap::Parser;
 use imoney_core::{Address, Block, Hash};
@@ -65,6 +72,31 @@ struct Args {
     /// Most miners connected at once
     #[arg(long, default_value_t = 256)]
     max_miners: usize,
+
+    /// Run as a pool: mine to the pool's own address and share out the rewards
+    #[arg(long, default_value_t = false)]
+    pool: bool,
+
+    /// The pool's fee, as a percentage of each block reward
+    #[arg(long, default_value_t = 1.5)]
+    fee_percent: f64,
+
+    /// Smallest balance the pool pays out, in IMN
+    #[arg(long, default_value_t = 1.0)]
+    min_payout: f64,
+
+    /// File holding the pool's private key. Created on first run. Whoever has it can spend
+    /// the pool's coins: keep it private and backed up.
+    #[arg(long, default_value = "pool-key.hex")]
+    pool_key: std::path::PathBuf,
+
+    /// File where the pool remembers what it owes
+    #[arg(long, default_value = "pool-state.json")]
+    pool_state: std::path::PathBuf,
+
+    /// Address and port of the pool's status page
+    #[arg(long, default_value = "0.0.0.0:18558")]
+    status_bind: String,
 }
 
 #[derive(Deserialize)]
@@ -95,6 +127,8 @@ struct Miner {
 struct MinerState {
     /// The payout address the miner logged in with.
     address: Option<String>,
+    /// The address its blocks pay: its own, or the pool's.
+    work_address: Option<String>,
     /// Bits by which this miner's share target is easier than the block target.
     shift: u32,
     shares_since_retarget: u32,
@@ -123,6 +157,7 @@ struct Bridge {
     jobs: Mutex<HashMap<String, VecDeque<Arc<Job>>>>,
     next_job: AtomicU64,
     blocks_found: AtomicU64,
+    pool: Option<Arc<runtime::PoolRuntime>>,
 }
 
 /// `target` made `shift` bits easier, stopping at the largest possible target.
@@ -232,9 +267,28 @@ impl Bridge {
     fn poll_node(&self) {
         let mut fetched: HashMap<String, Instant> = HashMap::new();
         let mut last_report = Instant::now();
+        let mut last_tick = Instant::now();
         loop {
             let miners: Vec<Arc<Miner>> = self.miners.lock().unwrap().values().cloned().collect();
-            let addresses: HashSet<String> = miners.iter().filter_map(|m| m.state.lock().unwrap().address.clone()).collect();
+            let addresses: HashSet<String> =
+                miners.iter().filter_map(|m| m.state.lock().unwrap().work_address.clone()).collect();
+
+            if let Some(pool) = &self.pool {
+                let mut live = runtime::Live::default();
+                for miner in &miners {
+                    let state = miner.state.lock().unwrap();
+                    let Some(address) = &state.address else { continue };
+                    let rate = state.work / state.connected.elapsed().as_secs_f64().max(1.0);
+                    live.miners += 1;
+                    live.hashrate += rate;
+                    *live.hashrate_by_address.entry(address.clone()).or_default() += rate;
+                }
+                *pool.live.lock().unwrap() = live;
+                if last_tick.elapsed() > Duration::from_secs(5) {
+                    pool.tick();
+                    last_tick = Instant::now();
+                }
+            }
 
             for address in &addresses {
                 if let Some(job) = self.refresh(address, &mut fetched) {
@@ -271,7 +325,7 @@ impl Bridge {
         for miner in miners {
             let shift = {
                 let state = miner.state.lock().unwrap();
-                if state.address.as_deref() != Some(address) {
+                if state.work_address.as_deref() != Some(address) {
                     continue;
                 }
                 state.shift
@@ -307,9 +361,10 @@ impl Bridge {
 
     /// Checks one submitted share. Returns the reply's `result` or an error code and message.
     fn handle_submit(&self, miner: &Miner, params: &[Value]) -> Result<Value, (i64, &'static str)> {
-        let (address, shift) = {
+        let (payout_address, address, shift) = {
             let state = miner.state.lock().unwrap();
-            (state.address.clone().ok_or((ERR_UNAUTHORIZED, "log in first"))?, state.shift)
+            let payout = state.address.clone().ok_or((ERR_UNAUTHORIZED, "log in first"))?;
+            (payout, state.work_address.clone().ok_or((ERR_UNAUTHORIZED, "log in first"))?, state.shift)
         };
         let job_id = params.get(1).and_then(Value::as_str).ok_or((ERR_OTHER, "missing job id"))?;
         let nonce = params
@@ -330,7 +385,16 @@ impl Bridge {
         if hash.0 > share_target {
             return Err((ERR_LOW_DIFFICULTY, "hash is above the share target"));
         }
+        // The share counts before the block it may be: the finder's own share is part of it
+        if let Some(pool) = &self.pool {
+            pool.record_share(&payout_address, expected_hashes(&share_target), expected_hashes(&job.target));
+        }
         if hash.0 <= job.target && self.submit_block(&job, nonce) {
+            if let Some(pool) = &self.pool {
+                let mut header = job.block.header.clone();
+                header.nonce = nonce;
+                pool.block_found(&header.hash(), header.blue_score, expected_hashes(&job.target));
+            }
             // The tips just changed: hand out work on top of the new block without waiting
             if let Some(next) = self.refresh(&address, &mut HashMap::new()) {
                 self.notify_address(&address, &next);
@@ -376,7 +440,12 @@ impl Bridge {
                 let login = params.first().and_then(Value::as_str).ok_or((ERR_OTHER, "missing address"))?;
                 let address = login.split('.').next().unwrap_or(login);
                 Address::decode(address).map_err(|_| (ERR_UNAUTHORIZED, "the login must be a payout address"))?;
-                miner.state.lock().unwrap().address = Some(address.to_string());
+                let mut state = miner.state.lock().unwrap();
+                state.address = Some(address.to_string());
+                state.work_address = Some(match &self.pool {
+                    Some(pool) => pool.address.clone(),
+                    None => address.to_string(),
+                });
                 Ok(Value::Bool(true))
             }
             "mining.submit" => self.handle_submit(miner, params),
@@ -413,7 +482,7 @@ impl Bridge {
             if method == "mining.authorize" && reply["error"].is_null() {
                 let (address, shift) = {
                     let state = miner.state.lock().unwrap();
-                    (state.address.clone().unwrap_or_default(), state.shift)
+                    (state.work_address.clone().unwrap_or_default(), state.shift)
                 };
                 let job = self.latest_job(&address).or_else(|| self.refresh(&address, &mut HashMap::new()));
                 if let Some(job) = job {
@@ -462,6 +531,38 @@ fn main() {
     };
     println!("[+] Stratum bridge for {} listening on {}", args.node, args.bind);
 
+    let pool = if args.pool {
+        let mainnet = info["network"].as_str() == Some("mainnet");
+        let opened = runtime::PoolRuntime::open(
+            &args.node,
+            args.pool_key.clone(),
+            args.pool_state.clone(),
+            args.fee_percent,
+            args.min_payout,
+            mainnet,
+        );
+        let pool = match opened {
+            Ok(pool) => Arc::new(pool),
+            Err(e) => {
+                eprintln!("[-] Could not start the pool: {}", e);
+                std::process::exit(1);
+            }
+        };
+        println!("[+] Pool mode: fee {}%, blocks pay {}", pool.fee_percent(), pool.address);
+        println!("[*] The pool's key is in {:?}. Keep that file private and backed up.", args.pool_key);
+        match TcpListener::bind(&args.status_bind) {
+            Ok(status) => {
+                println!("[+] Pool status page on http://{}", args.status_bind);
+                let pool = pool.clone();
+                std::thread::spawn(move || pool.serve_status(status));
+            }
+            Err(e) => eprintln!("[-] Could not serve the status page on {}: {}", args.status_bind, e),
+        }
+        Some(pool)
+    } else {
+        None
+    };
+
     let bridge = Arc::new(Bridge {
         args,
         pow,
@@ -470,6 +571,7 @@ fn main() {
         jobs: Mutex::new(HashMap::new()),
         next_job: AtomicU64::new(1),
         blocks_found: AtomicU64::new(0),
+        pool,
     });
     {
         let bridge = bridge.clone();
@@ -499,6 +601,7 @@ fn main() {
             writer: Mutex::new(writer),
             state: Mutex::new(MinerState {
                 address: None,
+                work_address: None,
                 // Start easy; the first retarget corrects it
                 shift: 12,
                 shares_since_retarget: 0,
