@@ -26,5 +26,6 @@ chrono.workspace = true
 hex.workspace = true
 rand.workspace = true
 redb = "4.3.0"
+zstd = "0.13"
 ed25519-dalek.workspace = true
 

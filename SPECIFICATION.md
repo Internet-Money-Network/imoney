@@ -35,13 +35,15 @@ With an honest network share $\alpha \ge 0.5$, a cluster parameter of $k = 8$ pr
 Memory-hard algorithms make each hash depend on random reads from a large block of memory, which commodity graphics cards do well. This limits the advantage of custom chips; it does not rule them out. No FishHash ASIC is publicly known at the time of writing.
 
 ### 3.2 Parameters
-| | Mainnet (FishHash specification) | Testnet |
+| | Public networks (FishHash specification) | Private test networks (`--devnet`) |
 | :--- | :--- | :--- |
 | Light cache | 1,179,641 items of 64 bytes (about 75 MB) | 16,411 items (about 1 MB) |
 | Dataset | 37,748,717 items of 128 bytes (about 4.6 GB) | 262,147 items (about 32 MB) |
 | Dataset reads per hash | 32 rounds of 3 items | same |
 
-The testnet sizes are small so that a CPU can mine. They are not FishHash-compatible; a testnet for GPU miners would use the mainnet sizes.
+The public test network uses the specification's sizes, so it is mined with graphics cards exactly as a main network would be. Private test networks use small sizes so that a CPU can mine them; a node reports its network's sizes in `GET /api/v1/info`.
+
+The easiest target the public test network allows is 2^236, about a million hashes a block: a single CPU keeps the chain moving when nobody else is mining, and difficulty rises from there.
 
 ### 3.3 Network seed
 FishHash builds its cache from a 32-byte seed. Each Internet Money network uses its own:

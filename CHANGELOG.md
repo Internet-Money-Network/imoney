@@ -22,6 +22,13 @@ Notable changes to Internet Money. Nothing has been released yet: everything bel
 - `SECURITY.md`, `CONTRIBUTING.md`, `TRADEMARKS.md`, an integration guide and this file.
 
 ### Changed
+- **The public test network was restarted as testnet-2** with the full-size FishHash dataset
+  (4.6 GB), so it is mined with graphics cards. It has a new genesis block; data directories
+  from before must be deleted. Private networks (`--devnet`) keep the small dataset.
+- **Blocks are stored compressed**, about 40% smaller for blocks full of payments.
+- Nodes report their network's dataset sizes, and the miners and the Stratum bridge take them
+  from the node instead of assuming them.
+- A node refuses to open a database that belongs to a different network.
 - **An address has exactly one spelling.** The same address written with a Bech32m checksum
   was accepted before and is now refused. Upper-case addresses, as QR codes produce, are now
   accepted.

@@ -7,7 +7,7 @@ This covers the test network. There is no main network yet.
 | | Verifying node | Mining node |
 | :--- | :--- | :--- |
 | CPU | 2 cores | as many as you want to mine with |
-| Memory | 2 GB to start; see [Growth](#growth) | the same, plus the mining dataset (32 MB on testnet, 4.6 GB at mainnet sizes) |
+| Memory | 2 GB to start; see [Growth](#growth) | the same, plus the 4.6 GB mining dataset if the node mines by itself |
 | Disk | 40 GB SSD | the same |
 | Network | one open TCP port (18555) | the same |
 
@@ -22,13 +22,19 @@ cargo build --release
 # The wallet and dashboard are then at http://127.0.0.1:18556
 ```
 
-To mine, either let the node mine by itself or point the miner at it:
+To mine, point a miner at the node. The public test network uses the full 4.6 GB FishHash
+dataset, which a graphics card mines far faster than a CPU:
 
 ```bash
-./target/release/imoney-node --auto-mine --mining-address imntest:q...
-# or
+./target/release/imoney-gpu-miner --node http://127.0.0.1:18556 --address imntest:q...
+# or with the CPU (slow: it builds the dataset in memory first, which takes minutes)
 ./target/release/imoney-miner --node http://127.0.0.1:18556 --address imntest:q...
+# or let the node mine with its own CPU (the same cost, inside the node)
+./target/release/imoney-node --auto-mine --mining-address imntest:q...
 ```
+
+For development, `--devnet <name>` starts a private network with a 32 MB dataset and a trivial
+starting difficulty, where `--auto-mine` is instant.
 
 Create the address in the wallet at `/wallet` first, and write down its recovery phrase. Without
 `--mining-address` the node creates a key of its own in `<data-dir>/miner-key.hex`.
@@ -102,6 +108,9 @@ that the network splits or that a new node cannot find it.
 `GET /api/v1/peers` should list at least one peer.
 
 ## Growth
+
+Blocks are stored compressed: a block full of ordinary payments takes about 40% less disk than
+its size on the network. Empty blocks are mostly hashes and do not shrink.
 
 Measured over 6,000 empty blocks, a node's database grows by about 1.5 to 2.3 KB per block,
 which is 26 to 39 MB a day or roughly 10 to 14 GB a year. With `--prune` the same run grew by

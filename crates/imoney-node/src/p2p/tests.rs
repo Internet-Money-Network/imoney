@@ -28,7 +28,7 @@ impl TestNode {
     async fn start_with_magic(name: &str, magic: [u8; 4]) -> Self {
         let path = std::env::temp_dir().join(format!("imoney-p2p-{}-{}.redb", name, std::process::id()));
         let _ = std::fs::remove_file(&path);
-        let mut params = ConsensusParams::testnet();
+        let mut params = ConsensusParams::devnet();
         params.coinbase_maturity = 2;
         params.daa.retarget = false;
         let mut ledger = DagLedger::open_with_params(path, None, params).unwrap();

@@ -188,9 +188,10 @@ Money Printer is FishHash with a network-specific seed. Nothing else about the a
 - **Hash input:** 40 bytes: the block's 32-byte pre-proof-of-work hash, then the 8-byte
   little-endian nonce.
 - **Valid when:** the 32-byte FishHash output, read as a big-endian number, is at most the target.
-- **Sizes:** the main network will use the FishHash specification's sizes (75 MB light cache,
-  4.6 GB dataset). The current test network uses small sizes (a 32 MB dataset) so a CPU can
-  mine; a GPU miner must be given the dataset size rather than assume the specification's.
+- **Sizes:** the FishHash specification's (75 MB light cache, 4.6 GB dataset) on the public
+  test network, as on a future main network. Private test networks (`--devnet`) use a 32 MB
+  dataset so a CPU can mine. `GET /api/v1/info` reports `pow_light_cache_items` and
+  `pow_dataset_items`; take the sizes from there.
 
 The reference implementation is `crates/imoney-pow/src/fishhash.rs`, checked byte for byte
 against Iron Fish's implementation at the specification's sizes.

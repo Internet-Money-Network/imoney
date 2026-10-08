@@ -20,13 +20,14 @@ pub struct PowParams {
 }
 
 impl PowParams {
-    /// Mainnet: the sizes fixed by the FishHash specification (75 MB cache, 4.6 GB dataset).
+    /// The public networks: the sizes fixed by the FishHash specification (75 MB cache,
+    /// 4.6 GB dataset).
     pub const fn mainnet() -> Self {
         Self { light_cache_items: FISHHASH_LIGHT_CACHE_ITEMS, dataset_items: FISHHASH_DATASET_ITEMS }
     }
 
-    /// Testnet and local development: 1 MB cache, 32 MB dataset, so a CPU can mine.
-    pub const fn testnet() -> Self {
+    /// Private test networks and local development: 1 MB cache, 32 MB dataset, so a CPU can mine.
+    pub const fn dev() -> Self {
         Self { light_cache_items: 16_411, dataset_items: 262_147 }
     }
 

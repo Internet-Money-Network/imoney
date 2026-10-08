@@ -14,7 +14,7 @@ cargo build --release
 ./target/release/imoney-loadtest --print-address
 
 # 2. A throwaway node mining to it
-./target/release/imoney-node --data-dir ./loadtest-data --rpc-bind 127.0.0.1:18796 \
+./target/release/imoney-node --devnet loadtest --data-dir ./loadtest-data --rpc-bind 127.0.0.1:18796 \
     --p2p-bind 127.0.0.1:18795 --auto-mine --mining-address <address from step 1>
 
 # 3. The test: 70 payments a second for a minute, with 1,000 watchers

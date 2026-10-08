@@ -103,14 +103,14 @@ cargo build --release
 # Start a node (wallet and dashboard at http://127.0.0.1:18556)
 cargo run --release --bin imoney-node
 
-# In another terminal: mine for that node, paying an address you control
-cargo run --release --bin imoney-miner -- --node http://127.0.0.1:18556 --address imntest:q...
+# In another terminal: mine for that node with a graphics card, paying an address you control
+cargo run --release --bin imoney-gpu-miner -- --node http://127.0.0.1:18556 --address imntest:q...
 
-# Or run a node that mines by itself
-cargo run --release --bin imoney-node -- --auto-mine
+# Check the card against the CPU and measure its hashrate
+cargo run --release --bin imoney-gpu-miner -- --benchmark
 
-# Hashrate benchmark
-cargo run --release --bin imoney-miner -- --benchmark
+# For development: a private network with a small dataset, mined by the node's own CPU
+cargo run --release --bin imoney-node -- --devnet mytest --auto-mine
 ```
 
 ---

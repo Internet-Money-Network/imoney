@@ -463,7 +463,7 @@ async fn dashboard_handler(State(state): State<Arc<AppState>>) -> Html<String> {
 </head>
 <body>
     <div class="card">
-        <h1>Internet Money (IMN) Node <span class="badge">TESTNET-1 (PERSISTENT DB)</span></h1>
+        <h1>Internet Money (IMN) Node <span class="badge">TESTNET</span></h1>
         <div class="row"><span>BlockDAG Interval:</span><b>{} seconds (0.2 BPS)</b></div>
         <div class="row"><span>Proof of Work:</span><b>Money Printer (FishHash)</b></div>
         <div class="row"><span>Database Engine:</span><b>ACID On-Disk Storage (redb)</b></div>
@@ -507,6 +507,10 @@ async fn dashboard_handler(State(state): State<Arc<AppState>>) -> Html<String> {
 
 async fn info_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let info = state.ledger.read().await.get_info();
+    // Miners build their dataset from these sizes
+    let mut info = serde_json::to_value(info).unwrap_or_default();
+    info["pow_light_cache_items"] = state.pow.params().light_cache_items.into();
+    info["pow_dataset_items"] = state.pow.params().dataset_items.into();
     Json(info)
 }
 

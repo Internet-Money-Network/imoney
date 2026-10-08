@@ -65,10 +65,6 @@ struct Args {
     /// Most miners connected at once
     #[arg(long, default_value_t = 256)]
     max_miners: usize,
-
-    /// Dataset size the network uses: "testnet", "mainnet" or "tiny"
-    #[arg(long, default_value = "testnet")]
-    pow_size: String,
 }
 
 #[derive(Deserialize)]
@@ -433,25 +429,20 @@ fn main() {
     let mut args = Args::parse();
     args.node = args.node.trim_end_matches('/').to_string();
 
-    let params = match args.pow_size.as_str() {
-        "testnet" => PowParams::testnet(),
-        "mainnet" => PowParams::mainnet(),
-        "tiny" => PowParams::tiny(),
-        other => {
-            eprintln!("[-] Unknown --pow-size {}", other);
-            std::process::exit(1);
-        }
-    };
-
-    // The node's genesis hash seeds the proof of work for its network
-    let genesis = ureq::get(&format!("{}/api/v1/info", args.node))
+    // The node's genesis hash seeds the proof of work for its network, and it reports the
+    // dataset sizes the network uses
+    let info = ureq::get(&format!("{}/api/v1/info", args.node))
         .call()
         .ok()
-        .and_then(|response| response.into_json::<Value>().ok())
-        .and_then(|info| info["genesis_hash"].as_str().and_then(|hex| Hash::from_hex(hex).ok()));
-    let Some(genesis) = genesis else {
+        .and_then(|response| response.into_json::<Value>().ok());
+    let genesis = info.as_ref().and_then(|info| info["genesis_hash"].as_str().and_then(|hex| Hash::from_hex(hex).ok()));
+    let (Some(info), Some(genesis)) = (info, genesis) else {
         eprintln!("[-] Could not reach the node at {}", args.node);
         std::process::exit(1);
+    };
+    let params = match (info["pow_light_cache_items"].as_u64(), info["pow_dataset_items"].as_u64()) {
+        (Some(cache), Some(dataset)) => PowParams { light_cache_items: cache as u32, dataset_items: dataset as u32 },
+        _ => PowParams::dev(),
     };
     println!("[*] Building the verification cache...");
     let pow = MoneyPrinterPow::new(params, genesis, PowMode::Light);

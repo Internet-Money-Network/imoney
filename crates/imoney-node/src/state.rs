@@ -1,4 +1,4 @@
-use crate::genesis::create_testnet_genesis;
+use crate::genesis::{create_devnet_genesis, create_testnet_genesis};
 use crate::mempool::{Mempool, MempoolError};
 use crate::storage::{
     AcceptanceData, AcceptedTx, BlockMeta, HistoryItem, HistoryRow, Storage, StorageError, TxRecord, UtxoEntry,
@@ -63,6 +63,8 @@ pub enum StateError {
     Transaction(String),
     #[error("Transaction not admitted: {0}")]
     Mempool(#[from] MempoolError),
+    #[error("The database holds a different network's chain. Use another --data-dir, or delete this one to start again.")]
+    WrongNetwork,
 }
 
 /// Something that changed in the ledger, pushed to subscribers such as WebSocket clients.
@@ -86,9 +88,14 @@ pub struct ConsensusParams {
     /// Blue-score depth below the tip beyond which the selected chain is never replaced.
     /// A heavier chain that forks off deeper than this is ignored.
     pub finality_depth: u64,
+    /// The first block. Its hash identifies the network and seeds its proof of work.
+    pub genesis: Block,
+    /// The name nodes report for this network.
+    pub name: &'static str,
 }
 
 impl ConsensusParams {
+    /// The public test network.
     pub fn testnet() -> Self {
         Self {
             ghostdag: GhostdagParams::default(),
@@ -97,6 +104,18 @@ impl ConsensusParams {
             max_future_ms: 120_000,
             // 12 hours of 5-second blocks
             finality_depth: 8_640,
+            genesis: create_testnet_genesis(),
+            name: "testnet-2",
+        }
+    }
+
+    /// Private test networks and unit tests: the same rules with a trivial starting difficulty.
+    pub fn devnet() -> Self {
+        Self {
+            daa: DaaParams::new(crate::genesis::DEVNET_GENESIS_BITS),
+            genesis: create_devnet_genesis(),
+            name: "devnet",
+            ..Self::testnet()
         }
     }
 }
@@ -377,11 +396,7 @@ pub struct DagLedger {
 
 
 impl DagLedger {
-    /// Opens the persistent testnet ledger from disk or creates it if new.
-    pub fn open(db_path: impl AsRef<Path>, mining_address: Option<Address>) -> Result<Self, StateError> {
-        Self::open_with_params(db_path, mining_address, ConsensusParams::testnet())
-    }
-
+    /// Opens the ledger of the network described by `params` from disk, or creates it if new.
     pub fn open_with_params(
         db_path: impl AsRef<Path>,
         mining_address: Option<Address>,
@@ -389,6 +404,10 @@ impl DagLedger {
     ) -> Result<Self, StateError> {
         let storage = Storage::open(db_path)?;
         let loaded = storage.load_blocks()?;
+        let genesis = params.genesis.clone();
+        if !loaded.is_empty() && !loaded.iter().any(|(hash, _, _)| *hash == genesis.hash()) {
+            return Err(StateError::WrongNetwork);
+        }
 
         let mut ledger = Self {
             storage,
@@ -407,7 +426,7 @@ impl DagLedger {
             mining_address,
             mempool: Mempool::default(),
             events: broadcast::channel(1024).0,
-            genesis_hash: create_testnet_genesis().hash(),
+            genesis_hash: genesis.hash(),
             prune_depth: None,
             pruned_floor: 0,
             finality_conflict: false,
@@ -420,7 +439,6 @@ impl DagLedger {
         let mut view = LedgerView::new(ledger.storage.clone());
         if loaded.is_empty() {
             // Genesis initialization
-            let genesis = create_testnet_genesis();
             let genesis_hash = genesis.hash();
             ledger
                 .dag
@@ -1409,7 +1427,7 @@ impl DagLedger {
         NodeInfo {
             network: match self.network {
                 Network::Mainnet => "mainnet",
-                Network::Testnet => "testnet-1",
+                Network::Testnet => self.params.name,
             }
             .to_string(),
             genesis_hash: self.genesis_hash.to_hex(),

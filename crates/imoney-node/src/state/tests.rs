@@ -22,7 +22,7 @@ fn test_pow() -> MoneyPrinterPow {
 }
 
 fn test_params() -> ConsensusParams {
-    let mut params = ConsensusParams::testnet();
+    let mut params = ConsensusParams::devnet();
     params.coinbase_maturity = MATURITY;
     params.daa.retarget = false;
     params
@@ -974,6 +974,51 @@ fn disk_use_per_block() {
 }
 
 #[test]
+fn blocks_with_payments_are_stored_smaller_and_read_back_exactly() {
+    let miner = key(170);
+    let (mut ledger, pow) = funded_ledger("packed", &miner);
+    // One payment with many outputs to the same address: repetitive, as a busy shop's block is
+    let utxos = ledger.get_spendable_utxos(&address_of(&miner)).unwrap();
+    let mut payment = Transaction::build_payment(&miner, Network::Testnet, &address_of(&key(171)), 1_000, 50_000, utxos, None).unwrap();
+    let template = payment.outputs[0].clone();
+    payment.outputs.extend(std::iter::repeat_n(template, 200));
+    payment.outputs[1].value_atoms -= 200 * 1_000;
+    payment.sign_input(Network::Testnet, 0, &miner).unwrap();
+    ledger.broadcast_transaction(payment.clone()).unwrap();
+    let hash = mine_tip(&mut ledger, &pow, &address_of(&key(200)));
+
+    let block = ledger.storage.get_block(&hash).unwrap().unwrap();
+    assert_eq!(block.transactions[1], payment);
+    let (stored, raw) = ledger.storage.block_stored_size(&hash).unwrap().unwrap();
+    assert_eq!(raw, block.to_bytes().len());
+    assert!(stored < raw / 2, "stored {} of {} bytes", stored, raw);
+
+    // An empty block does not compress and costs one byte of marking
+    let empty = mine_tip(&mut ledger, &pow, &address_of(&key(200)));
+    let (stored, raw) = ledger.storage.block_stored_size(&empty).unwrap().unwrap();
+    assert!(stored <= raw + 1);
+
+    // Everything still reads back after a restart
+    let path = std::env::temp_dir().join(format!("imoney-test-packed-{}.redb", std::process::id()));
+    let balance_before = balance(&ledger, &address_of(&key(171)));
+    drop(ledger);
+    let reopened = DagLedger::open_with_params(path, None, test_params()).unwrap();
+    assert_eq!(balance(&reopened, &address_of(&key(171))), balance_before);
+    assert_eq!(reopened.storage.get_block(&hash).unwrap().unwrap(), block);
+}
+
+#[test]
+fn a_database_from_another_network_is_refused() {
+    let path = fresh_db("wrong-network");
+    drop(DagLedger::open_with_params(&path, None, test_params()).unwrap());
+    // The same file opened as the public test network, whose genesis block differs
+    let result = DagLedger::open_with_params(&path, None, ConsensusParams::testnet());
+    assert!(matches!(result, Err(StateError::WrongNetwork)));
+    // And it still opens as what it is
+    assert!(DagLedger::open_with_params(&path, None, test_params()).is_ok());
+}
+
+#[test]
 fn block_removes_only_the_pending_transactions_it_invalidates() {
     let (alice, bob) = (key(180), key(181));
     let shop = address_of(&key(182));
@@ -1007,4 +1052,30 @@ fn block_removes_only_the_pending_transactions_it_invalidates() {
     assert!(ledger.mempool.is_empty());
     assert_eq!(balance(&ledger, &shop), 5_000);
     assert_supply_total_is_exact(&ledger);
+}
+
+/// How much a block full of ordinary payments shrinks under compression.
+/// `cargo test --release -p imoney-node -- --ignored compression_ratio --nocapture`
+#[test]
+#[ignore]
+fn compression_ratio() {
+    let shop = address_of(&key(1));
+    let mut transactions = vec![Transaction::coinbase(7, Vec::new(), b"")];
+    for i in 0..300u32 {
+        let payer = SigningKey::from_bytes(&imoney_core::serialize::tagged_hash("k", &[&i.to_be_bytes()]).0);
+        let coin = (
+            Outpoint { transaction_id: imoney_core::serialize::tagged_hash("c", &[&i.to_be_bytes()]), index: 0 },
+            TxOutput { value_atoms: 5_000_000_000 + i as u64 * 977, script_public_key: ScriptPublicKey::pay_to_address(&address_of(&payer)) },
+        );
+        // Half of the payments go to the same shop with an invoice, half between strangers
+        let (to, invoice) = if i % 2 == 0 { (shop.clone(), Some(format!("wc-{}-ab12cd34ef", i))) } else { (address_of(&key((i % 200) as u8 + 2)), None) };
+        transactions.push(
+            Transaction::build_invoice_payment(&payer, Network::Testnet, &to, 123_456_789 + i as u64, 2_800, vec![coin], None, invoice.as_deref()).unwrap(),
+        );
+    }
+    let bytes = Block { header: create_testnet_genesis().header, transactions }.to_bytes();
+    for level in [1, 3, 9, 19] {
+        let packed = zstd::bulk::compress(&bytes, level).unwrap();
+        println!("level {:>2}: {} -> {} bytes ({:.1}% saved)", level, bytes.len(), packed.len(), 100.0 * (1.0 - packed.len() as f64 / bytes.len() as f64));
+    }
 }

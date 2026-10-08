@@ -22,7 +22,8 @@ Payments that a shop can accept without trusting anyone else. Three things make 
       12-hour finality, fee split between the miner and the node that served the payer,
       multi-signature addresses (m of up to 16 keys).
 - [x] **Proof of work.** Money Printer: FishHash with a network-specific seed, checked against
-      Iron Fish's implementation. Nodes verify from a light cache.
+      Iron Fish's implementation, at the specification's full 4.6 GB dataset size on the public
+      test network. Nodes verify from a light cache.
 - [x] **Node.** `redb` storage with atomic block application, mempool with fee policy and
       limits, REST and WebSocket API, binary peer-to-peer protocol with sync, orphan handling,
       peer discovery and bans, optional pruning, private test networks (`--devnet`).
@@ -39,9 +40,6 @@ Payments that a shop can accept without trusting anyone else. Three things make 
 
 ## Before a public test network
 
-- [ ] **Dataset size decided.** The current test network uses a 32 MB dataset so a CPU can
-      mine. A test network meant for GPU miners needs the full 4.6 GB size; changing it resets
-      the chain.
 - [ ] **WooCommerce plugin on a production-like site.** It has been run end to end on a local
       WordPress; its five-minute background check and a real mail and MySQL setup have not.
 - [ ] **SDK published to npm.**

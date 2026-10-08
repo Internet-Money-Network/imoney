@@ -81,9 +81,9 @@ fn main() {
         return;
     }
 
-    println!("[*] Initializing Money Printer memory dataset (testnet size)...");
+    println!("[*] Initializing Money Printer memory dataset (small development size)...");
     let init_start = Instant::now();
-    let pow = MoneyPrinterPow::new(PowParams::testnet(), Hash::from_bytes([0x42; 32]), PowMode::Full);
+    let pow = MoneyPrinterPow::new(PowParams::dev(), Hash::from_bytes([0x42; 32]), PowMode::Full);
     println!(
         "[+] Dataset ready: {} items (took {:.2?})",
         pow.context().dataset_items(),
@@ -147,13 +147,29 @@ fn main() {
     }
 }
 
+/// The dataset sizes a node reports for its network. A node from before it reported them
+/// is a small-dataset one.
+fn pow_params_of(info: &serde_json::Value) -> PowParams {
+    match (info["pow_light_cache_items"].as_u64(), info["pow_dataset_items"].as_u64()) {
+        (Some(cache), Some(dataset)) => PowParams { light_cache_items: cache as u32, dataset_items: dataset as u32 },
+        _ => PowParams::dev(),
+    }
+}
+
 /// Mines for a node: fetch a block template, search for a nonce, submit, repeat.
 fn mine_for_node(node: &str, args: &Args) -> Result<(), Box<dyn std::error::Error>> {
     // The node's genesis hash seeds the proof of work for its network
     let info: serde_json::Value = ureq::get(&format!("{}/api/v1/info", node)).call()?.into_json()?;
     let genesis = Hash::from_hex(info["genesis_hash"].as_str().ok_or("node did not report a genesis hash")?)?;
-    let pow = MoneyPrinterPow::new(PowParams::testnet(), genesis, PowMode::Full);
-    println!("[*] Building the mining dataset...");
+    let params = pow_params_of(&info);
+    let pow = MoneyPrinterPow::new(params, genesis, PowMode::Full);
+    println!(
+        "[*] Building the mining dataset ({} MB)...",
+        params.dataset_items as u64 * 128 / (1 << 20)
+    );
+    if params == PowParams::mainnet() {
+        println!("[*] This network's dataset is full size: building it takes minutes, and a graphics card mines it far faster (see imoney-gpu-miner).");
+    }
     pow.context();
     println!("[+] Connected to {} ({})", node, info["network"].as_str().unwrap_or("unknown network"));
 

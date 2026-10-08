@@ -64,8 +64,9 @@ struct Args {
     #[arg(short, long, default_value_t = 22)]
     intensity: u32,
 
-    /// Dataset size: "testnet" (32 MB), "mainnet" (4.6 GB) or "tiny"
-    #[arg(long, default_value = "testnet")]
+    /// Dataset size for --benchmark: "full" (4.6 GB, the public networks) or "dev" (32 MB,
+    /// private test networks). When mining, the size comes from the node or the pool.
+    #[arg(long, default_value = "full")]
     pow_size: String,
 
     /// Check the card's hashes against the CPU implementation, then measure the hashrate
@@ -217,12 +218,6 @@ fn run(args: Args) -> Result<(), Error> {
     let device = devices.get(args.device).ok_or("no such graphics card; see --list-devices")?;
     println!("[*] Card: {}", device.name().unwrap_or_default().trim());
 
-    let params = match args.pow_size.as_str() {
-        "testnet" => PowParams::testnet(),
-        "mainnet" => PowParams::mainnet(),
-        "tiny" => PowParams::tiny(),
-        other => return Err(format!("unknown --pow-size {}", other).into()),
-    };
     let batch = 1usize << args.intensity.min(30);
 
     if let Some(server) = &args.stratum {
@@ -233,6 +228,11 @@ fn run(args: Args) -> Result<(), Error> {
         if !args.benchmark {
             return Err("give --node or --stratum to mine, or --benchmark".into());
         }
+        let params = match args.pow_size.as_str() {
+            "full" | "mainnet" => PowParams::mainnet(),
+            "dev" => PowParams::dev(),
+            other => return Err(format!("unknown --pow-size {}", other).into()),
+        };
         let pow = MoneyPrinterPow::new(params, Hash::from_bytes([0x42; 32]), PowMode::Full);
         let mut gpu = load(device, &pow)?;
         return benchmark(&mut gpu, &pow, batch);
@@ -241,10 +241,19 @@ fn run(args: Args) -> Result<(), Error> {
     // The node's genesis hash seeds the proof of work for its network
     let info: serde_json::Value = ureq::get(&format!("{}/api/v1/info", node)).call()?.into_json()?;
     let genesis = Hash::from_hex(info["genesis_hash"].as_str().ok_or("node did not report a genesis hash")?)?;
-    let pow = MoneyPrinterPow::new(params, genesis, PowMode::Full);
+    let pow = MoneyPrinterPow::new(pow_params_of(&info), genesis, PowMode::Full);
     let mut gpu = load(device, &pow)?;
     println!("[+] Connected to {} ({})", node, info["network"].as_str().unwrap_or("unknown network"));
     mine(&mut gpu, &pow, node, &args, batch)
+}
+
+/// The dataset sizes a node reports for its network. A node from before it reported them
+/// is a small-dataset one.
+fn pow_params_of(info: &serde_json::Value) -> PowParams {
+    match (info["pow_light_cache_items"].as_u64(), info["pow_dataset_items"].as_u64()) {
+        (Some(cache), Some(dataset)) => PowParams { light_cache_items: cache as u32, dataset_items: dataset as u32 },
+        _ => PowParams::dev(),
+    }
 }
 
 /// Builds the dataset on the CPU and copies it to the card.
