@@ -180,9 +180,9 @@ The reference wallet is `apps/imoney-wallet` (one HTML file plus the WebAssembly
 
 ### Proof of work
 
-Money Printer is FishHash with a network-specific seed. Nothing else about the algorithm changes.
+Hallmark is FishHash with a network-specific seed. Nothing else about the algorithm changes.
 
-- **Seed:** `Blake3-derive-key("IMN 2026 Money Printer seed", genesis block hash)`, 32 bytes.
+- **Seed:** `Blake3-derive-key("IMN 2026 Hallmark seed", genesis block hash)`, 32 bytes.
   The node reports the genesis hash in `GET /api/v1/info`. The seed never changes, so the
   dataset is built once.
 - **Hash input:** 40 bytes: the block's 32-byte pre-proof-of-work hash, then the 8-byte

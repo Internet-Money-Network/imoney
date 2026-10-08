@@ -16,14 +16,14 @@ pub const DEVNET_GENESIS_BITS: u32 = 0x207fffff;
 /// The genesis block of the public test network (testnet-2: the full-size FishHash dataset).
 pub fn create_testnet_genesis() -> Block {
     // 2026-10-08 00:00:00 UTC
-    genesis(1_791_417_600_000, TESTNET_GENESIS_BITS, b"Internet Money testnet-2: 5-second blockDAG, Money Printer PoW, fair launch")
+    genesis(1_791_417_600_000, TESTNET_GENESIS_BITS, b"Internet Money testnet-2: 5-second blockDAG, Hallmark PoW, fair launch")
 }
 
 /// The genesis block shared by private test networks, which are told apart by their
 /// network identifier instead.
 pub fn create_devnet_genesis() -> Block {
     // 2026-10-06 00:00:00 UTC
-    genesis(1_791_244_800_000, DEVNET_GENESIS_BITS, b"Internet Money: 5-second blockDAG, Money Printer PoW, fair launch")
+    genesis(1_791_244_800_000, DEVNET_GENESIS_BITS, b"Internet Money: 5-second blockDAG, Hallmark PoW, fair launch")
 }
 
 fn genesis(timestamp_ms: u64, bits: u32, message: &[u8]) -> Block {

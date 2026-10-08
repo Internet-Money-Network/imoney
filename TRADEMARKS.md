@@ -4,7 +4,7 @@ The code in this repository is open source under the licences named in the READM
 is about something different: the **name** and the **logo**. Licences to the code do not include
 any right to them.
 
-> **Status.** "Internet Money", "IMN", "Money Printer" (as the name of this project's proof of
+> **Status.** "Internet Money", "IMN", "Hallmark" (as the name of this project's proof of
 > work) and the Internet Money logo are used by the Internet Money project as its marks. This
 > document states how the project asks others to use them. It is not a claim that any of them is
 > registered in any country; registration is a separate legal step.

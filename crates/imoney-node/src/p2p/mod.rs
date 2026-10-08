@@ -9,7 +9,7 @@ use crate::genesis::TESTNET_MAGIC;
 use crate::state::{DagLedger, SharedLedger, StateError};
 use codec::{write_frame, FrameReader, Message, PROTOCOL_VERSION};
 use imoney_core::{Block, Hash, Transaction};
-use imoney_pow::MoneyPrinterPow;
+use imoney_pow::HallmarkPow;
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
@@ -63,7 +63,7 @@ struct PeerHandle {
 /// Manages active P2P TCP connections, gossip broadcasting, and DAG synchronization.
 pub struct PeerManager {
     ledger: SharedLedger,
-    pow: Arc<MoneyPrinterPow>,
+    pow: Arc<HallmarkPow>,
     magic: [u8; 4],
     node_id: u64,
     listen_port: AtomicU16,
@@ -87,11 +87,11 @@ pub struct PeerManager {
 }
 
 impl PeerManager {
-    pub fn new(ledger: SharedLedger, pow: Arc<MoneyPrinterPow>, p2p_port: u16) -> Self {
+    pub fn new(ledger: SharedLedger, pow: Arc<HallmarkPow>, p2p_port: u16) -> Self {
         Self::with_magic(ledger, pow, p2p_port, TESTNET_MAGIC)
     }
 
-    pub fn with_magic(ledger: SharedLedger, pow: Arc<MoneyPrinterPow>, p2p_port: u16, magic: [u8; 4]) -> Self {
+    pub fn with_magic(ledger: SharedLedger, pow: Arc<HallmarkPow>, p2p_port: u16, magic: [u8; 4]) -> Self {
         Self {
             ledger,
             pow,

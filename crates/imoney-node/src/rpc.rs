@@ -9,7 +9,7 @@ use axum::response::{Html, IntoResponse, Json};
 use axum::routing::{get, post};
 use axum::Router;
 use imoney_core::{Address, Block, Hash, ScriptPublicKey, Transaction};
-use imoney_pow::MoneyPrinterPow;
+use imoney_pow::HallmarkPow;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::broadcast::error::RecvError;
@@ -17,7 +17,7 @@ use tower_http::cors::{Any, CorsLayer};
 
 pub struct AppState {
     pub ledger: SharedLedger,
-    pub pow: Arc<MoneyPrinterPow>,
+    pub pow: Arc<HallmarkPow>,
     pub p2p: Arc<PeerManager>,
     /// When set, mining submission and wallet calls require `Authorization: Bearer <token>`.
     pub rpc_token: Option<String>,
@@ -232,7 +232,7 @@ pub struct PeersResponse {
 
 pub fn create_router(
     ledger: SharedLedger,
-    pow: Arc<MoneyPrinterPow>,
+    pow: Arc<HallmarkPow>,
     p2p: Arc<PeerManager>,
     rpc_token: Option<String>,
 ) -> Router {
@@ -465,7 +465,7 @@ async fn dashboard_handler(State(state): State<Arc<AppState>>) -> Html<String> {
     <div class="card">
         <h1>Internet Money (IMN) Node <span class="badge">TESTNET</span></h1>
         <div class="row"><span>BlockDAG Interval:</span><b>{} seconds (0.2 BPS)</b></div>
-        <div class="row"><span>Proof of Work:</span><b>Money Printer (FishHash)</b></div>
+        <div class="row"><span>Proof of Work:</span><b>Hallmark (FishHash)</b></div>
         <div class="row"><span>Database Engine:</span><b>ACID On-Disk Storage (redb)</b></div>
         <div class="row"><span>Current Blue Score:</span><b>{}</b></div>
         <div class="row"><span>Total Blocks in DAG:</span><b>{}</b></div>

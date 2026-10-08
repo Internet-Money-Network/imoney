@@ -5,7 +5,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 echo "============================================================"
 echo "  Internet Money (IMN) Testnet-1 All-in-One Node & Wallet"
 echo "  Consensus: GHOSTDAG @ 5s Block Interval (0.2 BPS)"
-echo "  Proof of Work: Money Printer (GPU/CPU Memory-Hard)"
+echo "  Proof of Work: Hallmark (GPU/CPU Memory-Hard)"
 echo "  GUI Wallet & Dashboard: http://127.0.0.1:18556/wallet"
 echo "============================================================"
 

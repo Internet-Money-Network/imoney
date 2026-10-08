@@ -1,4 +1,4 @@
-//! OpenCL GPU miner for Money Printer, Internet Money's proof of work (FishHash).
+//! OpenCL GPU miner for Hallmark, Internet Money's proof of work (FishHash).
 //!
 //! The dataset is built on the CPU with the same code the node uses and copied to the graphics
 //! card; the card searches nonces. Every nonce the card reports is checked on the CPU before it
@@ -7,7 +7,7 @@
 use clap::Parser;
 use imoney_core::{Block, Hash};
 use imoney_pow::target::compact_to_u256;
-use imoney_pow::{MoneyPrinterPow, PowMode, PowParams};
+use imoney_pow::{HallmarkPow, PowMode, PowParams};
 use opencl3::command_queue::CommandQueue;
 use opencl3::context::Context;
 use opencl3::device::{Device, CL_DEVICE_TYPE_GPU};
@@ -33,7 +33,7 @@ const MAX_RESULTS: usize = 4;
 const TEMPLATE_LIFETIME: Duration = Duration::from_millis(1000);
 
 #[derive(Parser, Debug)]
-#[command(author, version, about = "Internet Money (IMN) - Money Printer OpenCL GPU miner", long_about = None)]
+#[command(author, version, about = "Internet Money (IMN) - Hallmark OpenCL GPU miner", long_about = None)]
 struct Args {
     /// Mine for a node: its RPC address, e.g. http://127.0.0.1:18556
     #[arg(short, long)]
@@ -233,7 +233,7 @@ fn run(args: Args) -> Result<(), Error> {
             "dev" => PowParams::dev(),
             other => return Err(format!("unknown --pow-size {}", other).into()),
         };
-        let pow = MoneyPrinterPow::new(params, Hash::from_bytes([0x42; 32]), PowMode::Full);
+        let pow = HallmarkPow::new(params, Hash::from_bytes([0x42; 32]), PowMode::Full);
         let mut gpu = load(device, &pow)?;
         return benchmark(&mut gpu, &pow, batch);
     };
@@ -241,7 +241,7 @@ fn run(args: Args) -> Result<(), Error> {
     // The node's genesis hash seeds the proof of work for its network
     let info: serde_json::Value = ureq::get(&format!("{}/api/v1/info", node)).call()?.into_json()?;
     let genesis = Hash::from_hex(info["genesis_hash"].as_str().ok_or("node did not report a genesis hash")?)?;
-    let pow = MoneyPrinterPow::new(pow_params_of(&info), genesis, PowMode::Full);
+    let pow = HallmarkPow::new(pow_params_of(&info), genesis, PowMode::Full);
     let mut gpu = load(device, &pow)?;
     println!("[+] Connected to {} ({})", node, info["network"].as_str().unwrap_or("unknown network"));
     mine(&mut gpu, &pow, node, &args, batch)
@@ -257,7 +257,7 @@ fn pow_params_of(info: &serde_json::Value) -> PowParams {
 }
 
 /// Builds the dataset on the CPU and copies it to the card.
-fn load(device: &Device, pow: &MoneyPrinterPow) -> Result<GpuSearcher, Error> {
+fn load(device: &Device, pow: &HallmarkPow) -> Result<GpuSearcher, Error> {
     println!("[*] Building the mining dataset on the CPU...");
     let started = Instant::now();
     let context = pow.context();
@@ -270,7 +270,7 @@ fn load(device: &Device, pow: &MoneyPrinterPow) -> Result<GpuSearcher, Error> {
 }
 
 /// Checks the card against the CPU for a set of nonces, then measures its hashrate.
-fn benchmark(gpu: &mut GpuSearcher, pow: &MoneyPrinterPow, batch: usize) -> Result<(), Error> {
+fn benchmark(gpu: &mut GpuSearcher, pow: &HallmarkPow, batch: usize) -> Result<(), Error> {
     let header = Hash::from_bytes([0x01; 32]);
     for i in 0..32u64 {
         let nonce = i.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ (i << 7);
@@ -359,7 +359,7 @@ fn mine_stratum(device: &Device, server: &str, args: &Args, batch: usize) -> Res
         dataset_items: network["dataset_items"].as_u64().ok_or("the server did not give the dataset size")? as u32,
     };
 
-    let pow = MoneyPrinterPow::new(params, genesis, PowMode::Full);
+    let pow = HallmarkPow::new(params, genesis, PowMode::Full);
     let mut gpu = load(device, &pow)?;
 
     send(json!({ "id": 2, "method": "mining.authorize", "params": [address, "x"] }))?;
@@ -467,7 +467,7 @@ fn mine_stratum(device: &Device, server: &str, args: &Args, batch: usize) -> Res
 }
 
 /// Mines for a node: fetch a block template, search for a nonce, submit, repeat.
-fn mine(gpu: &mut GpuSearcher, pow: &MoneyPrinterPow, node: &str, args: &Args, batch: usize) -> Result<(), Error> {
+fn mine(gpu: &mut GpuSearcher, pow: &HallmarkPow, node: &str, args: &Args, batch: usize) -> Result<(), Error> {
     let template_url = match &args.address {
         Some(address) => format!("{}/api/v1/mining/template?address={}", node, address),
         None => format!("{}/api/v1/mining/template", node),

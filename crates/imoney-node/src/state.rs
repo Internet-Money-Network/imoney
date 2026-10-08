@@ -15,7 +15,7 @@ use imoney_core::{
     TxOutput,
 };
 use imoney_emission::{block_subsidy_atoms, block_subsidy_imn};
-use imoney_pow::{compact_to_u256, is_valid_pow, MoneyPrinterPow};
+use imoney_pow::{compact_to_u256, is_valid_pow, HallmarkPow};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::ops::Bound;
@@ -853,7 +853,7 @@ impl DagLedger {
     pub fn add_block(
         &mut self,
         block: Block,
-        pow_engine: &MoneyPrinterPow,
+        pow_engine: &HallmarkPow,
     ) -> Result<Hash, StateError> {
         let header = &block.header;
         let block_hash = header.hash();

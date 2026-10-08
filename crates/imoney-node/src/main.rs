@@ -1,7 +1,7 @@
 use clap::Parser;
 use imoney_core::constants::{CURRENCY_NAME, TICKER};
 use imoney_core::{Address, AddressType, Network};
-use imoney_pow::{MoneyPrinterPow, PowMode, PowParams};
+use imoney_pow::{HallmarkPow, PowMode, PowParams};
 use imoney_node::p2p::PeerManager;
 use imoney_node::rpc::create_router;
 use imoney_node::state::{ConsensusParams, DagLedger, SharedLedger};
@@ -98,7 +98,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("============================================================");
     println!("  {} ({}) - Full Node Daemon [TESTNET]", CURRENCY_NAME, TICKER);
     println!("  Consensus: GHOSTDAG @ 5s Block Time (0.2 BPS)");
-    println!("  PoW: Money Printer (FishHash, memory-hard)");
+    println!("  PoW: Hallmark (FishHash, memory-hard)");
     println!("  Storage: Persistent ACID Embedded DB (redb)");
     println!("  Data Directory: {:?}", args.data_dir);
     println!("  RPC / Web Dashboard: http://{}", args.rpc_bind);
@@ -119,7 +119,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    // Money Printer is FishHash with a seed derived from this network's genesis hash.
+    // Hallmark is FishHash with a seed derived from this network's genesis hash.
     // Verifying blocks needs only the light cache; mining holds the full dataset in memory.
     // The public test network uses the FishHash specification's sizes, which need a graphics
     // card to mine at any speed; private networks use small ones so a CPU can mine.
@@ -128,13 +128,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None => (ConsensusParams::testnet(), PowParams::mainnet()),
     };
     let pow_mode = if args.auto_mine { PowMode::Full } else { PowMode::Light };
-    let pow = Arc::new(MoneyPrinterPow::new(pow_params, consensus.genesis.hash(), pow_mode));
+    let pow = Arc::new(HallmarkPow::new(pow_params, consensus.genesis.hash(), pow_mode));
     if pow_mode == PowMode::Full && args.devnet.is_none() {
         println!("[*] --auto-mine on the public network builds the 4.6 GB mining dataset on the CPU. This takes minutes and that much memory.");
     }
-    println!("[*] Building Money Printer (FishHash) memory in {:?} mode...", pow_mode);
+    println!("[*] Building Hallmark (FishHash) memory in {:?} mode...", pow_mode);
     pow.context();
-    println!("[+] Money Printer PoW ready.");
+    println!("[+] Hallmark PoW ready.");
 
     println!("[*] Opening persistent database at {:?}...", db_path);
     let mut ledger_instance = DagLedger::open_with_params(&db_path, mining_address, consensus)?;

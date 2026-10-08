@@ -9,7 +9,7 @@
 
 use clap::Parser;
 use imoney_core::{Address, Block, Hash};
-use imoney_pow::{compact_to_u256, MoneyPrinterPow, PowMode, PowParams};
+use imoney_pow::{compact_to_u256, HallmarkPow, PowMode, PowParams};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -115,7 +115,7 @@ impl Miner {
 
 struct Bridge {
     args: Args,
-    pow: MoneyPrinterPow,
+    pow: HallmarkPow,
     /// What a miner needs to build the dataset: sent in the reply to `mining.subscribe`.
     network: Value,
     miners: Mutex<HashMap<u64, Arc<Miner>>>,
@@ -445,7 +445,7 @@ fn main() {
         _ => PowParams::dev(),
     };
     println!("[*] Building the verification cache...");
-    let pow = MoneyPrinterPow::new(params, genesis, PowMode::Light);
+    let pow = HallmarkPow::new(params, genesis, PowMode::Light);
     pow.context();
     let network = json!({
         "genesis_hash": genesis.to_hex(),

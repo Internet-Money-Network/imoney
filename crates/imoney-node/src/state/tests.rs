@@ -17,8 +17,8 @@ fn key(seed: u8) -> SigningKey {
     SigningKey::from_bytes(&[seed; 32])
 }
 
-fn test_pow() -> MoneyPrinterPow {
-    MoneyPrinterPow::new(PowParams::tiny(), Hash([1u8; 32]), PowMode::Full)
+fn test_pow() -> HallmarkPow {
+    HallmarkPow::new(PowParams::tiny(), Hash([1u8; 32]), PowMode::Full)
 }
 
 fn test_params() -> ConsensusParams {
@@ -46,7 +46,7 @@ fn open(name: &str) -> DagLedger {
 }
 
 /// Finds a nonce for a block whose header is otherwise final.
-fn solve(mut block: Block, pow: &MoneyPrinterPow) -> Block {
+fn solve(mut block: Block, pow: &HallmarkPow) -> Block {
     block.header.hash_merkle_root = Block::compute_merkle_root(&block.transactions);
     let pre_pow_hash = block.header.pre_pow_hash().unwrap();
     let (nonce, _) = pow
@@ -57,18 +57,18 @@ fn solve(mut block: Block, pow: &MoneyPrinterPow) -> Block {
 }
 
 /// Mines a block on explicit parents carrying explicit transactions, without adding it.
-fn mine_on(ledger: &DagLedger, pow: &MoneyPrinterPow, parents: &[Hash], payout: &Address, txs: Vec<Transaction>) -> Block {
+fn mine_on(ledger: &DagLedger, pow: &HallmarkPow, parents: &[Hash], payout: &Address, txs: Vec<Transaction>) -> Block {
     solve(ledger.build_block(parents, Some(payout), txs).expect("build block"), pow)
 }
 
 /// Mines the ledger's current template (tips and mempool) and adds it.
-fn mine_tip(ledger: &mut DagLedger, pow: &MoneyPrinterPow, payout: &Address) -> Hash {
+fn mine_tip(ledger: &mut DagLedger, pow: &HallmarkPow, payout: &Address) -> Hash {
     let block = solve(ledger.get_mining_template(Some(payout)).block, pow);
     ledger.add_block(block, pow).expect("add block")
 }
 
 /// A ledger where `miner` owns one mature reward, with other blocks paid to a throwaway key.
-fn funded_ledger(name: &str, miner: &SigningKey) -> (DagLedger, MoneyPrinterPow) {
+fn funded_ledger(name: &str, miner: &SigningKey) -> (DagLedger, HallmarkPow) {
     let mut ledger = open(name);
     let pow = test_pow();
     mine_tip(&mut ledger, &pow, &address_of(miner));
@@ -751,7 +751,7 @@ fn consolidation_turns_many_outputs_into_one() {
 }
 
 /// Extends `parent` with `count` blocks one after another, adding each to the ledger.
-fn extend(ledger: &mut DagLedger, pow: &MoneyPrinterPow, parent: Hash, count: usize, payout: &Address) -> Hash {
+fn extend(ledger: &mut DagLedger, pow: &HallmarkPow, parent: Hash, count: usize, payout: &Address) -> Hash {
     let mut tip = parent;
     for _ in 0..count {
         let block = mine_on(ledger, pow, &[tip], payout, Vec::new());

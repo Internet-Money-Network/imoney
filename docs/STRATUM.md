@@ -50,7 +50,7 @@ JSON objects, one per line, in the style of Bitcoin's Stratum. A request has `id
 - `"00a1"` is this connection's **extranonce**: the first two bytes of every nonce it may use.
   `6` is how many bytes are left for the miner to vary.
 - The fourth item describes the network. The proof-of-work seed is
-  `Blake3-derive-key("IMN 2026 Money Printer seed", genesis hash)`, and the two sizes are the
+  `Blake3-derive-key("IMN 2026 Hallmark seed", genesis hash)`, and the two sizes are the
   FishHash light cache and dataset sizes in items. Build the dataset from these, not from
   constants: the test network's sizes are not the FishHash specification's.
 

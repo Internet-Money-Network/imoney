@@ -16,7 +16,7 @@ fn address_of(key: &SigningKey) -> Address {
 struct TestNode {
     manager: Arc<PeerManager>,
     ledger: SharedLedger,
-    pow: Arc<MoneyPrinterPow>,
+    pow: Arc<HallmarkPow>,
     addr: SocketAddr,
 }
 
@@ -34,7 +34,7 @@ impl TestNode {
         let mut ledger = DagLedger::open_with_params(path, None, params).unwrap();
         ledger.mempool = crate::mempool::Mempool::default().with_min_fee_rate(1);
         let ledger: SharedLedger = Arc::new(RwLock::new(ledger));
-        let pow = Arc::new(MoneyPrinterPow::new(PowParams::tiny(), Hash([1u8; 32]), PowMode::Full));
+        let pow = Arc::new(HallmarkPow::new(PowParams::tiny(), Hash([1u8; 32]), PowMode::Full));
         let manager = Arc::new(
             PeerManager::with_magic(ledger.clone(), pow.clone(), 0, magic)
                 .with_timing(Duration::from_millis(300), Duration::from_secs(1)),

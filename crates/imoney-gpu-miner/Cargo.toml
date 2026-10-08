@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "OpenCL GPU miner for Internet Money's Money Printer (FishHash) proof of work"
+description = "OpenCL GPU miner for Internet Money's Hallmark (FishHash) proof of work"
 
 [[bin]]
 name = "imoney-gpu-miner"

@@ -21,7 +21,7 @@ Payments that a shop can accept without trusting anyone else. Three things make 
       UTXO ledger, GHOSTDAG (k = 8) ordering, enforced difficulty adjustment, coinbase maturity,
       12-hour finality, fee split between the miner and the node that served the payer,
       multi-signature addresses (m of up to 16 keys).
-- [x] **Proof of work.** Money Printer: FishHash with a network-specific seed, checked against
+- [x] **Proof of work.** Hallmark: FishHash with a network-specific seed, checked against
       Iron Fish's implementation, at the specification's full 4.6 GB dataset size on the public
       test network. Nodes verify from a light cache.
 - [x] **Node.** `redb` storage with atomic block application, mempool with fee policy and

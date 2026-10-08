@@ -22,6 +22,9 @@ Notable changes to Internet Money. Nothing has been released yet: everything bel
 - `SECURITY.md`, `CONTRIBUTING.md`, `TRADEMARKS.md`, an integration guide and this file.
 
 ### Changed
+- **The proof of work is now called Hallmark** (it was "Money Printer"). It is still FishHash
+  with a network-specific seed; the seed's label changed with the name, so the test chain
+  was restarted again.
 - **The public test network was restarted as testnet-2** with the full-size FishHash dataset
   (4.6 GB), so it is mined with graphics cards. It has a new genesis block; data directories
   from before must be deleted. Private networks (`--devnet`) keep the small dataset.

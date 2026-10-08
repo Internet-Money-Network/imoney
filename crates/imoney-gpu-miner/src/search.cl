@@ -1,4 +1,4 @@
-// Money Printer (FishHash) nonce search for OpenCL.
+// Hallmark (FishHash) nonce search for OpenCL.
 //
 // Written for Internet Money from the FishHash specification: the same steps as
 // crates/imoney-pow/src/fishhash.rs, which is checked against Iron Fish's reference. The dataset

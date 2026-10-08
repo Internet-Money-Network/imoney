@@ -2,7 +2,7 @@ use clap::Parser;
 use imoney_core::constants::*;
 use imoney_core::{Block, BlockHeader, Hash};
 use imoney_emission::block_subsidy_imn;
-use imoney_pow::{MoneyPrinterPow, PowMode, PowParams};
+use imoney_pow::{HallmarkPow, PowMode, PowParams};
 use serde::Deserialize;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 const MINE_BATCH: u64 = 200_000;
 
 #[derive(Parser, Debug)]
-#[command(author, version, about = "Internet Money (IMN) - Money Printer PoW Miner & Benchmark", long_about = None)]
+#[command(author, version, about = "Internet Money (IMN) - Hallmark PoW Miner & Benchmark", long_about = None)]
 struct Args {
     /// Number of worker threads (default: system CPU count)
     #[arg(short, long)]
@@ -68,7 +68,7 @@ fn main() {
 
     println!("============================================================");
     println!("  {} ({}) - Proof-of-Work Node & Miner", CURRENCY_NAME, TICKER);
-    println!("  Algorithm: Money Printer (FishHash, memory-hard)");
+    println!("  Algorithm: Hallmark (FishHash, memory-hard)");
     println!("  Block Time: {}s | Launch Subsidy: {} IMN", TARGET_TIME_PER_BLOCK_MS / 1000, block_subsidy_imn(0));
     println!("  Threads: {}", rayon::current_num_threads());
     println!("============================================================");
@@ -81,9 +81,9 @@ fn main() {
         return;
     }
 
-    println!("[*] Initializing Money Printer memory dataset (small development size)...");
+    println!("[*] Initializing Hallmark memory dataset (small development size)...");
     let init_start = Instant::now();
-    let pow = MoneyPrinterPow::new(PowParams::dev(), Hash::from_bytes([0x42; 32]), PowMode::Full);
+    let pow = HallmarkPow::new(PowParams::dev(), Hash::from_bytes([0x42; 32]), PowMode::Full);
     println!(
         "[+] Dataset ready: {} items (took {:.2?})",
         pow.context().dataset_items(),
@@ -162,7 +162,7 @@ fn mine_for_node(node: &str, args: &Args) -> Result<(), Box<dyn std::error::Erro
     let info: serde_json::Value = ureq::get(&format!("{}/api/v1/info", node)).call()?.into_json()?;
     let genesis = Hash::from_hex(info["genesis_hash"].as_str().ok_or("node did not report a genesis hash")?)?;
     let params = pow_params_of(&info);
-    let pow = MoneyPrinterPow::new(params, genesis, PowMode::Full);
+    let pow = HallmarkPow::new(params, genesis, PowMode::Full);
     println!(
         "[*] Building the mining dataset ({} MB)...",
         params.dataset_items as u64 * 128 / (1 << 20)

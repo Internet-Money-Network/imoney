@@ -7,7 +7,7 @@
 
 ## 1. Abstract
 
-Internet Money (`IMN`) is an open-source decentralized cryptocurrency based on a directed acyclic graph of blocks (BlockDAG) ordered by the GHOSTDAG consensus protocol. It is engineered to provide sub-second transaction visibility with ~5-second block inclusion, with ASIC resistance as a design goal and decentralized mining distribution via the memory-hard **Money Printer** Proof-of-Work algorithm.
+Internet Money (`IMN`) is an open-source decentralized cryptocurrency based on a directed acyclic graph of blocks (BlockDAG) ordered by the GHOSTDAG consensus protocol. It is engineered to provide sub-second transaction visibility with ~5-second block inclusion, with ASIC resistance as a design goal and decentralized mining distribution via the memory-hard **Hallmark** Proof-of-Work algorithm.
 
 ---
 
@@ -27,10 +27,10 @@ With an honest network share $\alpha \ge 0.5$, a cluster parameter of $k = 8$ pr
 
 ---
 
-## 3. Proof-of-Work: The "Money Printer" Engine
+## 3. Proof-of-Work: The Hallmark Engine
 
 ### 3.1 Algorithm
-**Money Printer is FishHash with a network-specific seed.** FishHash is the Ethash-family, memory-hard algorithm designed for Iron Fish and also used by Karlsen. Internet Money did not design it and does not change it; `crates/imoney-pow/src/fishhash.rs` is a port of Iron Fish's reference implementation and is tested byte-for-byte against it.
+**Hallmark is FishHash with a network-specific seed.** FishHash is the Ethash-family, memory-hard algorithm designed for Iron Fish and also used by Karlsen. Internet Money did not design it and does not change it; `crates/imoney-pow/src/fishhash.rs` is a port of Iron Fish's reference implementation and is tested byte-for-byte against it.
 
 Memory-hard algorithms make each hash depend on random reads from a large block of memory, which commodity graphics cards do well. This limits the advantage of custom chips; it does not rule them out. No FishHash ASIC is publicly known at the time of writing.
 
@@ -48,7 +48,7 @@ The easiest target the public test network allows is 2^236, about a million hash
 ### 3.3 Network seed
 FishHash builds its cache from a 32-byte seed. Each Internet Money network uses its own:
 
-`seed = Blake3-derive-key("IMN 2026 Money Printer seed", genesis block hash)`
+`seed = Blake3-derive-key("IMN 2026 Hallmark seed", genesis block hash)`
 
 A different seed gives a different dataset, so the dataset of another FishHash network (or of another Internet Money network) is of no use here. The seed never changes, so there are no epochs and the dataset is built once.
 

@@ -1,4 +1,4 @@
-//! The Money Printer proof of work: FishHash with a seed specific to each network.
+//! The Hallmark proof of work: FishHash with a seed specific to each network.
 //!
 //! The algorithm itself lives in `fishhash.rs`. This module chooses the sizes, derives the
 //! network's seed, and wraps hashing, verification and mining for block headers.
@@ -49,7 +49,7 @@ pub enum PowMode {
 /// The FishHash seed of a network, derived from its genesis block hash. A different seed gives
 /// a different dataset, so hashpower pointed at another FishHash network does not apply here.
 pub fn network_seed(genesis_hash: &Hash) -> [u8; 32] {
-    let mut hasher = blake3::Hasher::new_derive_key("IMN 2026 Money Printer seed");
+    let mut hasher = blake3::Hasher::new_derive_key("IMN 2026 Hallmark seed");
     hasher.update(&genesis_hash.0);
     *hasher.finalize().as_bytes()
 }
@@ -62,15 +62,15 @@ fn pow_input(pre_pow_hash: &Hash, nonce: u64) -> [u8; 40] {
     input
 }
 
-/// The Money Printer Proof-of-Work engine. The memory is built the first time it is needed.
-pub struct MoneyPrinterPow {
+/// The Hallmark Proof-of-Work engine. The memory is built the first time it is needed.
+pub struct HallmarkPow {
     params: PowParams,
     seed: [u8; 32],
     mode: PowMode,
     context: OnceLock<Arc<FishHashContext>>,
 }
 
-impl MoneyPrinterPow {
+impl HallmarkPow {
     /// Creates the engine for the network with the given genesis block hash.
     pub fn new(params: PowParams, genesis_hash: Hash, mode: PowMode) -> Self {
         Self { params, seed: network_seed(&genesis_hash), mode, context: OnceLock::new() }
@@ -148,8 +148,8 @@ impl MoneyPrinterPow {
 mod tests {
     use super::*;
 
-    fn engine(mode: PowMode) -> MoneyPrinterPow {
-        MoneyPrinterPow::new(PowParams::tiny(), Hash([7u8; 32]), mode)
+    fn engine(mode: PowMode) -> HallmarkPow {
+        HallmarkPow::new(PowParams::tiny(), Hash([7u8; 32]), mode)
     }
 
     #[test]
@@ -177,7 +177,7 @@ mod tests {
         assert_ne!(base, pow.calculate_hash(&Hash([2u8; 32]), 9));
         assert_ne!(base, pow.calculate_hash(&Hash([1u8; 32]), 10));
         // Another network's genesis: different seed, different dataset
-        let other_network = MoneyPrinterPow::new(PowParams::tiny(), Hash([8u8; 32]), PowMode::Light);
+        let other_network = HallmarkPow::new(PowParams::tiny(), Hash([8u8; 32]), PowMode::Light);
         assert_ne!(base, other_network.calculate_hash(&Hash([1u8; 32]), 9));
         // And never the stock FishHash seed
         assert_ne!(network_seed(&Hash([7u8; 32])), crate::fishhash::FISHHASH_SEED);
