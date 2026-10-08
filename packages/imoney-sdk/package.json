@@ -31,7 +31,7 @@
     "directory": "packages/imoney-sdk"
   },
   "dependencies": {
-    "qrcode-generator": "^1.4.4"
+    "qrcode-generator": "^2.0.4"
   },
   "devDependencies": {
     "esbuild": "^0.24.0",
