@@ -176,35 +176,107 @@ fn bits_after_chain(count: u8, interval_ms: u64, bits: u32, params: &DaaParams) 
     dag.expected_bits(&next, params)
 }
 
+/// A target as a number, for comparing sizes.
+fn size(bits: u32) -> f64 {
+    compact_to_u256(bits).iter().fold(0f64, |acc, byte| acc * 256.0 + *byte as f64)
+}
+
 #[test]
-fn difficulty_tracks_block_rate() {
+fn difficulty_follows_the_last_step() {
     let params = DaaParams::new(EASY_BITS);
-    let harder_start = 0x1f00ffff;
-    let target = |bits: u32| compact_to_u256(bits);
+    let start = 0x1f00ffff;
+    let ratio = |interval_ms: u64| size(bits_after_chain(30, interval_ms, start, &params)) / size(start);
 
     // On schedule: unchanged
-    assert_eq!(bits_after_chain(30, 5_000, harder_start, &params), harder_start);
-    // Twice as fast: the target halves (difficulty doubles)
-    let fast = bits_after_chain(30, 2_500, harder_start, &params);
-    assert!(target(fast) < target(harder_start));
-    assert_eq!(fast, 0x1e7fff80);
-    // A thousand times too fast: one block may only double the difficulty
-    assert_eq!(bits_after_chain(30, 5, harder_start, &params), 0x1e7fff80);
-    // Far too slow: one block may only halve it
-    assert_eq!(bits_after_chain(30, 5_000_000, harder_start, &params), 0x1f01fffe);
-    // Too slow: the target grows
-    assert!(target(bits_after_chain(30, 10_000, harder_start, &params)) > target(harder_start));
+    assert_eq!(bits_after_chain(30, 5_000, start, &params), start);
+    // Half the interval: 2.5 seconds early against a 100-second half life
+    assert!((ratio(2_500) - 2f64.powf(-0.025)).abs() < 0.001, "{}", ratio(2_500));
+    // Twice the interval: 5 seconds late
+    assert!((ratio(10_000) - 2f64.powf(0.05)).abs() < 0.001, "{}", ratio(10_000));
+    // Instant blocks tighten by the full five seconds each
+    assert!((ratio(1) - 2f64.powf(-0.05)).abs() < 0.001, "{}", ratio(1));
+    // However late, one step eases by at most a factor of two
+    assert!((ratio(5_000_000) - 2.0).abs() < 0.001, "{}", ratio(5_000_000));
     // Never easier than the maximum target
     assert_eq!(bits_after_chain(30, 60_000, EASY_BITS, &params), EASY_BITS);
 }
 
 #[test]
-fn difficulty_is_fixed_for_short_windows_and_when_retargeting_is_off() {
+fn merged_blocks_count_towards_the_schedule() {
     let params = DaaParams::new(EASY_BITS);
-    assert_eq!(bits_after_chain(3, 1, 0x1f00ffff, &params), EASY_BITS);
+    let start = 0x1f00ffff;
+    let mut dag = dag_with_genesis_bits(8, start);
+    add_at(&mut dag, 1, &[GENESIS], 5_000, start);
+    // Two parallel blocks, then one merging both ten seconds after block 1
+    add_at(&mut dag, 2, &[1], 10_000, start);
+    add_at(&mut dag, 3, &[1], 10_000, start);
+    add_at(&mut dag, 4, &[2, 3], 15_000, start);
+    // The step into block 4 added two blocks (itself and the one it merged) in five seconds
+    // measured from its selected parent: twice the scheduled rate, so the target tightens
+    let next = dag.ghostdag(&[h(4)]).unwrap();
+    let after = dag.expected_bits(&next, &params);
+    assert!((size(after) / size(start) - 2f64.powf(-0.05)).abs() < 0.001);
+}
+
+#[test]
+fn difficulty_is_fixed_at_the_start_and_when_retargeting_is_off() {
+    let params = DaaParams::new(EASY_BITS);
+    // The block after the first has nothing to measure but the gap from genesis
+    assert_eq!(bits_after_chain(1, 1, 0x1f00ffff, &params), EASY_BITS);
 
     let fixed = DaaParams { retarget: false, ..DaaParams::new(EASY_BITS) };
     assert_eq!(bits_after_chain(30, 1, EASY_BITS, &fixed), EASY_BITS);
+}
+
+/// Mines a chain where each block takes an exponentially distributed time for the hashrate
+/// and the difficulty the rule sets, and returns each block's time and work.
+fn simulate(hashrate_at: impl Fn(usize) -> f64, blocks: usize, seed: u64) -> (Vec<f64>, Vec<f64>) {
+    let params = DaaParams::new(EASY_BITS);
+    let mut rng = Lcg(seed);
+    let mut dag = Dag::new(GhostdagParams { k: 8, mergeset_size_limit: 80 });
+    let hash = |i: usize| {
+        let mut bytes = [0u8; 32];
+        bytes[..8].copy_from_slice(&(i as u64).to_be_bytes());
+        Hash(bytes)
+    };
+    dag.insert_genesis(hash(0), 0, EASY_BITS);
+    let (mut now_ms, mut times, mut works) = (1_000_000f64, Vec::new(), Vec::new());
+    for i in 1..=blocks {
+        let parents = vec![hash(i - 1)];
+        let ghostdag = dag.ghostdag(&parents).unwrap();
+        let bits = dag.expected_bits(&ghostdag, &params);
+        let work = work_from_bits(bits) as f64;
+        // Exponential waiting time from a uniform draw
+        let uniform = (rng.next(1_000_000) as f64 + 0.5) / 1_000_000.0;
+        now_ms += -uniform.ln() * work / hashrate_at(i) * 1000.0;
+        let daa_score = dag.daa_score(&ghostdag);
+        dag.insert(hash(i), parents, now_ms as u64, bits, daa_score, ghostdag);
+        times.push(now_ms / 1000.0);
+        works.push(work);
+    }
+    (times, works)
+}
+
+#[test]
+fn difficulty_holds_the_block_time_and_follows_hashrate_both_ways() {
+    // Steady hashrate: five-second blocks on average
+    let (times, _) = simulate(|_| 1_000.0, 4_000, 7);
+    let mean = (times[3_999] - times[999]) / 3_000.0;
+    assert!((mean - 5.0).abs() < 0.35, "steady block time {}", mean);
+
+    // Fifty times the hashrate arrives at block 1000: the difficulty is within a factor of
+    // two of where it must be inside 200 blocks, and blocks are back near five seconds
+    let (times, works) = simulate(|i| if i < 1_000 { 1_000.0 } else { 50_000.0 }, 3_000, 11);
+    let caught_up = (1_000..3_000).find(|i| works[*i] > 250_000.0 / 2.0).unwrap();
+    assert!(caught_up - 1_000 < 200, "took {} blocks", caught_up - 1_000);
+    let mean = (times[2_999] - times[1_999]) / 1_000.0;
+    assert!((mean - 5.0).abs() < 0.6, "after the jump {}", mean);
+
+    // The hashrate falls back to a fiftieth: within a factor of two inside 40 blocks
+    let (times, works) = simulate(|i| if i < 1_000 { 50_000.0 } else { 1_000.0 }, 2_500, 13);
+    let eased = (1_000..2_500).find(|i| works[*i] < 5_000.0 * 2.0).unwrap();
+    assert!(eased - 1_000 < 40, "took {} blocks", eased - 1_000);
+    assert!(times[eased] - times[1_000] < 1_500.0, "took {} seconds", times[eased] - times[1_000]);
 }
 
 #[test]

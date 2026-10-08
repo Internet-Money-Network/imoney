@@ -90,15 +90,15 @@ $$R(s) = \begin{cases}
 
 ## 5. Difficulty Adjustment Algorithm (DAA)
 
-Difficulty is recomputed for every block from a rolling window of the 144 most recent blocks in its past ($720	ext{ seconds} pprox 12	ext{ minutes}$). Genesis is excluded from the window.
+Difficulty is recomputed for every block from the last step of its selected chain. Let $P$ be the block's selected parent and $G$ the selected parent of $P$. The step from $G$ to $P$ added $n$ blocks to the DAG: $P$ itself and every block it merged. On schedule that takes $n$ block intervals. The target moves from the parent's by how far the step was off:
 
-The network hashrate is estimated as the work done across the window divided by the time the window spans, where the work of a block with target $T$ is $W = 2^{256} / (T + 1)$:
-$$H = \frac{\sum W_i - W_{oldest}}{t_{newest} - t_{oldest}}$$
+$$T_{next} = T_P \cdot 2^{\,(t_P - t_G - n \cdot 5	ext{ s}) / 100	ext{ s}}$$
 
-The next target is the one this hashrate meets once per block interval:
-$$T_{next} = \frac{2^{256}}{H \cdot \Delta t}$$
+The exponent is limited to $[-1, 1]$, so one step at most doubles or halves the target, and $T_{next}$ never exceeds the network's maximum target. The first block after genesis uses the maximum target. The power of two is computed in 16.16 fixed point with a cubic approximation, in integers only, so every node gets the same value.
 
-Two limits apply. $T_{next}$ never exceeds the network's maximum target, and it may differ from the selected parent's target by at most a factor of 2 in either direction, so a single unusually fast or slow block cannot cause a large swing. With fewer than 8 blocks in the window the maximum target is used. All arithmetic is integer arithmetic.
+The 100-second half life (20 blocks) was chosen by simulation. With it the difficulty reaches within a factor of two of a fifty-fold jump in hashrate in about 120 blocks (two minutes), recovers from a fifty-fold drop in about 25 blocks (ten minutes), and moves by under a fifth from ordinary luck in block times. A windowed average over 144 blocks, which this replaced, took about 85 minutes to recover from the same drop.
+
+Looking only at the last step has two further effects. A long silence, such as all miners stopping for a day, eases the difficulty by one factor of two when mining resumes; it does not leave a backlog of easy blocks to be mined in a burst. And a single false timestamp changes the next block's difficulty by at most a factor of two, which the following honest timestamp reverses.
 
 A node recomputes the expected value for every block it receives; a header carrying any other `bits` value is invalid.
 

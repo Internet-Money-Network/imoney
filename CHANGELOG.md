@@ -28,6 +28,10 @@ Notable changes to Internet Money. Nothing has been released yet: everything bel
 - `SECURITY.md`, `CONTRIBUTING.md`, `TRADEMARKS.md`, an integration guide and this file.
 
 ### Changed
+- **A faster difficulty rule.** Each block's difficulty now follows from how far the last step
+  of its selected chain was off schedule (100-second half life, at most a factor of two per
+  step), replacing a 144-block average. It follows a hashrate jump within minutes and recovers
+  from a drop in about ten minutes, where the old rule took over an hour. Resets the chain.
 - **Transactions are smaller.** The unused lock time, subnetwork ID, gas and per-input sequence
   fields are gone: 44 bytes less for a simple payment (about 240 bytes now), so lower fees.
   A future feature that needs a new field takes a new transaction version. Resets the chain.

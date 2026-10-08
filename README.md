@@ -68,7 +68,7 @@ The codebase is structured as a modular mono-repository:
   - [`crates/imoney-core`](crates/imoney-core): Addresses (`imn:q...`), Ed25519 signing, blocks and transactions with a canonical binary encoding, merkle roots.
   - [`crates/imoney-pow`](crates/imoney-pow): Hallmark proof of work: a port of FishHash, checked against Iron Fish's reference implementation.
   - [`crates/imoney-emission`](crates/imoney-emission): 4-year halving curve starting at 5 IMN/block down to 0.3125 IMN permanent floor.
-  - [`crates/imoney-consensus`](crates/imoney-consensus): GHOSTDAG ordering rules ($k=8$), blue scores, and rolling DAA window.
+  - [`crates/imoney-consensus`](crates/imoney-consensus): GHOSTDAG ordering rules ($k=8$), blue scores, and the difficulty rule.
   - [`crates/imoney-node`](crates/imoney-node): Full node daemon with embedded pure-Rust `redb` ACID storage, REST/WebSocket API, and TCP P2P gossip sync.
   - [`crates/imoney-miner`](crates/imoney-miner): Reference multi-threaded miner CLI and benchmark.
   - [`crates/imoney-gpu-miner`](crates/imoney-gpu-miner): OpenCL GPU miner. `--list-devices` shows the cards; `--benchmark` checks the card against the CPU and measures its hashrate.
