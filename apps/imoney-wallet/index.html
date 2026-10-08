@@ -103,8 +103,17 @@
       width: 100%; background: var(--paper-raised); border: 1px solid var(--rule-soft); border-radius: 0; padding: 11px 12px;
       color: var(--ink); font-family: var(--mono); font-size: 14px;
     }
-    input::placeholder { color: var(--ink-soft); opacity: 0.7; }
-    input:focus { outline: none; border-color: var(--rule); }
+    textarea {
+      width: 100%; min-height: 96px; resize: vertical; background: var(--paper-raised); border: 1px solid var(--rule-soft);
+      border-radius: 0; padding: 10px 12px; color: var(--ink); font-family: var(--mono); font-size: 12px; line-height: 1.5;
+    }
+    input::placeholder, textarea::placeholder { color: var(--ink-soft); opacity: 0.7; }
+    input:focus, textarea:focus { outline: none; border-color: var(--rule); }
+    .facts { margin: 0 0 14px; font-size: 14px; }
+    .facts div { display: flex; justify-content: space-between; gap: 14px; padding: 7px 0; border-bottom: 1px solid var(--rule-soft); }
+    .facts div:first-child { border-top: 1px solid var(--rule); }
+    .facts dt { color: var(--ink-soft); white-space: nowrap; }
+    .facts dd { margin: 0; text-align: right; word-break: break-all; font-family: var(--mono); font-size: 13px; }
 
     .btn {
       width: 100%; background: var(--ink); color: var(--paper); border: 1px solid var(--ink); border-radius: 0; padding: 13px;
@@ -221,6 +230,7 @@
           <button class="tab-btn active" data-tab="receive">Receive</button>
           <button class="tab-btn" data-tab="send">Send</button>
           <button class="tab-btn" data-tab="history">History</button>
+          <button class="tab-btn" data-tab="shared">Shared</button>
           <button class="tab-btn" data-tab="settings">Settings</button>
         </div>
 
@@ -274,6 +284,84 @@
         <div id="tab-history" class="tab-content">
           <div id="history-list"></div>
           <button class="btn quiet" id="history-more-btn" style="display: none; margin-top: 14px;">Show older</button>
+        </div>
+
+        <!-- Tab: Shared wallet (multi-signature) -->
+        <div id="tab-shared" class="tab-content">
+          <div id="shared-setup">
+            <p class="small soft" style="margin: 0 0 14px;">
+              A shared wallet needs several people to approve each payment, for example any 2 of 3.
+              Each person uses their own wallet; nobody hands over a key.
+            </p>
+            <label>Your public key (give this to the others)</label>
+            <div class="address-card">
+              <span id="shared-my-key">…</span>
+              <button class="copy-btn" id="shared-copy-key-btn">Copy</button>
+            </div>
+            <div class="divide">
+              <div class="form-group">
+                <label for="shared-keys">Everyone's public keys, yours included, one per line</label>
+                <textarea id="shared-keys" spellcheck="false" autocomplete="off"></textarea>
+              </div>
+              <div class="form-group">
+                <label for="shared-threshold">How many must approve a payment</label>
+                <input type="text" inputmode="numeric" id="shared-threshold" value="2" />
+              </div>
+              <button class="btn" id="shared-create-btn">Create shared wallet</button>
+            </div>
+            <div class="divide">
+              <div class="form-group">
+                <label for="shared-code-in">Or open one from the code another member sent you</label>
+                <input type="text" id="shared-code-in" autocomplete="off" spellcheck="false" />
+              </div>
+              <button class="btn quiet" id="shared-open-btn">Open shared wallet</button>
+            </div>
+            <div id="shared-setup-status" class="status-msg"></div>
+          </div>
+
+          <div id="shared-main" style="display: none;">
+            <label>Shared wallet address (<span id="shared-rule"></span>)</label>
+            <div class="address-card">
+              <span id="shared-address">…</span>
+              <button class="copy-btn" id="shared-copy-address-btn">Copy</button>
+            </div>
+            <p style="margin: 12px 0 0;">Balance: <b id="shared-balance">0 IMN</b></p>
+            <p class="small soft" style="margin: 4px 0 0;">
+              The other members open the same wallet with this code:
+              <button class="copy-btn" id="shared-copy-code-btn" style="margin-left: 6px;">Copy code</button>
+            </p>
+
+            <div class="divide">
+              <label>Start a payment</label>
+              <div class="form-group">
+                <input type="text" id="shared-recipient" placeholder="imntest:q..." autocomplete="off" spellcheck="false" />
+              </div>
+              <div class="form-group pair">
+                <input type="text" inputmode="decimal" id="shared-amount" placeholder="Amount (IMN)" />
+                <input type="text" id="shared-invoice" placeholder="Invoice number (optional)" maxlength="64" />
+              </div>
+              <button class="btn quiet" id="shared-propose-btn">Create proposal and sign it</button>
+            </div>
+
+            <div class="divide">
+              <div class="form-group">
+                <label for="shared-proposal">Payment proposal (paste one you were sent, or pass this one on)</label>
+                <textarea id="shared-proposal" spellcheck="false" autocomplete="off"></textarea>
+              </div>
+              <dl class="facts" id="shared-summary" style="display: none;"></dl>
+              <div class="pair">
+                <button class="btn quiet" id="shared-sign-btn">Check and sign</button>
+                <button class="btn" id="shared-send-btn">Send payment</button>
+              </div>
+              <button class="copy-btn" id="shared-copy-proposal-btn" style="margin-top: 10px;">Copy proposal</button>
+              <div id="shared-status" class="status-msg"></div>
+            </div>
+
+            <div class="divide">
+              <button class="btn danger" id="shared-forget-btn">Remove shared wallet from this browser</button>
+              <p class="small soft" style="margin: 8px 0 0;">The coins stay where they are. Keep the code to open it again.</p>
+            </div>
+          </div>
         </div>
 
         <!-- Tab: Settings -->
@@ -402,6 +490,7 @@
     $('forget-btn').addEventListener('click', () => {
       localStorage.removeItem('imoney_priv');
       localStorage.removeItem('imoney_addr');
+      localStorage.removeItem('imoney_shared');
       wallet = null;
       if (ws) ws.close();
       $('wallet-main').style.display = 'none';
@@ -416,6 +505,7 @@
         btn.classList.add('active');
         $('tab-' + btn.dataset.tab).classList.add('active');
         if (btn.dataset.tab === 'history') refreshHistory();
+        if (btn.dataset.tab === 'shared') openShared();
       });
     });
 
@@ -600,6 +690,155 @@
         );
         show(statusEl, `Merging ${signed.inputs_used} coins into one for a fee of ${formatImn(signed.fee_atoms)} IMN.`, true);
         setTimeout(refreshBalance, 1500);
+      } catch (err) {
+        show(statusEl, err.message || String(err), false);
+      }
+    });
+
+    // ---------------------------------------------------------------- shared wallet
+    let shared = null; // { address, threshold, public_keys, script_hex }
+    const copyText = (button, text) => {
+      navigator.clipboard.writeText(text);
+      const original = button.innerText;
+      button.innerText = 'Copied';
+      setTimeout(() => (button.innerText = original), 1500);
+    };
+
+    function openShared() {
+      if (!wallet) return;
+      $('shared-my-key').innerText = wallet.public_key_hex;
+      const code = localStorage.getItem('imoney_shared');
+      shared = null;
+      if (code) {
+        try {
+          shared = JSON.parse(wasm.shared_wallet_open(code, TESTNET));
+        } catch {
+          localStorage.removeItem('imoney_shared');
+        }
+      }
+      $('shared-setup').style.display = shared ? 'none' : 'block';
+      $('shared-main').style.display = shared ? 'block' : 'none';
+      if (!shared) return;
+      $('shared-address').innerText = shared.address;
+      $('shared-rule').innerText = `any ${shared.threshold} of ${shared.public_keys.length} members`;
+      sharedCoins().then((coins) => {
+        const atoms = coins.filter((c) => c.spendable !== false).reduce((sum, c) => sum + c.value_atoms, 0);
+        $('shared-balance').innerText = formatImn(atoms) + ' IMN';
+      }).catch(() => {});
+    }
+
+    // The shared wallet's coins as this wallet's own node reports them
+    async function sharedCoins() {
+      const res = await fetch(`${nodeUrl()}/api/v1/address/${encodeURIComponent(shared.address)}/utxos`);
+      if (!res.ok) throw new Error('Could not read the shared wallet from the node.');
+      return res.json();
+    }
+
+    function useShared(sharedWallet) {
+      if (!sharedWallet.public_keys.includes(wallet.public_key_hex)) {
+        throw new Error('This wallet is not one of its members. Check that your public key is in the list.');
+      }
+      localStorage.setItem('imoney_shared', sharedWallet.script_hex);
+      openShared();
+    }
+
+    $('shared-create-btn').addEventListener('click', () => {
+      try {
+        const threshold = parseInt($('shared-threshold').value, 10);
+        if (!(threshold >= 1)) throw new Error('Enter how many members must approve a payment.');
+        useShared(JSON.parse(wasm.shared_wallet_create(threshold, $('shared-keys').value, TESTNET)));
+      } catch (err) {
+        show($('shared-setup-status'), err.message || String(err), false);
+      }
+    });
+    $('shared-open-btn').addEventListener('click', () => {
+      try {
+        useShared(JSON.parse(wasm.shared_wallet_open($('shared-code-in').value, TESTNET)));
+      } catch (err) {
+        show($('shared-setup-status'), err.message || String(err), false);
+      }
+    });
+    $('shared-forget-btn').addEventListener('click', () => {
+      localStorage.removeItem('imoney_shared');
+      openShared();
+    });
+    $('shared-copy-key-btn').addEventListener('click', (e) => copyText(e.target, wallet.public_key_hex));
+    $('shared-copy-address-btn').addEventListener('click', (e) => copyText(e.target, shared.address));
+    $('shared-copy-code-btn').addEventListener('click', (e) => copyText(e.target, shared.script_hex));
+    $('shared-copy-proposal-btn').addEventListener('click', (e) => copyText(e.target, $('shared-proposal').value));
+
+    // Shows what the proposal in the box does, as checked against this wallet's own node
+    function showSummary(proposalJson, coins) {
+      const summary = JSON.parse(wasm.shared_summary(proposalJson, JSON.stringify(coins)));
+      const rows = summary.payments.map((p) => ['Pays', `${formatImn(p.amount_atoms)} IMN to ${p.address || 'an unknown kind of address'}`]);
+      rows.push(['Fee', `${formatImn(summary.fee_atoms)} IMN`]);
+      if (summary.change_atoms) rows.push(['Returns to the shared wallet', `${formatImn(summary.change_atoms)} IMN`]);
+      if (summary.invoice_id) rows.push(['Invoice', summary.invoice_id]);
+      rows.push(['Approved by', `${summary.signed_by.length} of the ${summary.threshold} needed`]);
+      const list = $('shared-summary');
+      list.replaceChildren(...rows.map(([label, value]) => {
+        const row = document.createElement('div');
+        const dt = document.createElement('dt');
+        const dd = document.createElement('dd');
+        dt.innerText = label;
+        dd.innerText = value;
+        row.append(dt, dd);
+        return row;
+      }));
+      list.style.display = 'block';
+      return summary;
+    }
+
+    $('shared-propose-btn').addEventListener('click', async () => {
+      const statusEl = $('shared-status');
+      try {
+        const recipient = $('shared-recipient').value.trim();
+        if (!wasm.is_valid_address(recipient, TESTNET)) throw new Error('That is not a valid testnet address.');
+        const amountAtoms = toAtoms($('shared-amount').value);
+        if (!(amountAtoms > 0)) throw new Error('Enter an amount greater than zero.');
+        const coins = await sharedCoins();
+        const proposal = wasm.shared_propose(
+          shared.script_hex, TESTNET, recipient, BigInt(amountAtoms), 0n, JSON.stringify(coins),
+          serviceAddress || undefined, $('shared-invoice').value.trim() || undefined
+        );
+        const signed = wasm.shared_sign(proposal, wallet.private_key_hex, JSON.stringify(coins));
+        $('shared-proposal').value = signed;
+        const summary = showSummary(signed, coins);
+        show(statusEl, summary.ready
+          ? 'Signed. Enough members have approved: you can send it.'
+          : 'Signed. Copy the proposal and pass it to another member to approve.', true);
+      } catch (err) {
+        show(statusEl, err.message || String(err), false);
+      }
+    });
+
+    $('shared-sign-btn').addEventListener('click', async () => {
+      const statusEl = $('shared-status');
+      try {
+        const coins = await sharedCoins();
+        // Shown before signing, so what is approved is what was read
+        showSummary($('shared-proposal').value, coins);
+        const signed = wasm.shared_sign($('shared-proposal').value, wallet.private_key_hex, JSON.stringify(coins));
+        $('shared-proposal').value = signed;
+        const summary = showSummary(signed, coins);
+        show(statusEl, summary.ready
+          ? 'Signed. Enough members have approved: you can send it.'
+          : `Signed. ${summary.threshold - summary.signed_by.length} more approval(s) needed: pass the proposal on.`, true);
+      } catch (err) {
+        show(statusEl, err.message || String(err), false);
+      }
+    });
+
+    $('shared-send-btn').addEventListener('click', async () => {
+      const statusEl = $('shared-status');
+      try {
+        const coins = await sharedCoins();
+        showSummary($('shared-proposal').value, coins);
+        const sent = await broadcast(wasm.shared_finish($('shared-proposal').value, JSON.stringify(coins)));
+        show(statusEl, `Sent for a fee of ${formatImn(sent.fee_atoms)} IMN. Transaction ${sent.tx_id.slice(0, 16)}… should be in a block in about 5 seconds.`, true);
+        $('shared-proposal').value = '';
+        $('shared-summary').style.display = 'none';
+        setTimeout(openShared, 2000);
       } catch (err) {
         show(statusEl, err.message || String(err), false);
       }

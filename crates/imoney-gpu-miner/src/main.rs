@@ -33,6 +33,11 @@ type Error = Box<dyn std::error::Error>;
 const KERNEL_SOURCE: &str = include_str!("search.cl");
 /// Must match MAX_RESULTS in search.cl
 const MAX_RESULTS: usize = 4;
+/// Nonces per burst when the card is limited with --power: under a tenth of a second of work.
+/// Much shorter bursts spend as long waiting on the driver as hashing.
+const THROTTLED_BURST: usize = 1 << 21;
+/// Rests shorter than this are saved up: the system cannot time them accurately
+const SHORTEST_REST: Duration = Duration::from_millis(30);
 /// How long one block template is searched before a fresh one is fetched
 const TEMPLATE_LIFETIME: Duration = Duration::from_millis(1000);
 
@@ -89,6 +94,12 @@ struct Args {
     /// Build the dataset afresh every time and keep nothing on disk
     #[arg(long, default_value_t = false)]
     no_cache: bool,
+
+    /// How hard to work the card, as a percentage of full time (10 to 100). At 50 the card
+    /// rests as long as it works, in bursts of a few hundredths of a second, which roughly
+    /// halves its average power draw, heat and hashrate.
+    #[arg(short, long, default_value_t = 100, value_parser = clap::value_parser!(u8).range(10..=100))]
+    power: u8,
 }
 
 #[derive(Deserialize)]
@@ -122,6 +133,11 @@ struct GpuSearcher {
     header: Buffer<cl_uint>,
     target: Buffer<cl_uint>,
     results: Buffer<cl_uint>,
+    /// Time the card rests after each burst, as a multiple of the time the burst took.
+    rest_ratio: f64,
+    /// Rest the card is still owed. Sleeps are coarse, so rest is taken in pieces large
+    /// enough to time and the difference carried forward.
+    rest_owed: Duration,
     // Dropped last: the buffers and queue above belong to it
     _program: Program,
     _context: Context,
@@ -157,6 +173,8 @@ impl GpuSearcher {
             header,
             target,
             results,
+            rest_ratio: 0.0,
+            rest_owed: Duration::ZERO,
             _program: program,
             _context: context,
         })
@@ -178,8 +196,37 @@ impl GpuSearcher {
         Ok(())
     }
 
+    /// Limits the card to working `percent` of the time.
+    fn set_power(&mut self, percent: u8) {
+        let percent = percent.clamp(10, 100) as f64;
+        self.rest_ratio = (100.0 - percent) / percent;
+    }
+
     /// Tries `count` nonces from `start_nonce` and returns those that met the target.
     fn search(&mut self, start_nonce: u64, count: usize) -> Result<Vec<u64>, Error> {
+        if self.rest_ratio == 0.0 {
+            return self.search_burst(start_nonce, count);
+        }
+        // Short bursts with a rest after each, so the draw is evened out rather than
+        // swinging between full and idle once a second
+        let mut found = Vec::new();
+        let mut done = 0;
+        while done < count {
+            let burst = (count - done).min(THROTTLED_BURST);
+            let started = Instant::now();
+            found.extend(self.search_burst(start_nonce.wrapping_add(done as u64), burst)?);
+            self.rest_owed += started.elapsed().mul_f64(self.rest_ratio);
+            if self.rest_owed >= SHORTEST_REST {
+                let resting = Instant::now();
+                std::thread::sleep(self.rest_owed);
+                self.rest_owed = self.rest_owed.saturating_sub(resting.elapsed());
+            }
+            done += burst;
+        }
+        Ok(found)
+    }
+
+    fn search_burst(&mut self, start_nonce: u64, count: usize) -> Result<Vec<u64>, Error> {
         let mut found = [0 as cl_uint; 1 + 2 * MAX_RESULTS];
         // SAFETY: the arguments match the kernel's parameters in order and type, and the
         // results buffer is as long as `found`.
@@ -341,6 +388,7 @@ fn load(device: &Device, params: PowParams, genesis: Hash, args: &Args) -> Resul
         let started = Instant::now();
         if let Some(flat) = read_cache(path, params) {
             let mut gpu = GpuSearcher::new(device, &flat)?;
+            gpu.set_power(args.power);
             match check_against_cpu(&mut gpu, &light) {
                 Ok(()) => {
                     println!("[+] Dataset ({} MB) loaded from {} in {:.1?}; the card matches the CPU", megabytes, path.display(), started.elapsed());
@@ -361,6 +409,7 @@ fn load(device: &Device, params: PowParams, genesis: Hash, args: &Args) -> Resul
     let flat = context.dataset_words().ok_or("the dataset was not built")?.as_flattened();
     println!("[+] Built in {:.1?}", started.elapsed());
     let mut gpu = GpuSearcher::new(device, flat)?;
+    gpu.set_power(args.power);
     check_against_cpu(&mut gpu, &light)?;
     println!("[+] Copied to the card; the card matches the CPU");
     if let Some(path) = &cache {
