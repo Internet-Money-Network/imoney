@@ -66,17 +66,6 @@ fn percent_decode(text: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn addresses_arrive_percent_encoded() {
-        assert_eq!(super::percent_decode("imntest%3Aqq7d"), "imntest:qq7d");
-        assert_eq!(super::percent_decode("imntest:qq7d"), "imntest:qq7d");
-        assert_eq!(super::percent_decode("100%"), "100%");
-        assert_eq!(super::percent_decode("%zz%3a"), "%zz:");
-    }
-}
-
 /// The coin the ledger creates for a blue block's reward (the same rule the node applies).
 pub fn reward_tx_id(block_hash: &Hash) -> Hash {
     tagged_hash("IMN 2026 block reward", &[&block_hash.0])
@@ -366,5 +355,16 @@ impl PoolRuntime {
                 body
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn addresses_arrive_percent_encoded() {
+        assert_eq!(super::percent_decode("imntest%3Aqq7d"), "imntest:qq7d");
+        assert_eq!(super::percent_decode("imntest:qq7d"), "imntest:qq7d");
+        assert_eq!(super::percent_decode("100%"), "100%");
+        assert_eq!(super::percent_decode("%zz%3a"), "%zz:");
     }
 }
