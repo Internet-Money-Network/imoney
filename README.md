@@ -9,10 +9,11 @@
 
 
 <p align="center">
+  <a href="https://github.com/Internet-Money-Network/imoney/actions/workflows/ci.yml"><img src="https://github.com/Internet-Money-Network/imoney/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+  <a href="https://github.com/Internet-Money-Network/imoney/releases"><img src="https://img.shields.io/github/v/release/Internet-Money-Network/imoney?include_prereleases&label=release" alt="Release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg" alt="License"></a>
-  <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/rust-1.97-orange.svg" alt="Rust"></a>
-  <a href="apps/imoney-explorer/index.html"><img src="https://img.shields.io/badge/explorer-testnet--1-green.svg" alt="Explorer"></a>
-  <a href="packages/imoney-sdk"><img src="https://img.shields.io/badge/sdk-%40imoney%2Fsdk-blueviolet.svg" alt="SDK"></a>
+  <a href="https://internetmoneynetwork.org/explorer/"><img src="https://img.shields.io/badge/explorer-testnet--2-green.svg" alt="Explorer"></a>
+  <a href="https://internetmoneynetwork.org/pool/"><img src="https://img.shields.io/badge/pool-testnet-green.svg" alt="Pool"></a>
 </p>
 
 ---
