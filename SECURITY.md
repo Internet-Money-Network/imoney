@@ -9,8 +9,7 @@ to fix.
 Please do not open a public issue for anything that could be used to steal coins, create coins,
 split the network, or crash or take over a node.
 
-Report it privately through GitHub: on the repository page choose **Security**, then
-**Report a vulnerability**. Only the maintainers see the report.
+Report it privately by email to **security@internetmoneynetwork.org**.
 
 Include what you can of:
 
