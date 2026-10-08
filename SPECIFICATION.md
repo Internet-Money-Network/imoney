@@ -157,5 +157,10 @@ A node indexes accepted transactions by invoice ID and removes the entry if a re
 
 The number of confirmations to require is a judgement about value at risk: reversing a payment costs an attacker roughly the hashpower to out-mine the network for that many blocks. The default is a starting point, not a guarantee.
 
-### 8.3 Keys
+### 8.3 Multi-signature addresses
+An address of type `ScriptHash` (type byte 2) locks coins to the hash of a script: one byte for the threshold `m`, one for the key count `n` (1 ≤ m ≤ n ≤ 16), then `n` Ed25519 public keys in strictly ascending byte order. The hash is `Blake3-derive-key("IMN 2026 multisig script", script)`. Requiring sorted keys gives each set of keys and threshold exactly one address.
+
+An input spending such a coin carries the script followed by exactly `m` entries of one byte (the signing key's position in the script) and a 64-byte signature, with positions strictly ascending. Each signature is over the ordinary signing hash of that input. The signing hash does not cover signature scripts, so key holders sign independently and in any order.
+
+### 8.4 Keys
 Nodes do not create, store or receive private keys. Wallets sign locally; the reference wallet uses a WebAssembly build of the same transaction code the node runs. A wallet's key is derived from a 12-word BIP-39 recovery phrase as `Blake3-derive-key("IMN 2026 wallet key 0", BIP-39 seed)`.

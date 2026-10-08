@@ -113,7 +113,8 @@ impl Address {
         let (hrp, data) = bech32::decode(&normalized)
             .map_err(|e| AddressError::Decode(e.to_string()))?;
 
-        let network = match hrp.as_str() {
+        // Upper case is allowed (QR codes use it); mixed case is refused by the Bech32 decoder
+        let network = match hrp.as_str().to_ascii_lowercase().as_str() {
             "imn" => Network::Mainnet,
             "imntest" => Network::Testnet,
             other => return Err(AddressError::InvalidHrp(other.to_string())),
@@ -130,7 +131,13 @@ impl Address {
         hash_bytes.copy_from_slice(&data[1..33]);
         let hash = Hash(hash_bytes);
 
-        Ok(Self { network, address_type, hash })
+        // One spelling per address: the decoder also understands the Bech32m checksum, which
+        // this network does not use
+        let address = Self { network, address_type, hash };
+        if !address.encode()?.eq_ignore_ascii_case(s) {
+            return Err(AddressError::Decode("not the canonical spelling of this address".to_string()));
+        }
+        Ok(address)
     }
 }
 
@@ -151,6 +158,23 @@ impl fmt::Debug for Address {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn only_the_canonical_spelling_decodes() {
+        use super::*;
+        let address = Address::from_public_key(Network::Testnet, AddressType::PubKeyHash, &[0x33u8; 32]);
+        let text = address.to_string();
+        assert_eq!(Address::decode(&text).unwrap(), address);
+        assert_eq!(Address::decode(&text.to_uppercase()).unwrap(), address);
+
+        // The same data with a Bech32m checksum is a different string for the same address
+        let mut data = vec![address.address_type as u8];
+        data.extend_from_slice(address.hash.as_bytes());
+        let other = bech32::encode::<bech32::Bech32m>(Hrp::parse("imntest").unwrap(), &data).unwrap();
+        let other = other.replacen("imntest1", "imntest:", 1);
+        assert_ne!(other, text);
+        assert!(Address::decode(&other).is_err());
+    }
+
     use super::*;
 
     #[test]

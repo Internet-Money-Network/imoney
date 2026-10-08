@@ -42,6 +42,20 @@ GET /api/v1/address/{address}/utxos
 Credit a coin once its `confirmations` reaches your threshold. A coin that disappears from the
 list before then was reorganised away or spent.
 
+For a statement of everything an address received and sent, newest first:
+
+```
+GET /api/v1/address/{address}/history?limit=50
+→ { "items": [ { "tx_id": "…", "kind": "received" | "sent" | "reward", "received_atoms": 150000000,
+                 "sent_atoms": 0, "net_atoms": 150000000, "confirmations": 12, "timestamp_ms": 1791439742496 } ],
+    "next": "…" }
+```
+
+Pass `next` back as `before=` for the following page. A row is the net effect of one
+transaction on the address, so a payment with change is one `sent` row. Only transactions
+accepted into the ledger are listed, and a row can disappear in a reorganisation, so apply your
+confirmation threshold here too. `timestamp_ms` is the block's own timestamp, set by its miner.
+
 **B. One address, an invoice ID per user or per deposit.** The sender's wallet signs the ID into
 the payment (it plays the role a memo or destination tag plays elsewhere, but cannot be altered
 after signing). An ID is 1–64 characters from `A-Z a-z 0-9 - _ .`.
@@ -97,6 +111,31 @@ To build transactions, use the project's own code so the encoding is exactly rig
 
 A `not_found` status for a withdrawal you submitted means it was dropped or reorganised away
 and can be sent again; its inputs are free once they reappear in your coin list.
+
+### Multi-signature wallets
+
+For a hot or cold wallet that needs more than one key to move funds, use a multi-signature
+address: any `m` of up to 16 Ed25519 keys. It is an ordinary address to pay into, in the same
+format as any other, and deposits, coins and history are read the same way.
+
+```rust
+use imoney_core::{MultisigScript, Network, Transaction};
+
+let script = MultisigScript::new(2, &[key_a, key_b, key_c])?;      // 2 of 3; key order does not matter
+let address = script.address(Network::Testnet);
+
+let mut tx = Transaction::build_multisig_payment(&script, Network::Testnet, &recipient,
+                                                 amount_atoms, fee_atoms, coins, None, None)?;
+// Each holder, on their own machine, for every input:
+let signature = tx.multisig_sign(Network::Testnet, input_index, &their_key);
+// Whoever collects them:
+tx.set_multisig_signatures(input_index, &script, &[signature_1, signature_2])?;
+```
+
+Signatures do not cover each other, so holders can sign in any order and offline. Keep the
+script (threshold and public keys) backed up: it is needed to spend, and the address alone does
+not reveal it. This is available in Rust only; the WebAssembly build and the reference wallet
+do not expose it yet. The format is in SPECIFICATION.md section 8.3.
 
 Consolidate regularly. Every deposit is a separate coin, and a withdrawal that spends hundreds of
 small coins is large and costs more. `build_consolidation` merges up to 300 coins into one.
@@ -179,11 +218,18 @@ the CPU before submitting. `--list-devices` shows the cards, `--device N` picks 
 50 MH/s on the test network's dataset and 26 MH/s on the full-size one. The search kernel is
 `crates/imoney-gpu-miner/src/search.cl`.
 
+### Stratum
+
+The node speaks HTTP. `crates/imoney-stratum` is a bridge that speaks Stratum to miners: it
+fetches templates, hands out the pre-proof-of-work hash and a share target with a nonce range
+per miner, checks shares with the light cache, adjusts share difficulty, and submits blocks.
+Each miner mines to the address it logs in with. The protocol and options are in
+[STRATUM.md](STRATUM.md).
+
 ### What a pool has to build
 
-The node speaks HTTP, not Stratum. A pool needs a bridge that fetches templates, hands miners
-the pre-proof-of-work hash and target with a nonce range, checks shares with the light cache,
-and submits full blocks. There is no reference Stratum bridge yet.
+Accounting. Run the bridge with miners logged in under the pool's address (or adapt it), record
+the shares each miner sends, and pay out from the pool's wallet. The bridge holds no coins.
 
 Rewards: the coinbase names one payout script. The ledger pays that script the block subsidy
 plus the miner's share of fees when the block is merged as blue. A red block earns nothing, so
@@ -193,11 +239,13 @@ a pool should expect a small fraction of found blocks to pay zero.
 
 Being direct about gaps saves everyone time:
 
-- **No address history.** A node can list an address's current coins, not its past transactions.
-  Keep your own record of deposits and withdrawals.
-- **No Stratum bridge.** The GPU miner is a simple reference, one card per process, tested on one AMD card.
-- **No hardware-wallet support and no multi-signature addresses.** The address format reserves
-  a type for scripts; nothing implements it.
-- **No client libraries beyond Rust and the WebAssembly build.**
-- **A pruned node forgets** transactions and invoices older than 36 hours. Run an unpruned node
+- **Address history covers accepted transactions only**, not pending ones, and a database
+  created before the history index existed has no rows for its older blocks.
+- **The Stratum bridge and GPU miner are simple references.** The bridge has no pool accounting
+  and no TLS; the miner drives one card per process and has been run on one AMD card.
+- **No hardware-wallet support.** Multi-signature addresses exist in the protocol and the Rust
+  crate, but not yet in the browser wallet or the WebAssembly build.
+- **No client libraries beyond Rust, the WebAssembly build and the JavaScript SDK** (which reads
+  the API and runs checkouts; it does not sign).
+- **A pruned node forgets** transactions, invoices and history older than 36 hours. Run an unpruned node
   for exchange or pool work.

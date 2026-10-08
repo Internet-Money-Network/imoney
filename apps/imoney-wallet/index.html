@@ -283,6 +283,7 @@
         <div class="tabs">
           <button class="tab-btn active" data-tab="receive">Receive</button>
           <button class="tab-btn" data-tab="send">Send</button>
+          <button class="tab-btn" data-tab="history">History</button>
           <button class="tab-btn" data-tab="settings">Settings</button>
         </div>
 
@@ -330,6 +331,12 @@
           <p style="font-size: 12px; color: #8b949e; margin: 0 0 12px;">The network fee is set from the size of the payment, usually about 0.00006 IMN.</p>
           <button class="btn" id="send-btn">Sign &amp; send</button>
           <div id="send-status" class="status-msg"></div>
+        </div>
+
+        <!-- Tab: History -->
+        <div id="tab-history" class="tab-content">
+          <div id="history-list"></div>
+          <button class="btn" id="history-more-btn" style="display: none; background: #21262d; border: 1px solid var(--border); margin-top: 12px;">Show older</button>
         </div>
 
         <!-- Tab: Settings -->
@@ -468,6 +475,7 @@
         document.querySelectorAll('.tab-content').forEach((c) => c.classList.remove('active'));
         btn.classList.add('active');
         $('tab-' + btn.dataset.tab).classList.add('active');
+        if (btn.dataset.tab === 'history') refreshHistory();
       });
     });
 
@@ -512,6 +520,43 @@
         console.warn('Balance refresh failed:', err);
       }
     }
+
+    // ---------------------------------------------------------------- history
+    let historyNext = null;
+
+    function historyRow(item) {
+      const row = document.createElement('div');
+      row.style.cssText = 'display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13px;';
+      const what = document.createElement('div');
+      const label = { received: 'Received', sent: 'Sent', reward: 'Mining reward' }[item.kind];
+      const when = new Date(item.timestamp_ms).toLocaleString();
+      what.innerText = `${label} · ${when} · ${item.confirmations} confirmation${item.confirmations === 1 ? '' : 's'}`;
+      const amount = document.createElement('div');
+      amount.style.cssText = `font-weight: bold; white-space: nowrap; color: ${item.net_atoms < 0 ? '#f85149' : '#39d353'};`;
+      amount.innerText = `${item.net_atoms > 0 ? '+' : '-'}${formatImn(Math.abs(item.net_atoms))} IMN`;
+      row.append(what, amount);
+      return row;
+    }
+
+    // Loads the newest page, or with `older` appends the page after the ones already shown
+    async function refreshHistory(older) {
+      if (!wallet) return;
+      try {
+        const page = older && historyNext ? `&before=${historyNext}` : '';
+        const res = await fetch(`${nodeUrl()}/api/v1/address/${encodeURIComponent(wallet.address)}/history?limit=20${page}`);
+        if (!res.ok) return;
+        const history = await res.json();
+        const list = $('history-list');
+        if (!older) list.replaceChildren();
+        history.items.forEach((item) => list.appendChild(historyRow(item)));
+        if (!list.children.length) list.innerText = 'Nothing yet. Payments and mining rewards will appear here.';
+        historyNext = history.next || null;
+        $('history-more-btn').style.display = historyNext ? 'block' : 'none';
+      } catch (err) {
+        console.warn('History refresh failed:', err);
+      }
+    }
+    $('history-more-btn').addEventListener('click', () => refreshHistory(true));
 
     async function refreshNodeStats() {
       try {

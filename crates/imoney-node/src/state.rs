@@ -1,8 +1,8 @@
 use crate::genesis::create_testnet_genesis;
 use crate::mempool::{Mempool, MempoolError};
 use crate::storage::{
-    AcceptanceData, AcceptedTx, BlockMeta, Storage, StorageError, TxRecord, UtxoEntry, WriteBatch, META_PRUNED_FLOOR,
-    META_SINK, META_VIRTUAL_ACCEPTANCE,
+    AcceptanceData, AcceptedTx, BlockMeta, HistoryItem, HistoryRow, Storage, StorageError, TxRecord, UtxoEntry,
+    WriteBatch, META_PRUNED_FLOOR, META_SINK, META_VIRTUAL_ACCEPTANCE,
 };
 use imoney_consensus::{work_from_bits, DaaParams, Dag, DagBlock, GhostdagData, GhostdagError, GhostdagParams};
 use imoney_core::constants::{
@@ -281,6 +281,9 @@ impl LedgerView {
 
     /// Reverses a previously applied acceptance.
     fn undo(&mut self, acceptance: &AcceptanceData) {
+        for item in &acceptance.history {
+            self.batch.delete_history(acceptance.blue_score, item);
+        }
         for (outpoint, _) in &acceptance.created {
             self.spend(outpoint);
         }
@@ -295,6 +298,9 @@ impl LedgerView {
 
     /// Applies an acceptance that was computed earlier against the same starting state.
     fn redo(&mut self, acceptance: &AcceptanceData) {
+        for item in &acceptance.history {
+            self.batch.put_history(acceptance.blue_score, item);
+        }
         for (outpoint, _) in &acceptance.spent {
             self.spend(outpoint);
         }
@@ -598,19 +604,44 @@ impl DagLedger {
                 let service_share = tx.service_share(fee);
                 fees = fees.saturating_add(fee - service_share);
 
+                // What this transaction takes from and gives to each locking script
+                let tx_id = tx.id();
+                let mut moved: Vec<HistoryItem> = Vec::new();
+                let mut record = |script: &ScriptPublicKey, received: u64, sent: u64| {
+                    let item = match moved.iter().position(|item| &item.script == script) {
+                        Some(found) => &mut moved[found],
+                        None => {
+                            moved.push(HistoryItem {
+                                script: script.clone(),
+                                id: tx_id,
+                                received_atoms: 0,
+                                sent_atoms: 0,
+                                is_reward: false,
+                                timestamp_ms: block.header.timestamp_ms,
+                            });
+                            moved.last_mut().expect("just pushed")
+                        }
+                    };
+                    item.received_atoms = item.received_atoms.saturating_add(received);
+                    item.sent_atoms = item.sent_atoms.saturating_add(sent);
+                };
+
                 for input in &tx.inputs {
                     let outpoint = &input.previous_outpoint;
-                    if created_here.contains(outpoint) {
-                        // Created and spent within this acceptance: never reaches the UTXO set
-                        spent_here.insert(outpoint.clone());
-                    } else if let Some(entry) = view.get(outpoint)? {
-                        acceptance.spent.push((outpoint.clone(), entry));
+                    if let Some(entry) = view.get(outpoint)? {
+                        record(&entry.output.script_public_key, 0, entry.output.value_atoms);
+                        if created_here.contains(outpoint) {
+                            // Created and spent within this acceptance: never reaches the UTXO set
+                            spent_here.insert(outpoint.clone());
+                        } else {
+                            acceptance.spent.push((outpoint.clone(), entry));
+                        }
                     }
                     view.spend(outpoint);
                 }
 
-                let tx_id = tx.id();
                 for (idx, output) in tx.outputs.iter().enumerate() {
+                    record(&output.script_public_key, output.value_atoms, 0);
                     let outpoint = Outpoint { transaction_id: tx_id, index: idx as u32 };
                     let entry = UtxoEntry { output: output.clone(), blue_score, is_coinbase: false };
                     view.create(outpoint.clone(), entry.clone());
@@ -619,6 +650,7 @@ impl DagLedger {
                 }
 
                 if let (Some(script), true) = (&tx.service, service_share > 0) {
+                    record(script, service_share, 0);
                     let outpoint = tx.service_outpoint();
                     let entry = UtxoEntry {
                         output: TxOutput { value_atoms: service_share, script_public_key: script.clone() },
@@ -642,6 +674,10 @@ impl DagLedger {
                 };
                 view.put_invoice(&accepted);
                 acceptance.accepted.push(accepted);
+                for item in moved {
+                    view.batch.put_history(blue_score, &item);
+                    acceptance.history.push(item);
+                }
             }
 
             if is_blue {
@@ -655,6 +691,16 @@ impl DagLedger {
                         blue_score,
                         is_coinbase: true,
                     };
+                    let item = HistoryItem {
+                        script: entry.output.script_public_key.clone(),
+                        id: outpoint.transaction_id,
+                        received_atoms: entry.output.value_atoms,
+                        sent_atoms: 0,
+                        is_reward: true,
+                        timestamp_ms: block.header.timestamp_ms,
+                    };
+                    view.batch.put_history(blue_score, &item);
+                    acceptance.history.push(item);
                     view.create(outpoint.clone(), entry.clone());
                     created.push((outpoint, entry));
                 }
@@ -999,6 +1045,9 @@ impl DagLedger {
                             batch.invoice_deletes.insert((invoice_id.clone(), accepted.tx_id));
                         }
                     }
+                    for item in &acceptance.history {
+                        batch.delete_history(acceptance.blue_score, item);
+                    }
                     batch.acceptance_deletes.push(*hash);
                 }
             }
@@ -1127,6 +1176,25 @@ impl DagLedger {
                 let spendable = !entry.is_coinbase || entry.blue_score + maturity <= self.virtual_blue_score;
                 let confirmations = self.virtual_blue_score.saturating_sub(entry.blue_score) + 1;
                 (outpoint, entry.output, spendable, confirmations)
+            })
+            .collect())
+    }
+
+    /// What an address received and sent, newest first, each row with its confirmations.
+    /// `before` continues after a row already read (see `HistoryRow::position`).
+    pub fn address_history(
+        &self,
+        address: &Address,
+        limit: usize,
+        before: Option<&[u8]>,
+    ) -> Result<Vec<(HistoryRow, u64)>, StorageError> {
+        Ok(self
+            .storage
+            .get_history(address, limit, before)?
+            .into_iter()
+            .map(|row| {
+                let confirmations = self.virtual_blue_score.saturating_sub(row.accepting_blue_score) + 1;
+                (row, confirmations)
             })
             .collect())
     }

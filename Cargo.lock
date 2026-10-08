@@ -897,6 +897,7 @@ name = "imoney-gpu-miner"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "hex",
  "imoney-core",
  "imoney-pow",
  "opencl3",
@@ -972,6 +973,19 @@ dependencies = [
  "serde",
  "sha3",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "imoney-stratum"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "hex",
+ "imoney-core",
+ "imoney-pow",
+ "serde",
+ "serde_json",
+ "ureq",
 ]
 
 [[package]]

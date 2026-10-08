@@ -3,6 +3,7 @@ name: Build & Test Network Artifacts
 on:
   push:
     branches: [ "main" ]
+    tags: [ "v*" ]
   pull_request:
     branches: [ "main" ]
   workflow_dispatch:
@@ -43,6 +44,9 @@ jobs:
           mkdir -p dist
           cp target/release/imoney-node dist/
           cp target/release/imoney-miner dist/
+          cp target/release/imoney-gpu-miner dist/
+          cp target/release/imoney-stratum dist/
+          cp README.md LICENSE LICENSE-APACHE dist/
           tar -czf imoney-${{ matrix.os }}.tar.gz -C dist .
 
       - name: Archive Binaries (Windows)
@@ -52,6 +56,9 @@ jobs:
           New-Item -ItemType Directory -Force -Path dist
           Copy-Item target/release/imoney-node.exe -Destination dist/
           Copy-Item target/release/imoney-miner.exe -Destination dist/
+          Copy-Item target/release/imoney-gpu-miner.exe -Destination dist/
+          Copy-Item target/release/imoney-stratum.exe -Destination dist/
+          Copy-Item README.md, LICENSE, LICENSE-APACHE -Destination dist/
           Compress-Archive -Path dist/* -DestinationPath imoney-windows.zip -Force
 
       - name: Upload Binaries
@@ -87,3 +94,55 @@ jobs:
         with:
           name: imoney-woocommerce-plugin
           path: plugins/imoney-payments-for-woocommerce.zip
+
+  fuzz-smoke:
+    name: Fuzz the Decoders Briefly
+    # A short run of each target: catches regressions in the code that reads untrusted bytes.
+    # See fuzz/README.md for long runs.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install nightly Rust
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fuzz
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: Run each target for 45 seconds
+        run: |
+          for target in block_decode transaction_verify p2p_message address_decode; do
+            cargo +nightly fuzz run "$target" -- -max_total_time=45
+          done
+
+  release:
+    name: Publish Release
+    # Pushing a tag such as v0.1.0 publishes the files built above as a GitHub pre-release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [rust-core-and-node, sdk-and-packages]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: artifacts
+        run: sha256sum * > SHA256SUMS.txt
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "${{ github.ref_name }}" artifacts/*
+          --repo "${{ github.repository }}"
+          --title "${{ github.ref_name }}"
+          --generate-notes --prerelease

@@ -42,6 +42,8 @@ pub enum TransactionError {
     PublicKeyAddressMismatch,
     #[error("Unsupported script version: {0}")]
     UnsupportedScriptVersion(u8),
+    #[error("Invalid multi-signature spend: {0}")]
+    InvalidMultisig(String),
 }
 
 /// Reference to a transaction output.
@@ -55,7 +57,8 @@ pub struct Outpoint {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TxInput {
     pub previous_outpoint: Outpoint,
-    /// Encodes: [32-byte Ed25519 VerifyingKey] ++ [64-byte Ed25519 Signature]
+    /// Spending an ordinary address: [32-byte Ed25519 public key] ++ [64-byte signature].
+    /// Spending a multi-signature address: see `multisig`.
     pub signature_script: Vec<u8>,
     pub sequence: u64,
 }
@@ -224,6 +227,9 @@ impl Transaction {
         input_index: usize,
         spent_script: &ScriptPublicKey,
     ) -> Result<(), TransactionError> {
+        if spent_script.version == crate::multisig::SCRIPT_VERSION_MULTISIG {
+            return self.verify_multisig_input(network, input_index, &spent_script.script);
+        }
         if spent_script.version != SCRIPT_VERSION_PUBKEY_HASH {
             return Err(TransactionError::UnsupportedScriptVersion(spent_script.version));
         }

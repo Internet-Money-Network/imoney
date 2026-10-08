@@ -25,3 +25,9 @@ node_modules/
 
 # Local launcher with this machine's own server address
 START-HOME-NODE-MINER.bat
+
+# Fuzzing output
+fuzz/target/
+fuzz/corpus/
+fuzz/artifacts/
+fuzz/Cargo.lock

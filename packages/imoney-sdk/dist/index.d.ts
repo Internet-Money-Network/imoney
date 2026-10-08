@@ -18,6 +18,27 @@ export interface IMoneyClientConfig {
     nodeUrl?: string;
     network?: 'mainnet' | 'testnet';
 }
+/** One line of an address's history: the net effect of one transaction on the address. */
+export interface HistoryItem {
+    /** The transaction. For a mining reward, the id of the coin the reward created. */
+    tx_id: string;
+    kind: 'received' | 'sent' | 'reward';
+    received_atoms: number;
+    sent_atoms: number;
+    /** received_atoms - sent_atoms */
+    net_atoms: number;
+    net_imn: number;
+    confirmations: number;
+    /** Time of the block carrying the transaction, as its miner reported it. */
+    timestamp_ms: number;
+}
+export interface AddressHistory {
+    address: string;
+    /** Newest first. */
+    items: HistoryItem[];
+    /** Pass as `before` to read the next, older page. Absent on the last page. */
+    next?: string | null;
+}
 export interface NodeInfo {
     network: string;
     genesis_hash: string;
@@ -155,6 +176,14 @@ export declare class IMoneyClient {
     getBalance(address: string): Promise<AddressBalance>;
     /** Retrieve the unspent outputs of an address. */
     getUtxos(address: string): Promise<UtxoItem[]>;
+    /**
+     * What an address received and sent, newest first. Only transactions accepted into the
+     * ledger are listed. Pass the previous page's `next` as `before` to continue.
+     */
+    getHistory(address: string, options?: {
+        limit?: number;
+        before?: string;
+    }): Promise<AddressHistory>;
     /** Query a transaction's status and confirmations. */
     getTxStatus(txId: string): Promise<TxStatus>;
     /** Submit a signed transaction (as produced by the wallet's signing module). */

@@ -17,7 +17,11 @@ use opencl3::platform::get_platforms;
 use opencl3::program::Program;
 use opencl3::types::{cl_uint, cl_ulong, CL_BLOCKING};
 use serde::Deserialize;
+use serde_json::{json, Value};
+use std::io::{BufRead, BufReader, Write};
+use std::net::TcpStream;
 use std::ptr;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 type Error = Box<dyn std::error::Error>;
@@ -35,7 +39,12 @@ struct Args {
     #[arg(short, long)]
     node: Option<String>,
 
-    /// Payout address for mined blocks (default: the node's own mining address)
+    /// Mine through a Stratum bridge or pool instead of a node: its host and port
+    #[arg(short, long)]
+    stratum: Option<String>,
+
+    /// Payout address for mined blocks (default: the node's own mining address).
+    /// Required with --stratum.
     #[arg(short, long)]
     address: Option<String>,
 
@@ -216,9 +225,13 @@ fn run(args: Args) -> Result<(), Error> {
     };
     let batch = 1usize << args.intensity.min(30);
 
+    if let Some(server) = &args.stratum {
+        return mine_stratum(device, server, &args, batch);
+    }
+
     let Some(node) = args.node.as_deref().map(|n| n.trim_end_matches('/')) else {
         if !args.benchmark {
-            return Err("give --node to mine, or --benchmark".into());
+            return Err("give --node or --stratum to mine, or --benchmark".into());
         }
         let pow = MoneyPrinterPow::new(params, Hash::from_bytes([0x42; 32]), PowMode::Full);
         let mut gpu = load(device, &pow)?;
@@ -288,6 +301,160 @@ fn benchmark(gpu: &mut GpuSearcher, pow: &MoneyPrinterPow, batch: usize) -> Resu
     }
     println!("[+] {:.2} MH/s ({} hashes in {:.1?})", hashes as f64 / started.elapsed().as_secs_f64() / 1e6, hashes, started.elapsed());
     Ok(())
+}
+
+/// The work a Stratum server last sent.
+#[derive(Default)]
+struct StratumWork {
+    job_id: String,
+    pre_pow_hash: Option<Hash>,
+    target: Option<[u8; 32]>,
+    /// Counts jobs and target changes, so the search loop notices new work.
+    version: u64,
+    accepted: u64,
+    rejected: u64,
+    disconnected: bool,
+}
+
+/// Mines through a Stratum bridge or pool (see docs/STRATUM.md).
+fn mine_stratum(device: &Device, server: &str, args: &Args, batch: usize) -> Result<(), Error> {
+    let address = args.address.as_deref().ok_or("--stratum needs --address, the address to be paid")?;
+    let stream = TcpStream::connect(server).map_err(|e| format!("could not connect to {}: {}", server, e))?;
+    stream.set_nodelay(true)?;
+    let mut writer = stream.try_clone()?;
+    let mut reader = BufReader::new(stream);
+    let mut send = |message: Value| -> Result<(), Error> {
+        let mut line = message.to_string();
+        line.push('\n');
+        Ok(writer.write_all(line.as_bytes())?)
+    };
+    let read = |reader: &mut BufReader<TcpStream>| -> Result<Value, Error> {
+        let mut line = String::new();
+        if reader.read_line(&mut line)? == 0 {
+            return Err("the server closed the connection".into());
+        }
+        Ok(serde_json::from_str(&line)?)
+    };
+
+    send(json!({ "id": 1, "method": "mining.subscribe", "params": [concat!("imoney-gpu-miner/", env!("CARGO_PKG_VERSION"))] }))?;
+    let subscribed = read(&mut reader)?;
+    let result = &subscribed["result"];
+    let extranonce = result[1]
+        .as_str()
+        .and_then(|hex| u16::from_str_radix(hex, 16).ok())
+        .ok_or("the server did not assign an extranonce")?;
+    let network = &result[3];
+    let genesis = Hash::from_hex(network["genesis_hash"].as_str().ok_or("the server did not name its network")?)?;
+    let params = PowParams {
+        light_cache_items: network["light_cache_items"].as_u64().ok_or("the server did not give the cache size")? as u32,
+        dataset_items: network["dataset_items"].as_u64().ok_or("the server did not give the dataset size")? as u32,
+    };
+
+    let pow = MoneyPrinterPow::new(params, genesis, PowMode::Full);
+    let mut gpu = load(device, &pow)?;
+
+    send(json!({ "id": 2, "method": "mining.authorize", "params": [address, "x"] }))?;
+    println!("[+] Connected to {}", server);
+
+    // A reader thread keeps the latest work; the search loop below picks it up between batches
+    let work = Arc::new(Mutex::new(StratumWork::default()));
+    {
+        let work = work.clone();
+        std::thread::spawn(move || {
+            while let Ok(message) = read(&mut reader) {
+                let mut work = work.lock().unwrap();
+                match message["method"].as_str() {
+                    Some("mining.set_target") => {
+                        let target = message["params"][0].as_str().and_then(|hex| hex::decode(hex).ok());
+                        work.target = target.and_then(|bytes| bytes.try_into().ok());
+                        work.version += 1;
+                    }
+                    Some("mining.notify") => {
+                        work.job_id = message["params"][0].as_str().unwrap_or_default().to_string();
+                        work.pre_pow_hash = message["params"][1].as_str().and_then(|hex| Hash::from_hex(hex).ok());
+                        work.version += 1;
+                    }
+                    // A reply: id 2 is the login, anything higher a share
+                    _ => match message["id"].as_u64() {
+                        Some(2) if !message["error"].is_null() => {
+                            eprintln!("[-] Login refused: {}", message["error"][1].as_str().unwrap_or("no reason given"));
+                            work.disconnected = true;
+                            return;
+                        }
+                        Some(id) if id > 2 => {
+                            if message["result"].as_bool() == Some(true) {
+                                work.accepted += 1;
+                            } else {
+                                work.rejected += 1;
+                            }
+                        }
+                        _ => {}
+                    },
+                }
+            }
+            work.lock().unwrap().disconnected = true;
+        });
+    }
+
+    let started = Instant::now();
+    let mut last_report = Instant::now();
+    let mut hashes: u64 = 0;
+    let mut next_id: u64 = 3;
+    // This connection's nonces all start with the extranonce; the rest counts up
+    let mut counter: u64 = rand::random::<u64>() & 0x0000_ffff_ffff_ffff;
+    let mut loaded_version = 0;
+    let mut current: Option<(String, Hash, [u8; 32])> = None;
+    loop {
+        {
+            let work = work.lock().unwrap();
+            if work.disconnected {
+                return Err("the server closed the connection".into());
+            }
+            if work.version != loaded_version {
+                loaded_version = work.version;
+                if let (Some(pre_pow_hash), Some(target)) = (work.pre_pow_hash, work.target) {
+                    gpu.set_work(&pre_pow_hash, &target)?;
+                    current = Some((work.job_id.clone(), pre_pow_hash, target));
+                }
+            }
+            if last_report.elapsed() > Duration::from_secs(10) {
+                println!(
+                    "[*] {:.2} MH/s | shares accepted {} rejected {}",
+                    hashes as f64 / started.elapsed().as_secs_f64() / 1e6,
+                    work.accepted,
+                    work.rejected
+                );
+                last_report = Instant::now();
+            }
+        }
+        if args.duration.is_some_and(|seconds| started.elapsed() >= Duration::from_secs(seconds)) {
+            let work = work.lock().unwrap();
+            println!(
+                "[*] Finished: {} shares accepted, {} rejected, {:.2} MH/s average",
+                work.accepted,
+                work.rejected,
+                hashes as f64 / started.elapsed().as_secs_f64() / 1e6
+            );
+            return Ok(());
+        }
+        let Some((job_id, pre_pow_hash, target)) = &current else {
+            std::thread::sleep(Duration::from_millis(50));
+            continue;
+        };
+
+        let start_nonce = (extranonce as u64) << 48 | counter;
+        let candidates = gpu.search(start_nonce, batch)?;
+        counter = (counter + batch as u64) & 0x0000_ffff_ffff_ffff;
+        hashes += batch as u64;
+        for nonce in candidates {
+            if pow.calculate_hash(pre_pow_hash, nonce).0 > *target {
+                eprintln!("[-] The card reported nonce {} but the CPU rejects it; check the card and driver", nonce);
+                continue;
+            }
+            send(json!({ "id": next_id, "method": "mining.submit", "params": [address, job_id, format!("{:016x}", nonce)] }))?;
+            next_id += 1;
+        }
+    }
 }
 
 /// Mines for a node: fetch a block template, search for a nonce, submit, repeat.

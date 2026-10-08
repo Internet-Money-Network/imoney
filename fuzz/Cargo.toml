@@ -1,0 +1,45 @@
+[package]
+name = "imoney-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Its own workspace: fuzzing needs a nightly compiler, the rest of the project does not.
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+imoney-core = { path = "../crates/imoney-core" }
+imoney-node = { path = "../crates/imoney-node" }
+tokio = { version = "1", features = ["rt"] }
+
+[[bin]]
+name = "block_decode"
+path = "fuzz_targets/block_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "transaction_verify"
+path = "fuzz_targets/transaction_verify.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "p2p_message"
+path = "fuzz_targets/p2p_message.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "address_decode"
+path = "fuzz_targets/address_decode.rs"
+test = false
+doc = false
+bench = false

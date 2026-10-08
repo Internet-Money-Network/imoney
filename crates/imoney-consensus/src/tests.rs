@@ -220,3 +220,127 @@ fn work_and_median_time() {
     // Window is blocks 5, 4, 3, 2, 1, genesis: timestamps 5000..0, median 3000
     assert_eq!(dag.past_median_time(&next), 3_000);
 }
+
+/// Small deterministic generator, so a failing case can be reproduced from its seed.
+struct Lcg(u64);
+
+impl Lcg {
+    fn next(&mut self, bound: usize) -> usize {
+        self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        ((self.0 >> 33) as usize) % bound
+    }
+}
+
+/// Everything in the past of `hash`, by walking every parent edge.
+fn past(dag: &Dag, hash: &Hash) -> std::collections::HashSet<Hash> {
+    let mut seen = std::collections::HashSet::new();
+    let mut stack = vec![*hash];
+    while let Some(current) = stack.pop() {
+        for parent in &dag.get(&current).parents {
+            if seen.insert(*parent) {
+                stack.push(*parent);
+            }
+        }
+    }
+    seen
+}
+
+/// A random DAG as a list of (block, parents), parents always earlier in the list. Blocks
+/// pick parents among recent tips, with the occasional stale one, to get forks and reds.
+fn random_dag(seed: u64, blocks: u8, k: u64) -> (Dag, Vec<(u8, Vec<u8>)>) {
+    let mut rng = Lcg(seed);
+    let mut dag = dag_with_k(k);
+    let mut shape: Vec<(u8, Vec<u8>)> = Vec::new();
+    for id in 1..=blocks {
+        let existing: Vec<u8> = (0..id).collect();
+        let mut parents: Vec<u8> = Vec::new();
+        for _ in 0..1 + rng.next(3) {
+            // Usually one of the last few blocks, sometimes any block at all
+            let window = if rng.next(6) == 0 { existing.len() } else { existing.len().min(4) };
+            let candidate = existing[existing.len() - 1 - rng.next(window)];
+            let hashes: Vec<Hash> = parents.iter().chain([&candidate]).map(|p| h(*p)).collect();
+            if !parents.contains(&candidate) && dag.check_parents(&hashes).is_ok() && dag.ghostdag(&hashes).is_ok() {
+                parents.push(candidate);
+            }
+        }
+        if parents.is_empty() {
+            parents.push(id - 1);
+        }
+        add(&mut dag, id, &parents);
+        shape.push((id, parents));
+    }
+    (dag, shape)
+}
+
+#[test]
+fn random_dags_keep_the_ghostdag_invariants() {
+    for seed in 0..40u64 {
+        let k = 1 + seed % 4;
+        let (dag, shape) = random_dag(seed, 60, k);
+
+        for (id, _) in &shape {
+            let block = h(*id);
+            let data = &dag.get(&block).ghostdag;
+            let block_past = past(&dag, &block);
+
+            // The mergeset is exactly what the block adds to its selected parent's past
+            let mut selected_past = past(&dag, &data.selected_parent);
+            selected_past.insert(data.selected_parent);
+            let mut expected: Vec<Hash> = block_past.difference(&selected_past).copied().collect();
+            expected.sort();
+            let mut merged: Vec<Hash> =
+                data.mergeset_blues.iter().skip(1).chain(&data.mergeset_reds).copied().collect();
+            merged.sort();
+            assert_eq!(merged, expected, "seed {} block {}", seed, id);
+
+            // The blue set: this block's blues and those of every selected-chain ancestor
+            let mut blues: Vec<Hash> = Vec::new();
+            let mut cursor = data;
+            loop {
+                blues.extend(&cursor.mergeset_blues);
+                if cursor.is_genesis() {
+                    break;
+                }
+                cursor = &dag.get(&cursor.selected_parent).ghostdag;
+            }
+            assert_eq!(data.blue_score as usize, blues.len(), "seed {} block {}", seed, id);
+
+            // No blue block has more than k other blues it is neither before nor after
+            let pasts: Vec<_> = blues.iter().map(|blue| past(&dag, blue)).collect();
+            for (i, blue) in blues.iter().enumerate() {
+                let anticone = blues
+                    .iter()
+                    .enumerate()
+                    .filter(|(j, other)| *j != i && !pasts[i].contains(*other) && !pasts[*j].contains(blue))
+                    .count();
+                assert!(anticone as u64 <= k, "seed {} block {}: blue anticone {} > k {}", seed, id, anticone, k);
+            }
+        }
+    }
+}
+
+#[test]
+fn ghostdag_does_not_depend_on_the_order_blocks_arrive_in() {
+    for seed in 100..120u64 {
+        let (dag, shape) = random_dag(seed, 50, 3);
+
+        // Rebuild with blocks arriving in a different order that still puts parents first
+        let mut rng = Lcg(seed ^ 0xabcdef);
+        let mut waiting = shape.clone();
+        let mut rebuilt = dag_with_k(3);
+        let mut placed = vec![GENESIS];
+        while !waiting.is_empty() {
+            let ready: Vec<usize> = (0..waiting.len())
+                .filter(|i| waiting[*i].1.iter().all(|p| placed.contains(p)))
+                .collect();
+            let (id, parents) = waiting.remove(ready[rng.next(ready.len())]);
+            add(&mut rebuilt, id, &parents);
+            placed.push(id);
+        }
+
+        for (id, _) in &shape {
+            assert_eq!(rebuilt.get(&h(*id)).ghostdag, dag.get(&h(*id)).ghostdag, "seed {} block {}", seed, id);
+            assert_eq!(rebuilt.get(&h(*id)).daa_score, dag.get(&h(*id)).daa_score);
+        }
+    }
+}

@@ -1803,6 +1803,17 @@ var IMoney = (() => {
     getUtxos(address) {
       return this.get(`/api/v1/address/${encodeURIComponent(address)}/utxos`, "get UTXOs");
     }
+    /**
+     * What an address received and sent, newest first. Only transactions accepted into the
+     * ledger are listed. Pass the previous page's `next` as `before` to continue.
+     */
+    getHistory(address, options = {}) {
+      const query = new URLSearchParams();
+      if (options.limit) query.set("limit", String(options.limit));
+      if (options.before) query.set("before", options.before);
+      const suffix = query.toString() ? `?${query}` : "";
+      return this.get(`/api/v1/address/${encodeURIComponent(address)}/history${suffix}`, "get history");
+    }
     /** Query a transaction's status and confirmations. */
     getTxStatus(txId) {
       return this.get(`/api/v1/tx/${encodeURIComponent(txId)}`, "get transaction status");

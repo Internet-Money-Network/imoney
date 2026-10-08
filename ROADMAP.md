@@ -1,84 +1,77 @@
-# Internet Money (`IMN`) - Master Production & Merchant SDK Roadmap
+# Internet Money (`IMN`) roadmap
 
-This roadmap defines the step-by-step engineering plan to build Internet Money into a production-grade Layer-1 payment network with plug-and-play merchant integration.
+Where the project stands and what is left before a public test network and, later, a main
+network. This file is kept honest: an item is ticked only when it exists and has been run.
 
----
+## What the network is for
 
-## 🏗️ Phase 1: Core Protocol Hardening (The Foundation)
-*Goal: Ensure the blockchain ledger is persistent, secure, and has working addresses and transactions.*
+Payments that a shop can accept without trusting anyone else. Three things make that work:
 
-1. **Bech32 Address & Cryptography Engine (`imoney-core`)**
-   - Standardized checksummed addresses: `imn:q<hash>`, with a type byte reserved for future signature schemes.
-   - Keypair generation (Private Key -> Public Key -> Address).
-   - Transaction signing & verification (Ed25519).
-2. **Persistent ACID On-Disk Storage (`imoney-node`)**
-   - Embedded pure-Rust ACID storage (`redb`) in `imoney-node`.
-   - Saves block headers, DAG parent relations, blue scores, and UTXO state to `--data-dir`.
-   - Node recovers instantly on restart with zero data corruption.
-3. **UTXO Ledger & Mempool**
-   - Coinbase transaction (miners receive real 5 IMN block rewards to their address).
-   - Transfer transactions (spending inputs, creating new outputs, fee validation).
-   - Mempool to hold pending transactions before block inclusion.
+- **Invoice numbers in the payment.** The payer's wallet signs the order's invoice number into
+  the transaction, so a payment is matched to an exact order.
+- **Honest confirmation levels.** A payment is reported as *seen* (reached the node, under a
+  second), *included* (accepted into the ledger, about 5 seconds) or *final* (deep enough for
+  the value at stake). A shop chooses the level per order.
+- **A node the shop runs itself.** One block every five seconds and a 100 KB block limit keep a
+  verifying node small enough for a cheap server.
 
----
+## Done
 
-## 🌐 Phase 2: The Merchant Indexer API
-*Goal: Expose ultra-fast REST & WebSocket endpoints so external apps can query balances and monitor payments.*
+- [x] **Protocol.** Canonical binary encoding, Ed25519 signatures that commit to the network,
+      UTXO ledger, GHOSTDAG (k = 8) ordering, enforced difficulty adjustment, coinbase maturity,
+      12-hour finality, fee split between the miner and the node that served the payer,
+      multi-signature addresses (m of up to 16 keys).
+- [x] **Proof of work.** Money Printer: FishHash with a network-specific seed, checked against
+      Iron Fish's implementation. Nodes verify from a light cache.
+- [x] **Node.** `redb` storage with atomic block application, mempool with fee policy and
+      limits, REST and WebSocket API, binary peer-to-peer protocol with sync, orphan handling,
+      peer discovery and bans, optional pruning, private test networks (`--devnet`).
+- [x] **Mining.** Reference CPU miner, OpenCL GPU miner, and a Stratum bridge for other mining
+      software ([docs/STRATUM.md](docs/STRATUM.md)).
+- [x] **Wallet.** Browser wallet that creates keys and signs locally, with a 12-word phrase.
+- [x] **Merchant tools.** JavaScript SDK with invoices, payment levels, checkout window and
+      locally drawn QR codes; end-to-end demo shop; WooCommerce plugin, run against a current
+      WooCommerce with its block checkout (order paid only by a payment naming its invoice).
+- [x] **Explorer.** Live block graph, hashrate, difficulty, supply, block, transaction and
+      address lookup, address history.
+- [x] **Operations.** Docker and systemd files, node guide, load-test tool with reference
+      results, integration guide for exchanges, wallets and pools, release builds from tags.
 
-1. **Lightweight Indexer Endpoints (`imoney-node`)**
-   - `GET /api/v1/address/:addr/balance` - Instant balance lookup.
-   - `GET /api/v1/address/:addr/utxos` - Query spendable coins.
-   - `POST /api/v1/tx/broadcast` - Broadcast signed transactions to the DAG.
-   - `GET /api/v1/tx/:txid` - Query transaction confirmation status.
-2. **Real-Time Payment WebSockets**
-   - `WS /api/v1/ws/address/:addr` - Push notification fired within milliseconds when a transaction paying that address enters the blockDAG.
+## Before a public test network
 
----
+- [ ] **Dataset size decided.** The current test network uses a 32 MB dataset so a CPU can
+      mine. A test network meant for GPU miners needs the full 4.6 GB size; changing it resets
+      the chain.
+- [ ] **WooCommerce plugin on a production-like site.** It has been run end to end on a local
+      WordPress; its five-minute background check and a real mail and MySQL setup have not.
+- [ ] **SDK published to npm.**
+- [ ] **Three or more seed nodes in different places**, at least one outside a home connection.
+- [ ] **A soak run of several days** on those nodes, watching memory, disk and sync.
+- [ ] **A first tagged release** with binaries.
 
-## 🔌 Phase 3: The Plug-and-Play Developer SDK (`imoney-sdk`)
-*Goal: Allow any web developer to add Internet Money payments in 2 lines of code.*
+## Before a main network
 
-1. **Universal TypeScript / JavaScript SDK (`imoney-sdk`)**
-   - Usable in Node.js, React, Vue, Next.js, and vanilla HTML via CDN (`<script src="imoney.js">`).
-   - Simple API:
-     ```javascript
-     const client = new IMoneyClient({ nodeUrl: "http://localhost:18556" });
-     client.openCheckoutModal({ merchantAddress: "imn:q...", amountImn: 10.5, orderId: "INV-101",
-       onSuccess: (p) => console.log("Payment received", p) });
-     ```
-2. **Drop-In Embeddable Checkout Modal (`imoney-checkout.js`)**
-   - A single HTML button tag that opens a responsive popup modal with:
-     - Order total (IMN + local fiat conversion).
-     - QR code for mobile scanning.
-     - Live 5-second countdown & instant green checkmark on settlement.
+- [ ] **Independent review** of consensus and of the proof of work.
+- [ ] **Multi-signature in the wallet.** The protocol and the Rust crate have it; the browser
+      wallet and the WebAssembly build do not.
+- [ ] **Hardware-wallet support.**
+- [ ] **Block index out of memory.** Headers and DAG data are held in memory, about 1 KB per
+      block.
+- [ ] **Less contention in the node.** One lock guards the ledger, and ancestry checks walk the
+      DAG. Fine at measured loads (see [docs/LOAD-TESTING.md](docs/LOAD-TESTING.md)); it is the
+      ceiling.
+- [ ] **Long fuzzing runs.** Fuzz targets for the decoders, signature checks and the
+      peer-to-peer protocol exist (`fuzz/`) and run briefly in CI; nobody has run them for days.
+- [ ] **A genesis block with a realistic starting difficulty**, and a fair, announced launch.
 
----
+## Later, after a main network
 
-## 🛒 Phase 4: CMS Plugins & E-Commerce (WordPress / WooCommerce)
-*Goal: Zero-code integration for 40%+ of all internet web stores.*
+- **A bridge to an EVM chain** (Base first), so wrapped IMN can trade on existing exchanges
+  there. It would be run by named signers, capped, deposit-only at first, with users paying
+  their own gas and a stated bridge fee funding development. Not started.
+- **The wallet as an installable app**, with the bridge as a screen in it.
 
-1. **Official WooCommerce Plugin (`imoney-payments-for-woocommerce`)**
-   - Standard WordPress `.zip` plugin.
-   - Setup: Merchant pastes their `imn:q...` payout address in WordPress settings.
-   - Checkout Flow:
-     1. Customer chooses "Pay with Internet Money (no intermediary fees)".
-     2. Popup displays QR code.
-     3. 5-second confirmation marks WooCommerce order as "Completed / Paid".
-     4. 100% Non-Custodial: Funds go directly into the merchant's private wallet.
-2. **Generic Webhook & Shopify Bridge**
-   - Webhook triggers for non-WordPress e-commerce platforms.
+## Not planned
 
----
-
-## 🚀 Execution Order & Status
-- [x] **Step 1: Core Protocol Hardening** (Bech32 address format, Ed25519 signing, pure-Rust `redb` ACID storage engine, UTXO ledger).
-- [x] **Step 2: Payment Indexer & Real-Time Push Engine** (Balance/UTXO lookups, `POST /api/v1/tx/broadcast`, `GET /api/v1/tx/:txid`, WebSocket `/api/v1/ws/address/:addr`).
-- [x] **Step 3: Developer SDK & Checkout Modal** (`@imoney/sdk` for Node.js + browser CDN bundle `imoney.js`, reactive payment modal with QR code and live confirmation).
-- [x] **Step 4: WordPress / WooCommerce 1-Click Gateway** (`plugins/imoney-payments-for-woocommerce.zip` packaged with non-custodial payout address configuration).
-- [x] **Step 5: End-to-End Payment Demo** (`examples/e2e-payment-demo/index.html` illustrating 2-line code web store checkout).
-- [x] **Step 6: P2P Peer Gossip Networking** (Pure-async TCP framing, bidirectional Handshake, `GetTips`, block sync, mempool transaction propagation, `/api/v1/peers`).
-- [x] **Step 6b: Consensus & Merchant Hardening** (real GHOSTDAG ordering, enforced difficulty, 12-hour finality, FishHash proof of work, fee split with node operators, browser-signing wallet, invoice numbers with seen / included / final levels, server-side WooCommerce confirmation).
-- [x] **Step 6c: Operations** (optional pruning, saved peer lists, DNS seed names, graceful shutdown, Docker and systemd files, randomized decoder tests, [node guide](docs/RUNNING-A-NODE.md)).
-- [ ] **Step 7: Seed Node Deployment & Testnet Public Launch** (Deploying the network to cloud seed nodes under `internetmoneynetwork.org`).
-
-
+- Smart contracts.
+- A premine, a developer fee or an allocation of any kind.

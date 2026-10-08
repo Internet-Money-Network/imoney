@@ -36,6 +36,11 @@ const TRANSACTIONS_TABLE: TableDefinition<&[u8; 32], &[u8]> = TableDefinition::n
 const SCRIPT_UTXO_TABLE: TableDefinition<&[u8], ()> = TableDefinition::new("v3/script_utxos");
 /// Index of accepted payments by invoice: key is `invoice id ++ 0x00 ++ transaction id`.
 const INVOICE_TABLE: TableDefinition<&[u8], ()> = TableDefinition::new("v3/invoices");
+/// What each locking script received and sent, oldest first: key is
+/// `script key ++ accepting blue score ++ transaction id`.
+const HISTORY_TABLE: TableDefinition<&[u8], &[u8]> = TableDefinition::new("v3/script_history");
+/// Bytes of a history key after the script: blue score and transaction id.
+const HISTORY_POSITION_LEN: usize = 40;
 
 /// Index key prefix shared by every output locked to `script`.
 /// The script length is part of the prefix so one script can never be a prefix of another.
@@ -57,6 +62,13 @@ fn invoice_index_key(invoice_id: &str, tx_id: &Hash) -> Vec<u8> {
     let mut key = invoice_id.as_bytes().to_vec();
     key.push(0);
     key.extend_from_slice(&tx_id.0);
+    key
+}
+
+fn history_key(script: &ScriptPublicKey, blue_score: u64, id: &Hash) -> Vec<u8> {
+    let mut key = script_index_prefix(script);
+    key.extend_from_slice(&blue_score.to_be_bytes());
+    key.extend_from_slice(&id.0);
     key
 }
 
@@ -163,6 +175,73 @@ impl Decode for AcceptedTx {
     }
 }
 
+/// What one accepted transaction, or one block reward, did to the coins of one locking script.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HistoryItem {
+    pub script: ScriptPublicKey,
+    /// The transaction, or for a reward the transaction id of the reward's outpoint.
+    pub id: Hash,
+    pub received_atoms: u64,
+    pub sent_atoms: u64,
+    pub is_reward: bool,
+    /// Timestamp of the block that carries the transaction or earned the reward.
+    pub timestamp_ms: u64,
+}
+
+impl HistoryItem {
+    fn value_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(25);
+        out.extend_from_slice(&self.received_atoms.to_be_bytes());
+        out.extend_from_slice(&self.sent_atoms.to_be_bytes());
+        out.push(self.is_reward as u8);
+        out.extend_from_slice(&self.timestamp_ms.to_be_bytes());
+        out
+    }
+}
+
+impl Encode for HistoryItem {
+    fn encode(&self, out: &mut Vec<u8>) {
+        out.push(self.script.version);
+        put_bytes(out, &self.script.script);
+        self.id.encode(out);
+        out.extend_from_slice(&self.value_bytes());
+    }
+}
+
+impl Decode for HistoryItem {
+    fn decode(reader: &mut Reader<'_>) -> Result<Self, DecodeError> {
+        Ok(Self {
+            script: ScriptPublicKey { version: reader.u8()?, script: reader.bytes(u16::MAX as usize)? },
+            id: reader.hash()?,
+            received_atoms: reader.u64()?,
+            sent_atoms: reader.u64()?,
+            is_reward: reader.u8()? == 1,
+            timestamp_ms: reader.u64()?,
+        })
+    }
+}
+
+/// One line of an address's history, as read back from the index.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HistoryRow {
+    /// Blue score of the block that accepted the transaction into the ledger.
+    pub accepting_blue_score: u64,
+    pub id: Hash,
+    pub received_atoms: u64,
+    pub sent_atoms: u64,
+    pub is_reward: bool,
+    pub timestamp_ms: u64,
+}
+
+impl HistoryRow {
+    /// Where this row sits in the history; pass it back to continue reading after it.
+    pub fn position(&self) -> Vec<u8> {
+        let mut position = self.accepting_blue_score.to_be_bytes().to_vec();
+        position.extend_from_slice(&self.id.0);
+        position
+    }
+}
+
 /// The exact ledger change made when a block accepts its mergeset. Storing it lets the
 /// change be undone and re-applied when the selected chain changes.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -172,6 +251,8 @@ pub struct AcceptanceData {
     pub spent: Vec<(Outpoint, UtxoEntry)>,
     pub created: Vec<(Outpoint, UtxoEntry)>,
     pub accepted: Vec<AcceptedTx>,
+    /// What the change did to each locking script involved, for the address history index.
+    pub history: Vec<HistoryItem>,
 }
 
 fn put_utxo_list(out: &mut Vec<u8>, entries: &[(Outpoint, UtxoEntry)]) {
@@ -197,6 +278,7 @@ impl Encode for AcceptanceData {
         put_utxo_list(out, &self.spent);
         put_utxo_list(out, &self.created);
         imoney_core::serialize::put_list(out, &self.accepted);
+        imoney_core::serialize::put_list(out, &self.history);
     }
 }
 
@@ -207,6 +289,8 @@ impl Decode for AcceptanceData {
             spent: read_utxo_list(reader)?,
             created: read_utxo_list(reader)?,
             accepted: reader.list(u32::MAX as usize)?,
+            // Records written before the history index existed end here
+            history: if reader.remaining() == 0 { Vec::new() } else { reader.list(u32::MAX as usize)? },
         })
     }
 }
@@ -248,6 +332,21 @@ pub struct WriteBatch {
     pub record_deletes: HashSet<Hash>,
     pub invoice_puts: HashSet<(String, Hash)>,
     pub invoice_deletes: HashSet<(String, Hash)>,
+    /// History index keys with their values.
+    pub history_puts: HashMap<Vec<u8>, Vec<u8>>,
+    pub history_deletes: HashSet<Vec<u8>>,
+}
+
+impl WriteBatch {
+    pub fn put_history(&mut self, blue_score: u64, item: &HistoryItem) {
+        self.history_puts.insert(history_key(&item.script, blue_score, &item.id), item.value_bytes());
+    }
+
+    pub fn delete_history(&mut self, blue_score: u64, item: &HistoryItem) {
+        let key = history_key(&item.script, blue_score, &item.id);
+        self.history_puts.remove(&key);
+        self.history_deletes.insert(key);
+    }
 }
 
 /// Persistent embedded ACID database for Internet Money.
@@ -272,6 +371,7 @@ impl Storage {
             let _ = write_tx.open_table(TRANSACTIONS_TABLE)?;
             let _ = write_tx.open_table(SCRIPT_UTXO_TABLE)?;
             let _ = write_tx.open_table(INVOICE_TABLE)?;
+            let _ = write_tx.open_table(HISTORY_TABLE)?;
         }
         write_tx.commit()?;
 
@@ -366,6 +466,14 @@ impl Storage {
             }
             for (invoice_id, tx_id) in &batch.invoice_puts {
                 invoice_table.insert(invoice_index_key(invoice_id, tx_id).as_slice(), ())?;
+            }
+
+            let mut history_table = write_tx.open_table(HISTORY_TABLE)?;
+            for key in &batch.history_deletes {
+                history_table.remove(key.as_slice())?;
+            }
+            for (key, value) in &batch.history_puts {
+                history_table.insert(key.as_slice(), value.as_slice())?;
             }
         }
         write_tx.commit()?;
@@ -477,6 +585,41 @@ impl Storage {
             tx_ids.push(<Hash as Decode>::from_bytes(&key.value()[start.len()..])?);
         }
         Ok(tx_ids)
+    }
+
+    /// The newest `limit` history rows of an address, newest first. `before` is the position of
+    /// a row already read: only older rows are returned.
+    pub fn get_history(
+        &self,
+        address: &Address,
+        limit: usize,
+        before: Option<&[u8]>,
+    ) -> Result<Vec<HistoryRow>, StorageError> {
+        let read_tx = self.db.begin_read()?;
+        let table = read_tx.open_table(HISTORY_TABLE)?;
+        let prefix = script_index_prefix(&ScriptPublicKey::pay_to_address(address));
+        let mut end = prefix.clone();
+        match before {
+            Some(position) => end.extend_from_slice(position),
+            // One byte longer than any real key, so it sorts after all of them
+            None => end.extend_from_slice(&[0xff; HISTORY_POSITION_LEN + 1]),
+        }
+
+        let mut rows = Vec::new();
+        for item in table.range::<&[u8]>(prefix.as_slice()..end.as_slice())?.rev().take(limit) {
+            let (key, value) = item?;
+            let mut position = Reader::new(&key.value()[prefix.len()..]);
+            let mut fields = Reader::new(value.value());
+            rows.push(HistoryRow {
+                accepting_blue_score: position.u64()?,
+                id: position.hash()?,
+                received_atoms: fields.u64()?,
+                sent_atoms: fields.u64()?,
+                is_reward: fields.u8()? == 1,
+                timestamp_ms: fields.u64()?,
+            });
+        }
+        Ok(rows)
     }
 
     /// The circulating supply in atoms: the sum of every unspent output, kept as a running total

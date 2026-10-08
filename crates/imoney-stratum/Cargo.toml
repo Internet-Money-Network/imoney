@@ -1,13 +1,13 @@
 [package]
-name = "imoney-gpu-miner"
+name = "imoney-stratum"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "OpenCL GPU miner for Internet Money's Money Printer (FishHash) proof of work"
+description = "Stratum bridge: lets mining software connect to an Internet Money node over a socket"
 
 [[bin]]
-name = "imoney-gpu-miner"
+name = "imoney-stratum"
 path = "src/main.rs"
 
 [dependencies]
@@ -16,8 +16,5 @@ imoney-pow = { path = "../imoney-pow" }
 clap.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-rand.workspace = true
 hex.workspace = true
 ureq = { version = "2", default-features = false, features = ["json"] }
-# OpenCL is loaded at run time, so the miner builds on machines without an OpenCL SDK
-opencl3 = { version = "0.12", default-features = false, features = ["CL_VERSION_1_2", "dynamic"] }

@@ -733,17 +733,33 @@
 
     async function showAddress(address) {
       try {
-        const [balance, utxos] = await Promise.all([
+        const [balance, utxos, history] = await Promise.all([
           getJson('/api/v1/address/' + encodeURIComponent(address) + '/balance'),
           getJson('/api/v1/address/' + encodeURIComponent(address) + '/utxos'),
+          getJson('/api/v1/address/' + encodeURIComponent(address) + '/history?limit=25').catch(() => ({ items: [] })),
         ]);
+        const kinds = { received: 'Received', sent: 'Sent', reward: 'Mining reward' };
+        const historyRows = history.items.map((item) =>
+          '<tr><td>' + kinds[item.kind] + '</td>'
+          + '<td style="text-align: right; color: ' + (item.net_atoms < 0 ? '#f85149' : '#39d353') + ';">' + (item.net_atoms > 0 ? '+' : '') + item.net_imn + ' IMN</td>'
+          + '<td>' + age(item.timestamp_ms) + '</td>'
+          + '<td>' + (item.kind === 'reward' ? '' : '<a href="#" data-tx="' + escapeHtml(item.tx_id) + '">' + short(item.tx_id) + '</a>') + '</td></tr>').join('');
         const maturing = utxos.filter((u) => u.spendable === false).reduce((sum, u) => sum + u.value_atoms, 0);
         openModal('Address', [
           line('Address', code(balance.address)),
           line('Balance', '<span style="color: #39d353; font-weight: bold; font-size: 18px;">' + balance.balance_imn + ' IMN</span>'),
           maturing ? line('Of which mining rewards still maturing', (maturing / 1e8) + ' IMN') : '',
           line('Unspent coins', utxos.length),
+          history.items.length
+            ? line('Latest activity' + (history.next ? ' (newest 25)' : ''), '<table style="width: 100%; margin-top: 6px; border-collapse: collapse;">' + historyRows + '</table>')
+            : '',
         ].join(''));
+        document.querySelectorAll('#modal-content a[data-tx]').forEach((link) => {
+          link.addEventListener('click', (event) => {
+            event.preventDefault();
+            showTransaction(link.dataset.tx);
+          });
+        });
       } catch {
         openModal('Address', '<span style="color: #f85149;">That is not a valid address for this network.</span>');
       }

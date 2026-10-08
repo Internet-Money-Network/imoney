@@ -76,6 +76,39 @@ pub struct UtxoItemResponse {
 }
 
 #[derive(Deserialize)]
+pub struct HistoryQuery {
+    /// Rows to return, newest first (default 50, at most 500).
+    pub limit: Option<usize>,
+    /// The `next` value of the previous page, to continue after it.
+    pub before: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct HistoryItemResponse {
+    /// The transaction. For a mining reward there is no transaction; this is the id of the
+    /// coin the reward created, as listed by the coins endpoint.
+    pub tx_id: String,
+    /// "received", "sent" or "reward". A payment with change counts as "sent".
+    pub kind: &'static str,
+    pub received_atoms: u64,
+    pub sent_atoms: u64,
+    /// `received_atoms - sent_atoms`: what the transaction did to the balance.
+    pub net_atoms: i128,
+    pub net_imn: f64,
+    pub confirmations: u64,
+    /// Time of the block that carries the transaction, as its miner reported it.
+    pub timestamp_ms: u64,
+}
+
+#[derive(Serialize)]
+pub struct HistoryResponse {
+    pub address: String,
+    pub items: Vec<HistoryItemResponse>,
+    /// Pass as `before` to read the next, older page. Absent on the last page.
+    pub next: Option<String>,
+}
+
+#[derive(Deserialize)]
 pub struct InvoiceQuery {
     /// The address the invoice is payable to.
     pub address: String,
@@ -224,6 +257,7 @@ pub fn create_router(
         .route("/api/v1/tx/:txid", get(tx_status_handler))
         .route("/api/v1/address/:addr/balance", get(balance_handler))
         .route("/api/v1/address/:addr/utxos", get(utxos_handler))
+        .route("/api/v1/address/:addr/history", get(history_handler))
         .route("/api/v1/invoice/:id", get(invoice_handler))
         .route("/api/v1/ws/address/:addr", get(ws_address_handler))
         .layer(cors);
@@ -567,6 +601,50 @@ async fn utxos_handler(
         .collect();
 
     Ok(Json(response))
+}
+
+/// What an address received and sent, newest first. Only transactions accepted into the
+/// ledger are listed; a pruned node lists only those it still keeps.
+async fn history_handler(
+    State(state): State<Arc<AppState>>,
+    Path(addr_str): Path<String>,
+    Query(query): Query<HistoryQuery>,
+) -> Result<Json<HistoryResponse>, StatusCode> {
+    let address = Address::decode(&addr_str).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let limit = query.limit.unwrap_or(50).clamp(1, 500);
+    let before = match &query.before {
+        Some(position) => Some(hex::decode(position).ok().filter(|p| p.len() == 40).ok_or(StatusCode::BAD_REQUEST)?),
+        None => None,
+    };
+    let ledger = state.ledger.read().await;
+    let rows = ledger
+        .address_history(&address, limit, before.as_deref())
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let next = (rows.len() == limit).then(|| rows.last().map(|(row, _)| hex::encode(row.position()))).flatten();
+    let items = rows
+        .into_iter()
+        .map(|(row, confirmations)| {
+            let net_atoms = row.received_atoms as i128 - row.sent_atoms as i128;
+            HistoryItemResponse {
+                tx_id: row.id.to_hex(),
+                kind: if row.is_reward {
+                    "reward"
+                } else if row.sent_atoms > 0 {
+                    "sent"
+                } else {
+                    "received"
+                },
+                received_atoms: row.received_atoms,
+                sent_atoms: row.sent_atoms,
+                net_atoms,
+                net_imn: net_atoms as f64 / imoney_core::constants::ATOMS_PER_IMN as f64,
+                confirmations,
+                timestamp_ms: row.timestamp_ms,
+            }
+        })
+        .collect();
+    Ok(Json(HistoryResponse { address: addr_str, items, next }))
 }
 
 /// Reports every payment that names this invoice and pays the given address.

@@ -24,6 +24,29 @@ export interface IMoneyClientConfig {
   network?: 'mainnet' | 'testnet';
 }
 
+/** One line of an address's history: the net effect of one transaction on the address. */
+export interface HistoryItem {
+  /** The transaction. For a mining reward, the id of the coin the reward created. */
+  tx_id: string;
+  kind: 'received' | 'sent' | 'reward';
+  received_atoms: number;
+  sent_atoms: number;
+  /** received_atoms - sent_atoms */
+  net_atoms: number;
+  net_imn: number;
+  confirmations: number;
+  /** Time of the block carrying the transaction, as its miner reported it. */
+  timestamp_ms: number;
+}
+
+export interface AddressHistory {
+  address: string;
+  /** Newest first. */
+  items: HistoryItem[];
+  /** Pass as `before` to read the next, older page. Absent on the last page. */
+  next?: string | null;
+}
+
 export interface NodeInfo {
   network: string;
   genesis_hash: string;
@@ -228,6 +251,18 @@ export class IMoneyClient {
   /** Retrieve the unspent outputs of an address. */
   getUtxos(address: string): Promise<UtxoItem[]> {
     return this.get(`/api/v1/address/${encodeURIComponent(address)}/utxos`, 'get UTXOs');
+  }
+
+  /**
+   * What an address received and sent, newest first. Only transactions accepted into the
+   * ledger are listed. Pass the previous page's `next` as `before` to continue.
+   */
+  getHistory(address: string, options: { limit?: number; before?: string } = {}): Promise<AddressHistory> {
+    const query = new URLSearchParams();
+    if (options.limit) query.set('limit', String(options.limit));
+    if (options.before) query.set('before', options.before);
+    const suffix = query.toString() ? `?${query}` : '';
+    return this.get(`/api/v1/address/${encodeURIComponent(address)}/history${suffix}`, 'get history');
   }
 
   /** Query a transaction's status and confirmations. */

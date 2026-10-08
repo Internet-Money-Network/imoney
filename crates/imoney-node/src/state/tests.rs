@@ -93,6 +93,21 @@ fn assert_supply_total_is_exact(ledger: &DagLedger) {
     assert_eq!(ledger.storage.total_utxo_atoms().unwrap(), ledger.storage.scan_utxo_atoms().unwrap());
 }
 
+/// An address's whole history, newest first.
+fn history(ledger: &DagLedger, address: &Address) -> Vec<HistoryRow> {
+    ledger.address_history(address, usize::MAX, None).unwrap().into_iter().map(|(row, _)| row).collect()
+}
+
+/// Everything an address's history says it received, less what it says it sent, must be
+/// exactly the address's balance.
+fn assert_history_adds_up(ledger: &DagLedger, address: &Address) {
+    let net: i128 = history(ledger, address)
+        .iter()
+        .map(|row| row.received_atoms as i128 - row.sent_atoms as i128)
+        .sum();
+    assert_eq!(net, balance(ledger, address) as i128, "history does not add up to the balance");
+}
+
 /// Total subsidy of the blocks whose rewards exist in the current ledger state.
 /// Rewards exist for every block in the virtual block's past that was merged as blue.
 fn expected_supply(ledger: &DagLedger) -> u128 {
@@ -360,6 +375,7 @@ fn heavier_side_chain_replaces_the_selected_chain_and_its_payments() {
     let hash_a = node.add_block(block_a.clone(), &pow).unwrap();
     assert_eq!(node.virtual_selected_parent, hash_a);
     assert_eq!(balance(&node, &alice), 50_000);
+    assert_eq!(history(&node, &alice).iter().map(|row| row.id).collect::<Vec<_>>(), vec![to_alice.id()]);
     assert!(node.get_transaction(&to_alice.id()).unwrap().is_some());
 
     // A competing branch of two blocks pays Bob with the same coin and overtakes it
@@ -371,6 +387,9 @@ fn heavier_side_chain_replaces_the_selected_chain_and_its_payments() {
     assert_eq!(node.virtual_selected_parent, hash_b2);
     assert_eq!(balance(&node, &alice), 0);
     assert_eq!(balance(&node, &bob), 60_000);
+    // The undone payment leaves Alice's history; Bob's shows the one that replaced it
+    assert!(history(&node, &alice).is_empty());
+    assert_eq!(history(&node, &bob).iter().map(|row| row.id).collect::<Vec<_>>(), vec![to_bob.id()]);
     assert!(node.get_transaction(&to_alice.id()).unwrap().is_none());
     assert_eq!(node.get_transaction(&to_bob.id()).unwrap().unwrap().block_hash, Some(hash_b1));
     // The losing block is still merged as blue, so its miner keeps the subsidy
@@ -394,11 +413,103 @@ fn heavier_side_chain_replaces_the_selected_chain_and_its_payments() {
     assert_eq!(fresh.virtual_selected_parent, node.virtual_selected_parent);
     for address in [&alice, &bob, &other, &address_of(&miner)] {
         assert_eq!(balance(&fresh, address), balance(&node, address));
+        assert_eq!(history(&fresh, address), history(&node, address));
+        assert_history_adds_up(&node, address);
     }
     assert_eq!(fresh.storage.total_utxo_atoms().unwrap(), node.storage.total_utxo_atoms().unwrap());
     // After payments, a reorganisation and merges, the running totals still match a full count
     assert_supply_total_is_exact(&node);
     assert_supply_total_is_exact(&fresh);
+}
+
+#[test]
+fn address_history_lists_rewards_and_payments_newest_first() {
+    let miner = key(34);
+    let (alice, pool) = (address_of(&key(35)), address_of(&key(36)));
+    let (mut ledger, pow) = funded_ledger("history", &miner);
+    let reward = balance(&ledger, &address_of(&miner));
+
+    // The miner pays Alice twice, each payment returning change to the miner
+    for amount in [70_000, 30_000] {
+        let payment = pay(&ledger, &miner, &alice, amount, 500);
+        ledger.broadcast_transaction(payment).unwrap();
+        mine_tip(&mut ledger, &pow, &pool);
+    }
+
+    let alice_rows = history(&ledger, &alice);
+    assert_eq!(alice_rows.iter().map(|row| row.received_atoms).collect::<Vec<_>>(), vec![30_000, 70_000]);
+    assert!(alice_rows.iter().all(|row| row.sent_atoms == 0 && !row.is_reward && row.timestamp_ms > 0));
+
+    // The miner: one reward, then two payments, each costing the amount and the fee
+    let miner_rows = history(&ledger, &address_of(&miner));
+    assert_eq!(miner_rows.len(), 3);
+    assert!(miner_rows[2].is_reward);
+    assert_eq!(miner_rows[2].received_atoms, reward);
+    assert_eq!(miner_rows[0].sent_atoms - miner_rows[0].received_atoms, 30_500);
+    assert_eq!(miner_rows[1].sent_atoms - miner_rows[1].received_atoms, 70_500);
+
+    // Paging: one row at a time, continuing after the row just read, reaches every row once
+    let mut paged = Vec::new();
+    let mut before: Option<Vec<u8>> = None;
+    loop {
+        let page = ledger.address_history(&address_of(&miner), 1, before.as_deref()).unwrap();
+        let Some((row, confirmations)) = page.into_iter().next() else { break };
+        assert!(confirmations >= 1);
+        before = Some(row.position());
+        paged.push(row);
+    }
+    assert_eq!(paged, miner_rows);
+
+    for address in [&alice, &pool, &address_of(&miner), &address_of(&key(200))] {
+        assert_history_adds_up(&ledger, address);
+    }
+
+    // The history is on disk, not rebuilt: it is the same after a restart
+    let path = std::env::temp_dir().join(format!("imoney-test-history-{}.redb", std::process::id()));
+    drop(ledger);
+    let reopened = DagLedger::open_with_params(path, None, test_params()).unwrap();
+    assert_eq!(history(&reopened, &address_of(&miner)), miner_rows);
+}
+
+#[test]
+fn multisig_address_receives_and_spends_with_enough_signatures() {
+    use imoney_core::MultisigScript;
+
+    let miner = key(40);
+    let holders = [key(41), key(42), key(43)];
+    let public_keys: Vec<[u8; 32]> = holders.iter().map(|k| k.verifying_key().to_bytes()).collect();
+    let script = MultisigScript::new(2, &public_keys).unwrap();
+    let vault = script.address(Network::Testnet);
+    let shop = address_of(&key(44));
+    let (mut ledger, pow) = funded_ledger("multisig", &miner);
+
+    // Paying a multi-signature address is an ordinary payment
+    let deposit = pay(&ledger, &miner, &vault, 900_000, 500);
+    ledger.broadcast_transaction(deposit).unwrap();
+    mine_tip(&mut ledger, &pow, &address_of(&key(200)));
+    assert_eq!(balance(&ledger, &vault), 900_000);
+
+    let coins = ledger.get_spendable_utxos(&vault).unwrap();
+    let mut payment =
+        Transaction::build_multisig_payment(&script, Network::Testnet, &shop, 250_000, 1_000, coins, Some("INV-9"), None).unwrap();
+
+    // Unsigned, and then signed by only one holder, it is refused
+    assert!(ledger.broadcast_transaction(payment.clone()).is_err());
+    let first = payment.multisig_sign(Network::Testnet, 0, &holders[2]);
+    assert!(payment.set_multisig_signatures(0, &script, std::slice::from_ref(&first)).is_err());
+
+    // Two holders, signing separately, are enough
+    let second = payment.multisig_sign(Network::Testnet, 0, &holders[0]);
+    payment.set_multisig_signatures(0, &script, &[first, second]).unwrap();
+    ledger.broadcast_transaction(payment.clone()).unwrap();
+    mine_tip(&mut ledger, &pow, &address_of(&key(200)));
+
+    assert_eq!(balance(&ledger, &shop), 250_000);
+    assert_eq!(balance(&ledger, &vault), 900_000 - 250_000 - 1_000);
+    assert_eq!(ledger.invoice_payments("INV-9", &shop).unwrap().len(), 1);
+    assert_history_adds_up(&ledger, &vault);
+    assert_eq!(history(&ledger, &vault).len(), 2);
+    assert_supply_total_is_exact(&ledger);
 }
 
 #[test]

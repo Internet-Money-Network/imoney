@@ -3,7 +3,7 @@
  * Plugin Name: Internet Money (IMN) Payments for WooCommerce
  * Plugin URI: https://internetmoneynetwork.org
  * Description: Accept Internet Money (IMN) payments straight to your own address. Each order gets its own invoice number, and your own node confirms the payment on the server. No intermediary holds the money.
- * Version: 2.0.0
+ * Version: 2.1.0
  * Author: Internet Money Network Developers
  * Author URI: https://github.com/Internet-Money-Network
  * License: MIT OR Apache-2.0
@@ -97,6 +97,59 @@ function imoney_check_order($order) {
         $state['paid'] = true;
     }
     return $state;
+}
+
+// Tell WooCommerce this plugin works with its order tables and its block-based checkout
+add_action('before_woocommerce_init', 'imoney_declare_compatibility');
+function imoney_declare_compatibility() {
+    if (class_exists('\Automattic\WooCommerce\Utilities\FeaturesUtil')) {
+        \Automattic\WooCommerce\Utilities\FeaturesUtil::declare_compatibility('custom_order_tables', __FILE__, true);
+        \Automattic\WooCommerce\Utilities\FeaturesUtil::declare_compatibility('cart_checkout_blocks', __FILE__, true);
+    }
+}
+
+// Offer the gateway in the block-based checkout, which is the default in current WooCommerce
+add_action('woocommerce_blocks_loaded', 'imoney_register_blocks_support');
+function imoney_register_blocks_support() {
+    if (!class_exists('\Automattic\WooCommerce\Blocks\Payments\Integrations\AbstractPaymentMethodType')) {
+        return;
+    }
+
+    final class WC_Gateway_IMoney_Blocks extends \Automattic\WooCommerce\Blocks\Payments\Integrations\AbstractPaymentMethodType {
+        protected $name = 'imoney';
+
+        public function initialize() {
+            $this->settings = get_option('woocommerce_imoney_settings', array());
+        }
+
+        public function is_active() {
+            $gateway = imoney_gateway();
+            return $gateway && $gateway->is_available();
+        }
+
+        public function get_payment_method_script_handles() {
+            wp_register_script(
+                'imoney-blocks',
+                plugins_url('blocks.js', __FILE__),
+                array('wc-blocks-registry', 'wc-settings', 'wp-element', 'wp-html-entities'),
+                '2.1.0',
+                true
+            );
+            return array('imoney-blocks');
+        }
+
+        public function get_payment_method_data() {
+            return array(
+                'title'       => $this->get_setting('title', __('Internet Money (IMN)', 'imoney-payments')),
+                'description' => $this->get_setting('description', ''),
+                'supports'    => array('products'),
+            );
+        }
+    }
+
+    add_action('woocommerce_blocks_payment_method_type_registration', function ($registry) {
+        $registry->register(new WC_Gateway_IMoney_Blocks());
+    });
 }
 
 // Ensure WooCommerce is active
