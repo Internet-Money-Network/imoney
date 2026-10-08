@@ -98,6 +98,8 @@ The exponent is limited to $[-1, 1]$, so one step at most doubles or halves the 
 
 The 100-second half life (20 blocks) was chosen by simulation. With it the difficulty reaches within a factor of two of a fifty-fold jump in hashrate in about 120 blocks (two minutes), recovers from a fifty-fold drop in about 25 blocks (ten minutes), and moves by under a fifth from ordinary luck in block times. A windowed average over 144 blocks, which this replaced, took about 85 minutes to recover from the same drop.
 
+A block's timestamp may be at most 30 seconds ahead of the receiving node's clock. With a wider allowance, a miner stamping its blocks far ahead could make blocks come a few percent too fast and widen the swings in difficulty; simulated at 30 seconds, a miner with 30% of the hashrate doing so changes neither the block time nor its own share of blocks. A miner that switches a large hashrate on only while difficulty is low earns within 2% of what steady miners earn per hash.
+
 Looking only at the last step has two further effects. A long silence, such as all miners stopping for a day, eases the difficulty by one factor of two when mining resumes; it does not leave a backlog of easy blocks to be mined in a burst. And a single false timestamp changes the next block's difficulty by at most a factor of two, which the following honest timestamp reverses.
 
 A node recomputes the expected value for every block it receives; a header carrying any other `bits` value is invalid.

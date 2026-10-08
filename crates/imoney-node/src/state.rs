@@ -103,7 +103,11 @@ impl ConsensusParams {
             ghostdag: GhostdagParams::default(),
             daa: DaaParams::new(crate::genesis::TESTNET_GENESIS_BITS),
             coinbase_maturity: 20,
-            max_future_ms: 120_000,
+            // Thirty seconds. The difficulty rule reads timestamps over a 100-second half
+            // life; in simulation a miner stamping blocks two minutes ahead made blocks come
+            // about 5% too fast and doubled the swings in difficulty, and at thirty seconds
+            // both effects vanish. Nodes are expected to keep their clocks set.
+            max_future_ms: 30_000,
             // 12 hours of 5-second blocks
             finality_depth: 8_640,
             genesis: create_testnet_genesis(),
