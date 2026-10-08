@@ -5,9 +5,14 @@ updates:
     directory: /
     schedule:
       interval: monthly
-    groups:
-      rust:
-        patterns: ["*"]
+    groups:
+      rust:
+        patterns: ["*"]
+    # Signatures and big-number arithmetic are consensus code: upgraded by hand, with tests
+    ignore:
+      - dependency-name: ed25519-dalek
+        update-types: ["version-update:semver-major"]
+      - dependency-name: primitive-types
   - package-ecosystem: npm
     directory: /packages/imoney-sdk
     schedule:

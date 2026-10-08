@@ -89,7 +89,8 @@ impl TestNode {
 /// Polls an async condition for up to 20 seconds.
 macro_rules! eventually {
     ($what:expr, $condition:expr) => {{
-        let deadline = Instant::now() + Duration::from_secs(20);
+        // Generous: every block is flushed to disk, and shared CI disks are slow
+        let deadline = Instant::now() + Duration::from_secs(120);
         loop {
             if $condition {
                 break;

@@ -2,7 +2,7 @@ use crate::address::{Address, AddressType, Network};
 use crate::constants::MAX_TX_BYTES;
 use crate::hash::Hash;
 use crate::serialize::{put_bytes, put_list, tagged_hash, Decode, DecodeError, Encode, Reader};
-use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -240,14 +240,16 @@ impl Transaction {
             return Err(TransactionError::PublicKeyAddressMismatch);
         }
 
-        // 2. Verify signature on sig_hash
+        // 2. Verify the signature on sig_hash. The strict check refuses keys and signature
+        // points of small order, for which a fixed signature would pass for any message, and
+        // has one answer for every signature where the lenient check leaves room to differ.
         let verifying_key = VerifyingKey::from_bytes(&pubkey_bytes)
             .map_err(|e| TransactionError::InvalidSignature(e.to_string()))?;
         let signature = Signature::from_bytes(&sig_bytes);
 
         let sighash = self.sig_hash(network, input_index);
         verifying_key
-            .verify(sighash.as_bytes(), &signature)
+            .verify_strict(sighash.as_bytes(), &signature)
             .map_err(|e| TransactionError::InvalidSignature(e.to_string()))?;
 
         Ok(())
@@ -468,6 +470,22 @@ impl Decode for Transaction {
 mod tests {
     use super::*;
     use rand::rngs::OsRng;
+
+    /// A point of small order as a public key lets one fixed "signature" pass for every
+    /// message under the lenient Ed25519 check. Found by the transaction_verify fuzz target.
+    #[test]
+    fn weak_public_key_cannot_sign() {
+        let (mut tx, _) = signed_payment();
+        // The identity point as the key, and as the signature's R, with S = 0
+        let mut identity = [0u8; 32];
+        identity[0] = 1;
+        let mut script = identity.to_vec();
+        script.extend_from_slice(&identity);
+        script.extend_from_slice(&[0u8; 32]);
+        tx.inputs[0].signature_script = script;
+        let locked = ScriptPublicKey { version: SCRIPT_VERSION_PUBKEY_HASH, script: blake3::hash(&identity).as_bytes().to_vec() };
+        assert!(tx.verify_input(Network::Testnet, 0, &locked).is_err());
+    }
 
     fn signed_payment() -> (Transaction, Address) {
         let mut csprng = OsRng;

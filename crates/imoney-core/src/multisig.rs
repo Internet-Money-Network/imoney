@@ -11,7 +11,7 @@ use crate::serialize::tagged_hash;
 use crate::transaction::{
     is_valid_invoice_id, Outpoint, ScriptPublicKey, Transaction, TransactionError, TxInput, TxOutput, INVOICE_TAG,
 };
-use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 
 /// Script version 2: the script is the 32-byte hash of a multi-signature script.
 pub const SCRIPT_VERSION_MULTISIG: u8 = AddressType::ScriptHash as u8;
@@ -189,7 +189,7 @@ impl Transaction {
             let verifying_key = VerifyingKey::from_bytes(key).map_err(|e| TransactionError::InvalidSignature(e.to_string()))?;
             let signature = Signature::from_bytes(entry[1..].try_into().expect("64 bytes"));
             verifying_key
-                .verify(sighash.as_bytes(), &signature)
+                .verify_strict(sighash.as_bytes(), &signature)
                 .map_err(|e| TransactionError::InvalidSignature(e.to_string()))?;
         }
         Ok(())
