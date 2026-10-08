@@ -22,7 +22,7 @@ jobs:
       - name: Install Rust toolchain
         # Pinned so that lint results and builds are the same here as on developers' machines.
         # Keep in step with rust-toolchain.toml.
-        uses: dtolnay/rust-toolchain@1.97.1
+        uses: dtolnay/rust-toolchain@1.120.0
         with:
           components: clippy
 
