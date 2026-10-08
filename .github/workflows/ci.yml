@@ -17,7 +17,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         # Pinned so that lint results and builds are the same here as on developers' machines.
@@ -73,7 +73,7 @@ jobs:
     name: Build & Test Developer SDK
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -101,7 +101,7 @@ jobs:
     # See fuzz/README.md for long runs.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install nightly Rust
         uses: dtolnay/rust-toolchain@nightly
