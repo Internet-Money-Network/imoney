@@ -3,448 +3,318 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Internet Money (IMN) - BlockDAG Explorer</title>
+  <title>Internet Money Explorer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
   <style>
+    /* The same paper-and-ink language as internetmoneynetwork.org: hairline rules instead of
+       boxes, a serif for figures and headings, a monospace for anything copied or compared. */
     :root {
-      --bg: #090d13;
-      --card-bg: #161b22;
-      --border: #30363d;
-      --text: #c9d1d9;
-      --text-bright: #f0f6fc;
-      --accent-green: #39d353;
-      --accent-blue: #58a6ff;
-      --accent-purple: #bc8cff;
-      --badge-bg: #238636;
-      --error-red: #f85149;
+      --paper: #f3efe6;
+      --paper-raised: #fbf9f3;
+      --ink: #14130f;
+      --ink-soft: #5f5a4e;
+      --rule: #14130f;
+      --rule-soft: #cfc8b8;
+      --accent: #0a7d45;
+      --parallel: #a8650a;
+      --negative: #a3271c;
+      --serif: "Instrument Serif", "Iowan Old Style", Georgia, serif;
+      --sans: "IBM Plex Sans", "Segoe UI", Helvetica, Arial, sans-serif;
+      --mono: "IBM Plex Mono", "Cascadia Mono", Consolas, monospace;
     }
-    * { box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      margin: 0;
-      padding: 0;
-      line-height: 1.5;
-    }
-    header {
-      background: var(--card-bg);
-      border-bottom: 1px solid var(--border);
-      padding: 16px 28px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 16px;
-    }
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-    .brand svg {
-      width: 36px;
-      height: 36px;
-    }
-    .brand h1 {
-      font-size: 20px;
-      margin: 0;
-      color: var(--text-bright);
-      letter-spacing: 0.5px;
-    }
-    .badge {
-      background: var(--badge-bg);
-      color: white;
-      font-size: 11px;
-      font-weight: bold;
-      padding: 3px 8px;
-      border-radius: 4px;
-      margin-left: 8px;
-    }
-    .search-box {
-      display: flex;
-      gap: 8px;
-      flex: 1;
-      max-width: 650px;
-    }
-    .search-input {
-      flex: 1;
-      background: #0d1117;
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 10px 14px;
-      color: var(--text-bright);
-      font-family: monospace;
-      font-size: 13px;
-    }
-    .search-input:focus {
-      outline: none;
-      border-color: var(--accent-blue);
-    }
-    .search-btn {
-      background: #21262d;
-      border: 1px solid var(--border);
-      color: var(--text-bright);
-      padding: 0 16px;
-      border-radius: 6px;
-      cursor: pointer;
-      font-weight: 600;
-    }
-    .search-btn:hover {
-      background: #30363d;
-    }
-    .container {
-      max-width: 1400px;
-      margin: 0 auto;
-      padding: 24px;
-    }
-    .stats-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-      gap: 16px;
-      margin-bottom: 24px;
-    }
-    .stat-card {
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 16px;
-    }
-    .stat-label {
-      font-size: 12px;
-      color: #8b949e;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      margin-bottom: 6px;
-    }
-    .stat-val {
-      font-size: 22px;
-      font-weight: 700;
-      color: var(--text-bright);
-      font-family: monospace;
-    }
-    .stat-sub {
-      font-size: 11px;
-      color: #8b949e;
-      margin-top: 4px;
-      min-height: 14px;
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --paper: #0f1115;
+        --paper-raised: #171a20;
+        --ink: #ece8dd;
+        --ink-soft: #9a9588;
+        --rule: #ece8dd;
+        --rule-soft: #2c3038;
+        --accent: #00e575;
+        --parallel: #e8a33d;
+        --negative: #ff7a6b;
+      }
     }
 
-    .main-grid {
-      display: grid;
-      grid-template-columns: 2fr 1fr;
-      gap: 24px;
+    * { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: var(--sans);
+      font-size: 15px;
+      line-height: 1.5;
     }
-    @media (max-width: 900px) {
-      .main-grid { grid-template-columns: 1fr; }
+    a { color: inherit; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+    a:hover { color: var(--accent); }
+    .mono, code { font-family: var(--mono); font-size: 0.9em; }
+    .soft { color: var(--ink-soft); }
+    .page { max-width: 1240px; margin: 0 auto; padding: 0 28px 64px; }
+
+    /* Masthead */
+    .masthead {
+      display: flex; align-items: baseline; justify-content: space-between; gap: 20px; flex-wrap: wrap;
+      padding: 22px 0 16px; border-bottom: 2px solid var(--rule);
     }
-    .card {
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 20px;
-      margin-bottom: 24px;
+    .wordmark { display: flex; align-items: center; gap: 12px; text-decoration: none; }
+    .wordmark svg { width: 30px; height: 30px; flex: none; }
+    .wordmark span { font-family: var(--serif); font-size: 30px; line-height: 1; }
+    .wordmark em { font-style: italic; color: var(--ink-soft); }
+    .network {
+      font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase;
+      display: flex; align-items: center; gap: 8px;
     }
-    .card-title {
-      font-size: 16px;
-      font-weight: 600;
-      color: var(--text-bright);
-      margin-top: 0;
-      margin-bottom: 16px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
+    .network i { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-soft); display: inline-block; }
+    .network.live i { background: var(--accent); }
+    .network.down i { background: var(--negative); }
+
+    /* Search */
+    .search { display: flex; gap: 0; border-bottom: 1px solid var(--rule-soft); }
+    .search input {
+      flex: 1; min-width: 0; background: none; border: 0; padding: 16px 0; color: var(--ink);
+      font-family: var(--mono); font-size: 14px;
     }
-    /* GHOSTDAG Canvas Visualizer */
-    #dag-canvas {
-      width: 100%;
-      height: 280px;
-      background: #070a0f;
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      display: block;
+    .search input::placeholder { color: var(--ink-soft); }
+    .search input:focus { outline: none; }
+    .search:focus-within { border-bottom-color: var(--rule); }
+    .search button {
+      background: none; border: 0; color: var(--ink); cursor: pointer; padding: 0 0 0 20px;
+      font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase;
     }
-    .table-container {
-      overflow-x: auto;
+    .search button:hover { color: var(--accent); }
+
+    /* Headline figures: four across, divided by rules */
+    .figures { display: grid; grid-template-columns: repeat(4, 1fr); border-bottom: 1px solid var(--rule-soft); }
+    .figure { padding: 26px 22px 22px; border-left: 1px solid var(--rule-soft); min-width: 0; }
+    .figure:first-child { border-left: 0; padding-left: 0; }
+    .label { font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-soft); }
+    .figure .value { font-family: var(--serif); font-size: clamp(34px, 4.2vw, 54px); line-height: 1.05; margin: 8px 0 6px; white-space: nowrap; }
+    .figure .value small { font-family: var(--mono); font-size: 13px; color: var(--ink-soft); margin-left: 6px; }
+    .figure .note { font-size: 12.5px; color: var(--ink-soft); }
+
+    /* Secondary figures: a compact strip */
+    .strip { display: grid; grid-template-columns: repeat(6, 1fr); border-bottom: 2px solid var(--rule); }
+    .strip div { padding: 14px 18px 14px 0; min-width: 0; }
+    .strip b { display: block; font-family: var(--mono); font-weight: 500; font-size: 15px; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .strip .note { font-size: 11.5px; color: var(--ink-soft); display: block; margin-top: 2px; }
+
+    .alert { border: 1px solid var(--parallel); color: var(--parallel); padding: 12px 16px; margin-top: 22px; font-size: 14px; display: none; }
+
+    /* Body: wide column of live data, narrow column of reference */
+    .columns { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 48px; margin-top: 8px; }
+    section { padding-top: 30px; }
+    h2 {
+      font-family: var(--serif); font-weight: 400; font-size: 26px; line-height: 1.1; margin: 0 0 14px;
+      display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
     }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 13px;
-    }
+    h2 .label { font-size: 11px; }
+    canvas { display: block; width: 100%; border-top: 1px solid var(--rule-soft); border-bottom: 1px solid var(--rule-soft); }
+    .legend { display: flex; flex-wrap: wrap; gap: 6px 20px; margin-top: 10px; font-size: 12.5px; color: var(--ink-soft); }
+    .legend span { display: flex; align-items: center; gap: 7px; }
+    .key { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+    .key.chain { background: var(--ink); }
+    .key.parallel { border: 2px solid var(--parallel); }
+    .key.tip { background: var(--accent); }
+    .key.line { width: 16px; height: 2px; border-radius: 0; background: var(--ink); }
+    .key.bar { border-radius: 0; background: var(--rule-soft); }
+
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
     th {
-      text-align: left;
-      padding: 10px;
-      color: #8b949e;
-      border-bottom: 1px solid var(--border);
-      font-weight: 600;
+      text-align: left; padding: 0 12px 8px 0; font-family: var(--mono); font-weight: 400; font-size: 11px;
+      letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-soft); border-bottom: 1px solid var(--rule);
     }
-    td {
-      padding: 12px 10px;
-      border-bottom: 1px solid #21262d;
+    td { padding: 10px 12px 10px 0; border-bottom: 1px solid var(--rule-soft); vertical-align: baseline; }
+    th.num, td.num { text-align: right; padding-right: 0; }
+    tbody tr.pick { cursor: pointer; }
+    tbody tr.pick:hover td { background: var(--paper-raised); }
+    .hash { font-family: var(--mono); font-size: 13px; }
+    .tag { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); margin-left: 8px; }
+
+    dl { margin: 0; font-size: 14px; }
+    dl div { display: flex; justify-content: space-between; gap: 16px; padding: 8px 0; border-bottom: 1px solid var(--rule-soft); }
+    dl div:first-child { border-top: 1px solid var(--rule); }
+    dt { color: var(--ink-soft); }
+    dd { margin: 0; text-align: right; }
+
+    .payment { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--rule-soft); cursor: pointer; }
+    .payment:first-child { border-top: 1px solid var(--rule); }
+    .payment:hover { background: var(--paper-raised); }
+    .empty { color: var(--ink-soft); padding: 9px 0; border-top: 1px solid var(--rule); font-size: 14px; }
+
+    footer { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--rule-soft); font-size: 12.5px; color: var(--ink-soft); display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+
+    /* Detail sheet */
+    #sheet { display: none; position: fixed; inset: 0; background: rgba(10, 10, 8, 0.55); z-index: 100; justify-content: flex-end; }
+    .sheet {
+      background: var(--paper); border-left: 2px solid var(--rule); width: min(640px, 100%); height: 100%;
+      overflow-y: auto; padding: 26px 30px 40px;
     }
-    .hash {
-      font-family: monospace;
-      color: var(--accent-blue);
-      cursor: pointer;
-    }
-    .hash:hover {
-      text-decoration: underline;
-    }
-    /* Search Results Modal / Section */
-    #search-results-overlay {
-      display: none;
-      position: fixed;
-      inset: 0;
-      background: rgba(0,0,0,0.8);
-      z-index: 10000;
-      align-items: center;
-      justify-content: center;
-      padding: 20px;
-    }
-    .modal-box {
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      max-width: 700px;
-      width: 100%;
-      padding: 24px;
-      position: relative;
-    }
-    .close-btn {
-      position: absolute;
-      top: 14px;
-      right: 16px;
-      background: none;
-      border: none;
-      color: #8b949e;
-      font-size: 20px;
-      cursor: pointer;
+    .sheet header { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 2px solid var(--rule); padding-bottom: 12px; margin-bottom: 4px; }
+    .sheet h3 { font-family: var(--serif); font-weight: 400; font-size: 34px; line-height: 1; margin: 0; }
+    .sheet button { background: none; border: 0; color: var(--ink); cursor: pointer; font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; }
+    .sheet button:hover { color: var(--accent); }
+    .row { padding: 12px 0; border-bottom: 1px solid var(--rule-soft); }
+    .row .label { display: block; margin-bottom: 4px; }
+    .row .mono, .row code { word-break: break-all; }
+    .row .big { font-family: var(--serif); font-size: 34px; line-height: 1.1; }
+    .gain { color: var(--accent); }
+    .loss { color: var(--negative); }
+    .sheet table { margin-top: 4px; font-size: 13.5px; }
+    .sheet td { padding: 8px 10px 8px 0; }
+    .sheet p { margin: 16px 0 0; }
+
+    @media (max-width: 900px) {
+      .page { padding: 0 18px 48px; }
+      .figures { grid-template-columns: repeat(2, 1fr); }
+      .figure { padding: 18px 14px; }
+      .figure:nth-child(odd) { border-left: 0; padding-left: 0; }
+      .figure:nth-child(n+3) { border-top: 1px solid var(--rule-soft); }
+      .strip { grid-template-columns: repeat(2, 1fr); }
+      .columns { grid-template-columns: minmax(0, 1fr); gap: 0; }
+      .wordmark span { font-size: 25px; }
+      .hide-narrow { display: none; }
+      h2 .label { display: none; }
     }
   </style>
 </head>
 <body>
-
-  <header>
-    <div class="brand">
-      <svg viewBox="0 0 512 512">
-        <rect width="512" height="512" rx="128" fill="#15181e"/>
-        <rect x="116" y="128" width="56" height="256" rx="12" fill="#ffffff"/>
-        <path d="M 212 384 L 212 232 L 272 128 L 328 128 L 268 232 L 268 384 Z" fill="#ffffff"/>
-        <path d="M 340 384 L 340 232 L 400 128 L 456 128 L 396 232 L 396 384 Z" fill="#ffffff"/>
-        <circle cx="144" cy="100" r="16" fill="#00e575"/>
-      </svg>
-      <h1>Internet Money <span class="badge">TESTNET</span></h1>
-
+  <div class="page">
+    <div class="masthead">
+      <a class="wordmark" href="./">
+        <svg viewBox="0 0 512 512" aria-hidden="true">
+          <rect width="512" height="512" rx="128" fill="#15181e"/>
+          <rect x="116" y="128" width="56" height="256" rx="12" fill="#ffffff"/>
+          <path d="M 212 384 L 212 232 L 272 128 L 328 128 L 268 232 L 268 384 Z" fill="#ffffff"/>
+          <path d="M 340 384 L 340 232 L 400 128 L 456 128 L 396 232 L 396 384 Z" fill="#ffffff"/>
+          <circle cx="144" cy="100" r="16" fill="#00e575"/>
+        </svg>
+        <span>Internet Money <em>Explorer</em></span>
+      </a>
+      <div class="network" id="network-state"><i></i><span id="node-network">connecting</span></div>
     </div>
 
-    <div class="search-box">
-      <input type="text" id="search-input" class="search-input" placeholder="Search by Block Hash, TxID, or Address (imntest:q...)" />
-      <button class="search-btn" id="search-btn">Search</button>
+    <div class="search">
+      <input type="text" id="search-input" autocomplete="off" spellcheck="false" placeholder="Block hash, transaction ID or address" aria-label="Search by block hash, transaction ID or address" />
+      <button id="search-btn">Search</button>
     </div>
-  </header>
 
-  <div class="container">
-    <!-- Network KPI Metrics Banner -->
-    <div class="stats-grid">
-      <div class="stat-card">
-        <div class="stat-label">Network Hashrate</div>
-        <div class="stat-val" id="kpi-hashrate" style="color: var(--accent-green);">-</div>
-        <div class="stat-sub" id="kpi-hashrate-sub"></div>
+    <div class="figures">
+      <div class="figure">
+        <div class="label">Network hashrate</div>
+        <div class="value" id="kpi-hashrate">–</div>
+        <div class="note" id="kpi-hashrate-sub">&nbsp;</div>
       </div>
-      <div class="stat-card">
-        <div class="stat-label">Difficulty</div>
-        <div class="stat-val" id="kpi-difficulty">-</div>
-        <div class="stat-sub" id="kpi-bits"></div>
+      <div class="figure">
+        <div class="label">Difficulty</div>
+        <div class="value" id="kpi-difficulty">–</div>
+        <div class="note mono" id="kpi-bits">&nbsp;</div>
       </div>
-      <div class="stat-card">
-        <div class="stat-label">Block Time</div>
-        <div class="stat-val" id="kpi-block-time">-</div>
-        <div class="stat-sub">target 5 s</div>
+      <div class="figure">
+        <div class="label">Block time</div>
+        <div class="value" id="kpi-block-time">–</div>
+        <div class="note">target 5 seconds</div>
       </div>
-      <div class="stat-card">
-        <div class="stat-label">Height (Blue Score)</div>
-        <div class="stat-val" id="kpi-blue-score" style="color: var(--accent-blue);">-</div>
-        <div class="stat-sub" id="kpi-total-blocks"></div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Circulating Supply</div>
-        <div class="stat-val" id="kpi-supply">-</div>
-        <div class="stat-sub" id="kpi-inflation"></div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Block Reward</div>
-        <div class="stat-val" id="kpi-reward" style="color: #e3b341;">-</div>
-        <div class="stat-sub" id="kpi-halving"></div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Payments</div>
-        <div class="stat-val" id="kpi-payments">-</div>
-        <div class="stat-sub" id="kpi-tps"></div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Waiting (Mempool)</div>
-        <div class="stat-val" id="kpi-mempool">-</div>
-        <div class="stat-sub" id="kpi-min-fee"></div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Connected Peers</div>
-        <div class="stat-val" id="kpi-peers">-</div>
-        <div class="stat-sub" id="kpi-node-type"></div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Open Tips</div>
-        <div class="stat-val" id="tips-count">-</div>
-        <div class="stat-sub">blocks not yet built on</div>
+      <div class="figure">
+        <div class="label">Height</div>
+        <div class="value" id="kpi-blue-score">–</div>
+        <div class="note" id="kpi-total-blocks">&nbsp;</div>
       </div>
     </div>
 
-    <div id="network-alert" style="display: none; background: #3d2e12; color: #e3b341; border: 1px solid #6b4f16; border-radius: 8px; padding: 12px 16px; margin-bottom: 20px; font-size: 14px;">
+    <div class="strip">
+      <div><span class="label">Supply</span><b id="kpi-supply">–</b><span class="note" id="kpi-inflation">&nbsp;</span></div>
+      <div><span class="label">Block reward</span><b id="kpi-reward">–</b><span class="note" id="kpi-halving">&nbsp;</span></div>
+      <div><span class="label">Payments</span><b id="kpi-payments">–</b><span class="note" id="kpi-tps">&nbsp;</span></div>
+      <div><span class="label">Waiting</span><b id="kpi-mempool">–</b><span class="note" id="kpi-min-fee">&nbsp;</span></div>
+      <div><span class="label">Peers</span><b id="kpi-peers">–</b><span class="note" id="kpi-node-type">&nbsp;</span></div>
+      <div><span class="label">Open tips</span><b id="tips-count">–</b><span class="note">blocks not yet built on</span></div>
+    </div>
+
+    <div class="alert" id="network-alert">
       The network is unsettled right now: this node recently saw several blocks replaced, or is refusing a heavier chain. Wait longer than usual before treating a payment as final.
     </div>
 
-    <!-- Main Content Layout -->
-    <div class="main-grid">
+    <div class="columns">
       <div>
-        <!-- GHOSTDAG Parallel Block Visualizer -->
-        <div class="card">
-          <div class="card-title">
-            <span>Live block graph</span>
-            <span style="font-size: 11px; color: #8b949e;">Auto-Refresh: 2s</span>
+        <section>
+          <h2>Block graph <span class="label">live, newest on the right</span></h2>
+          <canvas id="dag-canvas" height="260"></canvas>
+          <div class="legend">
+            <span><i class="key chain"></i> On the selected chain</span>
+            <span><i class="key parallel"></i> Parallel block, merged</span>
+            <span><i class="key tip"></i> Tip</span>
           </div>
-          <canvas id="dag-canvas" width="800" height="280"></canvas>
-          <div style="display: flex; gap: 16px; margin-top: 10px; font-size: 12px; color: #8b949e;">
-            <span style="display: flex; align-items: center; gap: 6px;">
-              <span style="width: 10px; height: 10px; background: #39d353; border-radius: 50%; display: inline-block;"></span> On the selected chain
-            </span>
-            <span style="display: flex; align-items: center; gap: 6px;">
-              <span style="width: 10px; height: 10px; background: #e3b341; border-radius: 50%; display: inline-block;"></span> Parallel block, merged
-            </span>
-            <span style="display: flex; align-items: center; gap: 6px;">
-              <span style="width: 8px; height: 8px; border: 3px solid #58a6ff; border-radius: 50%; display: inline-block;"></span> Tip
-            </span>
-          </div>
-        </div>
+        </section>
 
-        <!-- Difficulty and block time over recent blocks -->
-        <div class="card">
-          <div class="card-title">
-            <span>Difficulty and block time</span>
-            <span style="font-size: 11px; color: #8b949e;" id="trend-range"></span>
+        <section>
+          <h2>Difficulty and block time <span class="label" id="trend-range"></span></h2>
+          <canvas id="trend-canvas" height="190"></canvas>
+          <div class="legend">
+            <span><i class="key line"></i> Difficulty (log scale)</span>
+            <span><i class="key bar"></i> Seconds since the previous block; dashed line is the 5-second target</span>
           </div>
-          <canvas id="trend-canvas" width="800" height="200"></canvas>
-          <div style="display: flex; gap: 16px; margin-top: 10px; font-size: 12px; color: #8b949e;">
-            <span style="display: flex; align-items: center; gap: 6px;">
-              <span style="width: 14px; height: 3px; background: #58a6ff; display: inline-block;"></span> Difficulty
-            </span>
-            <span style="display: flex; align-items: center; gap: 6px;">
-              <span style="width: 10px; height: 10px; background: rgba(57, 211, 83, 0.55); display: inline-block;"></span> Seconds since the previous block (dashed line: 5 s target)
-            </span>
-          </div>
-        </div>
+        </section>
 
-        <!-- Latest Blocks Table -->
-        <div class="card">
-          <div class="card-title">Recent blocks (click one for details)</div>
-          <div class="table-container">
-            <table>
-              <thead>
-                <tr>
-                  <th>Blue Score</th>
-                  <th>Block Hash</th>
-                  <th>Parents</th>
-                  <th>Age</th>
-                </tr>
-              </thead>
-              <tbody id="blocks-tbody">
-                <tr><td colspan="4" style="text-align: center; color: #8b949e;">Connecting to the node...</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <section>
+          <h2>Recent blocks</h2>
+          <table>
+            <thead>
+              <tr><th>Height</th><th>Hash</th><th class="hide-narrow">Parents</th><th class="num">Age</th></tr>
+            </thead>
+            <tbody id="blocks-tbody">
+              <tr><td colspan="4" class="soft">Connecting to the node…</td></tr>
+            </tbody>
+          </table>
+        </section>
       </div>
 
-      <!-- Right Column: Protocol Information & Mining Target -->
       <div>
-        <div class="card">
-          <div class="card-title">ℹ️ Protocol Rules</div>
-          <div style="font-size: 13px; line-height: 1.8;">
-            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #21262d; padding: 6px 0;">
-              <span style="color: #8b949e;">Consensus:</span>
-              <b>GHOSTDAG</b>
-            </div>
-            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #21262d; padding: 6px 0;">
-              <span style="color: #8b949e;">Target Block Time:</span>
-              <b>5.0 Seconds (0.2 BPS)</b>
-            </div>
-            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #21262d; padding: 6px 0;">
-              <span style="color: #8b949e;">GHOSTDAG k-factor:</span>
-              <b>k = 8</b>
-            </div>
-            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #21262d; padding: 6px 0;">
-              <span style="color: #8b949e;">PoW Algorithm:</span>
-              <b>Money Printer (FishHash)</b>
-            </div>
-            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #21262d; padding: 6px 0;">
-              <span style="color: #8b949e;">Storage Engine:</span>
-              <b>Pure-Rust redb (ACID)</b>
-            </div>
-            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #21262d; padding: 6px 0;">
-              <span style="color: #8b949e;">Permanent Emission Floor:</span>
-              <b>0.3125 IMN / block</b>
-            </div>
-            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #21262d; padding: 6px 0;">
-              <span style="color: #8b949e;">Halving:</span>
-              <b>every 4 years, 4 times</b>
-            </div>
-            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #21262d; padding: 6px 0;">
-              <span style="color: #8b949e;">Finality:</span>
-              <b id="rule-finality">12 hours</b>
-            </div>
-            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #21262d; padding: 6px 0;">
-              <span style="color: #8b949e;">Block Size Limit:</span>
-              <b>100 KB</b>
-            </div>
-            <div style="display: flex; justify-content: space-between; padding: 6px 0;">
-              <span style="color: #8b949e;">Fee Split:</span>
-              <b>half to miner, half to serving node</b>
-            </div>
-          </div>
-        </div>
+        <section>
+          <h2>Recent payments</h2>
+          <div id="recent-payments"><div class="empty">No payments in the recent blocks.</div></div>
+        </section>
 
-        <div class="card">
-          <div class="card-title">Recent payments</div>
-          <div id="recent-payments" style="font-size: 13px; line-height: 1.6;">
-            <span style="color: #8b949e;">No payments in the recent blocks.</span>
-          </div>
-        </div>
+        <section>
+          <h2>Protocol</h2>
+          <dl>
+            <div><dt>Consensus</dt><dd>GHOSTDAG, k = 8</dd></div>
+            <div><dt>Block time</dt><dd>5 seconds</dd></div>
+            <div><dt>Proof of work</dt><dd>memory-hard, <span id="rule-dataset">4.6 GB</span> dataset</dd></div>
+            <div><dt>Finality</dt><dd id="rule-finality">12 hours</dd></div>
+            <div><dt>Block size limit</dt><dd>100 KB</dd></div>
+            <div><dt>Reward</dt><dd>halves every 4 years, 4 times</dd></div>
+            <div><dt>Permanent reward</dt><dd>0.3125 IMN a block</dd></div>
+            <div><dt>Fees</dt><dd>half to the miner, half to the serving node</dd></div>
+          </dl>
+        </section>
 
-        <div class="card">
-          <div class="card-title">🌐 Node & P2P Status</div>
-          <div style="font-size: 13px; line-height: 1.8;">
-            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #21262d; padding: 6px 0;">
-              <span style="color: #8b949e;">Node URL:</span>
-              <span class="hash" id="node-url-label">http://127.0.0.1:18556</span>
-            </div>
-            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #21262d; padding: 6px 0;">
-              <span style="color: #8b949e;">P2P Port:</span>
-              <b>18555 (TCP)</b>
-            </div>
-            <div style="display: flex; justify-content: space-between; padding: 6px 0;">
-              <span style="color: #8b949e;">Network:</span>
-              <b id="node-network">-</b>
-            </div>
-          </div>
-        </div>
+        <section>
+          <h2>This node</h2>
+          <dl>
+            <div><dt>Address</dt><dd class="mono" id="node-url-label"></dd></div>
+            <div><dt>History</dt><dd id="node-history">–</dd></div>
+            <div><dt>Peer port</dt><dd class="mono">18555</dd></div>
+          </dl>
+        </section>
       </div>
     </div>
+
+    <footer>
+      <span>Figures come from the node serving this page and refresh every two seconds.</span>
+      <span><a href="./wallet">Wallet</a> &nbsp;·&nbsp; <a href="https://internetmoneynetwork.org">internetmoneynetwork.org</a></span>
+    </footer>
   </div>
 
-  <!-- Search Modal Overlay -->
-  <div id="search-results-overlay">
-    <div class="modal-box">
-      <button class="close-btn" id="modal-close">&times;</button>
-      <h3 style="margin-top: 0; color: var(--accent-blue);" id="modal-title">Search Result</h3>
-      <div id="modal-content" style="font-size: 13px; line-height: 1.7; word-break: break-all;"></div>
+  <div id="sheet" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="sheet">
+      <header>
+        <h3 id="modal-title">Result</h3>
+        <button id="modal-close">Close</button>
+      </header>
+      <div id="modal-content"></div>
     </div>
   </div>
 
@@ -453,18 +323,20 @@
     const NODE_URL = (window.location.protocol.startsWith('http') && window.location.pathname.startsWith('/explorer'))
       ? window.location.origin
       : 'http://127.0.0.1:18556';
-    document.getElementById('node-url-label').innerText = NODE_URL;
 
     const $ = (id) => document.getElementById(id);
+    $('node-url-label').innerText = NODE_URL.replace(/^https?:\/\//, '');
     const short = (hash) => hash.slice(0, 10) + '…' + hash.slice(-6);
     const escapeHtml = (text) => String(text).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+    // Colours follow the page's light or dark palette
+    const colour = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
     function age(timestampMs) {
       const seconds = Math.max(0, Math.round((Date.now() - timestampMs) / 1000));
-      if (seconds < 60) return seconds + 's ago';
-      if (seconds < 3600) return Math.floor(seconds / 60) + 'm ago';
-      if (seconds < 86400) return Math.floor(seconds / 3600) + 'h ago';
-      return Math.floor(seconds / 86400) + 'd ago';
+      if (seconds < 60) return seconds + ' s ago';
+      if (seconds < 3600) return Math.floor(seconds / 60) + ' min ago';
+      if (seconds < 86400) return Math.floor(seconds / 3600) + ' h ago';
+      return Math.floor(seconds / 86400) + ' d ago';
     }
 
     async function getJson(path) {
@@ -473,17 +345,20 @@
       return res.json();
     }
 
-    // 1234567 -> "1.23 M", with a unit appended
-    function scaled(value, unit) {
+    // 1234567 -> ["1.23", "M"]
+    function scaledParts(value) {
       const steps = ['', 'k', 'M', 'G', 'T', 'P', 'E'];
       let i = 0;
       while (value >= 1000 && i < steps.length - 1) {
         value /= 1000;
         i += 1;
       }
-      return (value >= 100 || i === 0 ? value.toFixed(0) : value.toFixed(2)) + ' ' + steps[i] + unit;
+      return [value >= 100 || i === 0 ? value.toFixed(0) : value.toFixed(2), steps[i]];
     }
+    const scaled = (value, unit) => scaledParts(value).join(' ') + unit;
     const grouped = (value) => Math.round(value).toLocaleString('en-US');
+    // A headline figure: the number in the serif, its unit small beside it
+    const figure = (number, unit) => escapeHtml(number) + (unit ? '<small>' + escapeHtml(unit) + '</small>' : '');
 
     function duration(days) {
       if (days >= 730) return (days / 365).toFixed(1) + ' years';
@@ -499,73 +374,105 @@
       return mantissa ? Math.pow(2, 256) / (mantissa * Math.pow(256, size - 3)) : 0;
     }
 
+    // Sizes a canvas to its box at the screen's pixel density and returns a context drawing in CSS pixels
+    function prepare(canvas) {
+      const ratio = window.devicePixelRatio || 1;
+      const width = canvas.clientWidth;
+      const height = Number(canvas.getAttribute('height'));
+      canvas.style.height = height + 'px';
+      if (canvas.width !== Math.round(width * ratio)) {
+        canvas.width = Math.round(width * ratio);
+        canvas.height = Math.round(height * ratio);
+      }
+      const ctx = canvas.getContext('2d');
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+      ctx.clearRect(0, 0, width, height);
+      return { ctx, w: width, h: height };
+    }
+
+    let latest = null;
     async function fetchNodeData() {
       try {
-        const [stats, blocks] = await Promise.all([getJson('/api/v1/stats'), getJson('/api/v1/blocks?limit=300')]);
-        $('kpi-hashrate').innerText = stats.window_seconds > 0 ? scaled(stats.hashrate_hps, 'H/s') : '-';
+        const [stats, blocks, info] = await Promise.all([
+          getJson('/api/v1/stats'),
+          getJson('/api/v1/blocks?limit=300'),
+          getJson('/api/v1/info').catch(() => ({})),
+        ]);
+        latest = { stats, blocks };
+        const [hashrate, hashrateStep] = scaledParts(stats.hashrate_hps);
+        $('kpi-hashrate').innerHTML = stats.window_seconds > 0 ? figure(hashrate, hashrateStep + 'H/s') : '–';
         $('kpi-hashrate-sub').innerText = 'estimated from the last ' + stats.window_blocks + ' blocks';
-        $('kpi-difficulty').innerText = scaled(stats.difficulty, '');
+        const [difficulty, difficultyStep] = scaledParts(stats.difficulty);
+        $('kpi-difficulty').innerHTML = figure(difficulty, difficultyStep);
         $('kpi-bits').innerText = 'bits ' + stats.difficulty_bits;
-        $('kpi-block-time').innerText = stats.average_block_time_sec > 0 ? stats.average_block_time_sec.toFixed(1) + ' s' : '-';
+        $('kpi-block-time').innerHTML = stats.average_block_time_sec > 0 ? figure(stats.average_block_time_sec.toFixed(1), 's') : '–';
         $('kpi-blue-score').innerText = grouped(stats.blue_score);
         $('kpi-total-blocks').innerText = grouped(stats.total_blocks) + ' blocks in total';
         $('kpi-supply').innerText = grouped(stats.circulating_supply_imn) + ' IMN';
         $('kpi-inflation').innerText = stats.circulating_supply_imn > 0 && stats.annual_inflation_percent < 1000
-          ? stats.annual_inflation_percent.toFixed(1) + '% new supply per year at this reward'
+          ? stats.annual_inflation_percent.toFixed(1) + '% a year at this reward'
           : 'no cap; reward falls to 0.3125';
         $('kpi-reward').innerText = stats.block_reward_imn + ' IMN';
-        $('kpi-halving').innerText = stats.days_until_halving != null
-          ? 'halves in ' + duration(stats.days_until_halving) + ' (' + grouped(stats.blocks_until_halving) + ' blocks)'
-          : 'permanent floor reached';
+        $('kpi-halving').innerText = stats.days_until_halving != null ? 'halves in ' + duration(stats.days_until_halving) : 'permanent floor reached';
         $('kpi-payments').innerText = grouped(stats.transactions_in_window);
-        $('kpi-tps').innerText = 'in the last ' + stats.window_blocks + ' blocks (' + stats.transactions_per_second.toFixed(2) + ' per second)';
+        $('kpi-tps').innerText = stats.transactions_per_second.toFixed(2) + ' a second, last ' + stats.window_blocks + ' blocks';
         $('kpi-mempool').innerText = grouped(stats.mempool_size);
-        $('kpi-min-fee').innerText = 'minimum fee ' + stats.min_relay_fee_atoms_per_byte + ' atoms per byte';
+        $('kpi-min-fee').innerText = 'minimum fee ' + stats.min_relay_fee_atoms_per_byte + ' atoms a byte';
         $('kpi-peers').innerText = stats.peers;
-        $('kpi-node-type').innerText = stats.archival ? 'this node keeps full history' : 'this node prunes old blocks';
+        $('kpi-node-type').innerText = 'connected to this node';
         $('tips-count').innerText = stats.tips;
         $('node-network').innerText = stats.network;
+        $('network-state').className = 'network live';
+        $('node-history').innerText = stats.archival ? 'kept in full' : 'pruned after 36 hours';
         $('rule-finality').innerText = duration(stats.finality_depth * 5 / 86400);
+        if (info.pow_dataset_items) {
+          const megabytes = info.pow_dataset_items * 128 / 1048576;
+          $('rule-dataset').innerText = megabytes >= 1024 ? (megabytes / 1024).toFixed(1) + ' GB' : Math.round(megabytes) + ' MB';
+        }
         $('network-alert').style.display = stats.network_alert ? 'block' : 'none';
-
-        drawDag(blocks, stats.selected_tip);
-        drawTrends(blocks);
+        redraw();
         renderBlocksTable(blocks);
         renderRecentPayments(stats.recent_transactions);
       } catch (err) {
-        $('blocks-tbody').innerHTML = '<tr><td colspan="4" style="text-align: center; color: #f85149;">Cannot reach the node at ' + escapeHtml(NODE_URL) + '</td></tr>';
+        $('network-state').className = 'network down';
+        $('node-network').innerText = 'node unreachable';
+        $('blocks-tbody').innerHTML = '<tr><td colspan="4" class="loss">Cannot reach the node at ' + escapeHtml(NODE_URL) + '</td></tr>';
       }
     }
 
+    function redraw() {
+      if (!latest) return;
+      drawDag(latest.blocks, latest.stats.selected_tip);
+      drawTrends(latest.blocks);
+    }
+    window.addEventListener('resize', redraw);
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', redraw);
+
     // Difficulty as a line (log scale) over the time between blocks as bars
     function drawTrends(blocks) {
-      const canvas = $('trend-canvas');
-      const ctx = canvas.getContext('2d');
-      const w = canvas.width;
-      const h = canvas.height;
-      ctx.clearRect(0, 0, w, h);
+      const { ctx, w, h } = prepare($('trend-canvas'));
       const mined = blocks.filter((b) => b.parents.length).sort((a, b) => a.timestamp_ms - b.timestamp_ms || a.daa_score - b.daa_score);
       if (mined.length < 3) return;
       $('trend-range').innerText = 'last ' + mined.length + ' blocks';
 
-      const left = 8;
-      const right = w - 8;
-      const top = 10;
-      const bottom = h - 18;
+      const left = 2;
+      const right = w - 2;
+      const top = 14;
+      const bottom = h - 24;
       const x = (i) => left + (right - left) * (i / (mined.length - 1));
 
       // Bars: seconds since the previous block, capped so one long gap does not flatten the rest
       const gaps = mined.map((b, i) => (i === 0 ? 0 : (b.timestamp_ms - mined[i - 1].timestamp_ms) / 1000));
       const cap = 30;
       const barWidth = Math.max(1, (right - left) / mined.length - 1);
-      ctx.fillStyle = 'rgba(57, 211, 83, 0.55)';
+      ctx.fillStyle = colour('--rule-soft');
       gaps.forEach((gap, i) => {
         const height = (Math.min(gap, cap) / cap) * (bottom - top);
         ctx.fillRect(x(i) - barWidth / 2, bottom - height, barWidth, height);
       });
       const targetY = bottom - (5 / cap) * (bottom - top);
-      ctx.strokeStyle = 'rgba(57, 211, 83, 0.9)';
-      ctx.setLineDash([4, 4]);
+      ctx.strokeStyle = colour('--ink-soft');
+      ctx.setLineDash([3, 4]);
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(left, targetY);
@@ -578,8 +485,9 @@
       const low = Math.min(...logs);
       const high = Math.max(...logs);
       const span = high - low || 1;
-      ctx.strokeStyle = '#58a6ff';
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = colour('--ink');
+      ctx.lineWidth = 1.75;
+      ctx.lineJoin = 'round';
       ctx.beginPath();
       logs.forEach((value, i) => {
         const y = bottom - ((value - low) / span) * (bottom - top);
@@ -588,40 +496,36 @@
       });
       ctx.stroke();
 
-      ctx.fillStyle = '#8b949e';
-      ctx.font = '10px monospace';
+      ctx.fillStyle = colour('--ink-soft');
+      ctx.font = '11px "IBM Plex Mono", Consolas, monospace';
       ctx.textAlign = 'left';
-      ctx.fillText('difficulty ' + scaled(Math.pow(10, low), '') + ' to ' + scaled(Math.pow(10, high), ''), left, h - 4);
+      ctx.fillText('difficulty ' + scaled(Math.pow(10, low), '') + ' to ' + scaled(Math.pow(10, high), ''), left, h - 7);
       ctx.textAlign = 'right';
-      ctx.fillText('bars capped at ' + cap + ' s', right, h - 4);
+      ctx.fillText('bars capped at ' + cap + ' s', right, h - 7);
     }
 
     function renderRecentPayments(payments) {
       const box = $('recent-payments');
       if (!payments.length) {
-        box.innerHTML = '<span style="color: #8b949e;">No payments in the recent blocks.</span>';
+        box.innerHTML = '<div class="empty">No payments in the recent blocks.</div>';
         return;
       }
       box.innerHTML = '';
       for (const payment of payments) {
         const row = document.createElement('div');
-        row.style.cssText = 'display: flex; justify-content: space-between; gap: 10px; border-bottom: 1px solid #21262d; padding: 6px 0; cursor: pointer;';
+        row.className = 'payment';
         row.innerHTML =
           '<span class="hash">' + short(payment.tx_id) + '</span>' +
-          '<span><b>' + (payment.amount_atoms / 1e8) + ' IMN</b> <span style="color: #8b949e;">' + age(payment.timestamp_ms) + '</span></span>';
+          '<span><span class="mono">' + (payment.amount_atoms / 1e8) + ' IMN</span> <span class="soft">· ' + age(payment.timestamp_ms) + '</span></span>';
         row.addEventListener('click', () => showTransaction(payment.tx_id));
         box.appendChild(row);
       }
     }
 
-    // Draws the real block graph: one column per blue score, parallel blocks stacked in a column,
+    // Draws the real block graph: one column per height, parallel blocks stacked in a column,
     // a line from every block to each of its parents.
     function drawDag(blocks, sink) {
-      const canvas = $('dag-canvas');
-      const ctx = canvas.getContext('2d');
-      const w = canvas.width;
-      const h = canvas.height;
-      ctx.clearRect(0, 0, w, h);
+      const { ctx, w, h } = prepare($('dag-canvas'));
       if (!blocks.length) return;
 
       const byHash = new Map(blocks.map((b) => [b.hash, b]));
@@ -632,9 +536,11 @@
       }
 
       // The most recent columns that fit
-      const scores = [...new Set(blocks.map((b) => b.blue_score))].sort((a, b) => a - b).slice(-18);
+      const fit = Math.max(6, Math.floor(w / 44));
+      const scores = [...new Set(blocks.map((b) => b.blue_score))].sort((a, b) => a - b).slice(-fit);
       const columns = new Map(scores.map((score, i) => [score, i]));
       const spacing = w / (scores.length + 1);
+      const middle = (h - 22) / 2;
       const position = new Map();
       for (const score of scores) {
         const column = blocks.filter((b) => b.blue_score === score).sort((a, b) => {
@@ -644,10 +550,12 @@
         });
         column.forEach((block, lane) => {
           const offset = lane === 0 ? 0 : Math.ceil(lane / 2) * (lane % 2 ? -1 : 1);
-          position.set(block.hash, { x: (columns.get(score) + 1) * spacing, y: h / 2 + offset * 46 });
+          position.set(block.hash, { x: (columns.get(score) + 1) * spacing, y: middle + offset * 40 });
         });
       }
 
+      const ink = colour('--ink');
+      const paper = colour('--paper');
       // Edges first, so blocks are drawn over them
       for (const [hash, at] of position) {
         const block = byHash.get(hash);
@@ -655,8 +563,8 @@
           const to = position.get(parent);
           if (!to) continue;
           const chainEdge = onChain.has(hash) && parent === block.selected_parent;
-          ctx.strokeStyle = chainEdge ? '#238636' : 'rgba(139, 148, 158, 0.45)';
-          ctx.lineWidth = chainEdge ? 2.5 : 1;
+          ctx.strokeStyle = chainEdge ? ink : colour('--rule-soft');
+          ctx.lineWidth = chainEdge ? 1.75 : 1;
           ctx.beginPath();
           ctx.moveTo(at.x, at.y);
           ctx.lineTo(to.x, to.y);
@@ -666,22 +574,24 @@
 
       for (const [hash, at] of position) {
         const block = byHash.get(hash);
+        const chain = onChain.has(hash);
         ctx.beginPath();
-        ctx.arc(at.x, at.y, block.is_tip ? 8 : 6, 0, Math.PI * 2);
-        ctx.fillStyle = onChain.has(hash) ? '#39d353' : '#e3b341';
+        ctx.arc(at.x, at.y, 5.5, 0, Math.PI * 2);
+        ctx.fillStyle = block.is_tip ? colour('--accent') : chain ? ink : paper;
         ctx.fill();
-        if (block.is_tip) {
-          ctx.strokeStyle = '#58a6ff';
-          ctx.lineWidth = 3;
+        if (!chain && !block.is_tip) {
+          ctx.strokeStyle = colour('--parallel');
+          ctx.lineWidth = 2;
           ctx.stroke();
         }
       }
 
-      ctx.fillStyle = '#8b949e';
-      ctx.font = '10px monospace';
+      ctx.fillStyle = colour('--ink-soft');
+      ctx.font = '11px "IBM Plex Mono", Consolas, monospace';
       ctx.textAlign = 'center';
+      const every = Math.ceil(scores.length / Math.max(1, Math.floor(w / 90)));
       scores.forEach((score, i) => {
-        if (scores.length <= 12 || i % 2 === 0) ctx.fillText('#' + score, (i + 1) * spacing, h - 8);
+        if ((scores.length - 1 - i) % every === 0) ctx.fillText(grouped(score), (i + 1) * spacing, h - 7);
       });
     }
 
@@ -690,40 +600,60 @@
       tbody.innerHTML = '';
       for (const block of blocks.slice(0, 15)) {
         const row = document.createElement('tr');
-        row.style.cursor = 'pointer';
+        row.className = 'pick';
         row.innerHTML =
-          '<td><b style="color: #39d353;">' + block.blue_score + '</b></td>' +
-          '<td><span class="hash">' + short(block.hash) + '</span>' + (block.is_tip ? ' <span style="color: #58a6ff; font-size: 11px;">tip</span>' : '') + '</td>' +
-          '<td>' + block.parents.length + '</td>' +
-          '<td>' + (block.parents.length ? age(block.timestamp_ms) : 'genesis') + '</td>';
+          '<td class="mono">' + grouped(block.blue_score) + '</td>' +
+          '<td><span class="hash">' + short(block.hash) + '</span>' + (block.is_tip ? '<span class="tag">tip</span>' : '') + '</td>' +
+          '<td class="hide-narrow">' + block.parents.length + '</td>' +
+          '<td class="num soft">' + (block.parents.length ? age(block.timestamp_ms) : 'genesis') + '</td>';
         row.addEventListener('click', () => showBlock(block.hash));
         tbody.appendChild(row);
       }
     }
 
-    // ---------------------------------------------------------------- details window
+    // ---------------------------------------------------------------- detail sheet
     function openModal(title, html) {
       $('modal-title').innerText = title;
       $('modal-content').innerHTML = html;
-      $('search-results-overlay').style.display = 'flex';
+      $('sheet').style.display = 'flex';
+      // Hashes and addresses inside a sheet lead to their own sheets
+      $('modal-content').querySelectorAll('a[data-block]').forEach((link) => link.addEventListener('click', (event) => {
+        event.preventDefault();
+        showBlock(link.dataset.block);
+      }));
+      $('modal-content').querySelectorAll('a[data-tx]').forEach((link) => link.addEventListener('click', (event) => {
+        event.preventDefault();
+        showTransaction(link.dataset.tx);
+      }));
+      $('modal-content').querySelectorAll('a[data-address]').forEach((link) => link.addEventListener('click', (event) => {
+        event.preventDefault();
+        showAddress(link.dataset.address);
+      }));
     }
-    const line = (label, value) => '<div style="margin-bottom: 8px;"><b>' + label + ':</b> ' + value + '</div>';
-    const code = (text) => '<code>' + escapeHtml(text) + '</code>';
+    function closeModal() {
+      $('sheet').style.display = 'none';
+    }
+    const line = (label, value) => '<div class="row"><span class="label">' + label + '</span>' + value + '</div>';
+    const code = (text) => '<span class="mono">' + escapeHtml(text) + '</span>';
+    const blockLink = (hash) => '<a href="#" class="mono" data-block="' + escapeHtml(hash) + '">' + escapeHtml(hash) + '</a>';
+    const txLink = (id, text) => '<a href="#" class="mono" data-tx="' + escapeHtml(id) + '">' + escapeHtml(text || id) + '</a>';
+    const addressLink = (address) => '<a href="#" class="mono" data-address="' + escapeHtml(address) + '">' + escapeHtml(address) + '</a>';
 
     async function showBlock(hash) {
       try {
         const block = await getJson('/api/v1/block/' + encodeURIComponent(hash));
-        openModal('Block', [
+        // The first transaction is the miner's reward, which has no page of its own
+        const transactions = block.transaction_ids.map((id, i) => (i === 0 ? code(id) + ' <span class="soft">reward</span>' : txLink(id))).join('<br>');
+        openModal('Block ' + grouped(block.blue_score), [
           line('Hash', code(block.hash)),
-          line('Blue score', block.blue_score + ' &nbsp; <b>DAA score:</b> ' + block.daa_score),
-          line('Mined', block.parents.length ? escapeHtml(new Date(block.timestamp_ms).toLocaleString()) + ' (' + age(block.timestamp_ms) + ')' : 'genesis'),
-          block.miner_address ? line('Mined by', code(block.miner_address)) : '',
+          line('Mined', block.parents.length ? escapeHtml(new Date(block.timestamp_ms).toLocaleString()) + ' <span class="soft">· ' + age(block.timestamp_ms) + '</span>' : 'genesis'),
+          block.miner_address ? line('Mined by', addressLink(block.miner_address)) : '',
           line('Reward', block.reward_imn + ' IMN plus fees'),
-          line('Difficulty', scaled(block.difficulty, '') + ' (bits ' + escapeHtml(block.bits) + ') &nbsp; <b>Nonce:</b> ' + block.nonce),
+          line('Difficulty', scaled(block.difficulty, '') + ' <span class="soft mono">· bits ' + escapeHtml(block.bits) + ' · nonce ' + block.nonce + '</span>'),
           line('Size', grouped(block.size_bytes) + ' bytes'),
-          line('Parents', block.parents.map(code).join('<br>') || 'none'),
-          line('Merges', (block.mergeset_blues.length) + ' blue, ' + block.mergeset_reds.length + ' red'),
-          line('Transactions (' + block.transaction_ids.length + ', the first is the miner reward)', block.transaction_ids.map(code).join('<br>')),
+          line('Parents', block.parents.map(blockLink).join('<br>') || 'none'),
+          line('Merges', block.mergeset_blues.length + ' blue, ' + block.mergeset_reds.length + ' red'),
+          line('Transactions (' + block.transaction_ids.length + ')', transactions),
         ].join(''));
         return true;
       } catch {
@@ -741,27 +671,21 @@
         const kinds = { received: 'Received', sent: 'Sent', reward: 'Mining reward' };
         const historyRows = history.items.map((item) =>
           '<tr><td>' + kinds[item.kind] + '</td>'
-          + '<td style="text-align: right; color: ' + (item.net_atoms < 0 ? '#f85149' : '#39d353') + ';">' + (item.net_atoms > 0 ? '+' : '') + item.net_imn + ' IMN</td>'
-          + '<td>' + age(item.timestamp_ms) + '</td>'
-          + '<td>' + (item.kind === 'reward' ? '' : '<a href="#" data-tx="' + escapeHtml(item.tx_id) + '">' + short(item.tx_id) + '</a>') + '</td></tr>').join('');
+          + '<td class="mono ' + (item.net_atoms < 0 ? 'loss' : 'gain') + '">' + (item.net_atoms > 0 ? '+' : '') + item.net_imn + '</td>'
+          + '<td class="soft">' + age(item.timestamp_ms) + '</td>'
+          + '<td class="num">' + (item.kind === 'reward' ? '' : txLink(item.tx_id, short(item.tx_id))) + '</td></tr>').join('');
         const maturing = utxos.filter((u) => u.spendable === false).reduce((sum, u) => sum + u.value_atoms, 0);
         openModal('Address', [
           line('Address', code(balance.address)),
-          line('Balance', '<span style="color: #39d353; font-weight: bold; font-size: 18px;">' + balance.balance_imn + ' IMN</span>'),
+          line('Balance', '<span class="big">' + balance.balance_imn + ' IMN</span>'),
           maturing ? line('Of which mining rewards still maturing', (maturing / 1e8) + ' IMN') : '',
           line('Unspent coins', utxos.length),
           history.items.length
-            ? line('Latest activity' + (history.next ? ' (newest 25)' : ''), '<table style="width: 100%; margin-top: 6px; border-collapse: collapse;">' + historyRows + '</table>')
+            ? line('Latest activity' + (history.next ? ' (newest 25)' : ''), '<table>' + historyRows + '</table>')
             : '',
         ].join(''));
-        document.querySelectorAll('#modal-content a[data-tx]').forEach((link) => {
-          link.addEventListener('click', (event) => {
-            event.preventDefault();
-            showTransaction(link.dataset.tx);
-          });
-        });
       } catch {
-        openModal('Address', '<span style="color: #f85149;">That is not a valid address for this network.</span>');
+        openModal('Address', '<p class="loss">That is not a valid address for this network.</p>');
       }
     }
 
@@ -769,14 +693,18 @@
       try {
         const tx = await getJson('/api/v1/tx/' + encodeURIComponent(txId));
         if (tx.status === 'not_found') return false;
+        const outputs = tx.outputs.map((o) =>
+          '<tr><td>' + (o.address ? addressLink(o.address) : '<span class="soft">unknown script</span>') + '</td><td class="num mono">' + o.amount_imn + '</td></tr>').join('');
         openModal('Transaction', [
           line('ID', code(tx.tx_id)),
-          line('Status', tx.status === 'pending' ? 'Seen by the node, not yet in a block' : 'In a block, ' + tx.confirmations + ' confirmation' + (tx.confirmations === 1 ? '' : 's')),
-          tx.block_hash ? line('Block', code(tx.block_hash)) : '',
+          line('Status', tx.status === 'pending'
+            ? 'Seen by the node, not yet in a block'
+            : 'In a block, ' + tx.confirmations + ' confirmation' + (tx.confirmations === 1 ? '' : 's')),
+          line('Total sent', '<span class="big">' + tx.total_output_imn + ' IMN</span>'),
+          tx.block_hash ? line('Block', blockLink(tx.block_hash)) : '',
           tx.invoice_id ? line('Invoice', code(tx.invoice_id)) : '',
-          line('Outputs', tx.outputs.map((o) => (o.address ? code(o.address) : 'unknown script') + ' &nbsp; <b>' + o.amount_imn + ' IMN</b>').join('<br>')),
-          line('Total sent', tx.total_output_imn + ' IMN'),
-          tx.service_address ? line('Fee shared with node', code(tx.service_address)) : '',
+          line('Paid to', '<table>' + outputs + '</table>'),
+          tx.service_address ? line('Fee shared with node', addressLink(tx.service_address)) : '',
           line('Size', grouped(tx.size_bytes) + ' bytes'),
         ].join(''));
         return true;
@@ -788,15 +716,21 @@
     async function search() {
       const q = $('search-input').value.trim();
       if (!q) return;
-      if (q.startsWith('imn:') || q.startsWith('imntest:')) return showAddress(q.split('?')[0]);
+      if (/^imn(test)?:/i.test(q)) return showAddress(q.split('?')[0]);
       if (/^[0-9a-fA-F]{64}$/.test(q) && ((await showBlock(q.toLowerCase())) || (await showTransaction(q.toLowerCase())))) return;
-      openModal('Not found', 'No block, transaction or address matches <code>' + escapeHtml(q) + '</code>. A node that prunes old data no longer has transactions older than 36 hours.');
+      openModal('Not found', '<p>No block, transaction or address matches ' + code(q) + '.</p><p class="soft">A node that prunes old data no longer has transactions older than 36 hours.</p>');
     }
     $('search-btn').addEventListener('click', search);
     $('search-input').addEventListener('keydown', (event) => {
       if (event.key === 'Enter') search();
     });
-    $('modal-close').addEventListener('click', () => ($('search-results-overlay').style.display = 'none'));
+    $('modal-close').addEventListener('click', closeModal);
+    $('sheet').addEventListener('click', (event) => {
+      if (event.target === $('sheet')) closeModal();
+    });
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') closeModal();
+    });
 
     fetchNodeData();
     setInterval(fetchNodeData, 2000);
