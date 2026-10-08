@@ -17,6 +17,28 @@ PUBLIC = os.path.join(OUT, "public")
 # The node the website's explorer and wallet read from. Its API port is open to Cloudflare only.
 UPSTREAM = "http://seed1.internetmoneynetwork.org:18556"
 
+# The pool, whose status page appears on the website under /pool
+POOL_UPSTREAM = "http://pool.internetmoneynetwork.org:18558"
+
+POOL_FUNCTION = """// Passes the pool page's data requests (/pool/api/...) to the pool's own status server.
+const UPSTREAM = '%s';
+
+export async function onRequest({ request }) {
+  const url = new URL(request.url);
+  if (request.method !== 'GET' || !url.pathname.startsWith('/pool/api/')) {
+    return new Response('Not found', { status: 404 });
+  }
+  try {
+    return await fetch(UPSTREAM + url.pathname.slice('/pool'.length), { headers: { Accept: 'application/json' } });
+  } catch (error) {
+    return new Response(JSON.stringify({ error: 'The pool is not reachable right now' }), {
+      status: 502,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+}
+""" % POOL_UPSTREAM
+
 FUNCTION = """// Passes the website's /api requests to a public Internet Money node, so the explorer and
 // wallet pages work over HTTPS from the same origin. Read-only calls and signed payments
 // only: adding blocks is refused here.
@@ -56,11 +78,17 @@ def main():
     for name in ("imoney_wasm.js", "imoney_wasm_bg.wasm"):
         copy(os.path.join("apps", "imoney-wallet", "pkg", name), os.path.join("wallet", "pkg", name))
     copy(os.path.join("packages", "imoney-sdk", "dist", "imoney.js"), os.path.join("wallet", "sdk.js"))
+    copy(os.path.join("apps", "imoney-pool", "index.html"), os.path.join("pool", "index.html"))
 
     functions = os.path.join(OUT, "functions", "api")
     os.makedirs(functions, exist_ok=True)
     with open(os.path.join(functions, "[[path]].js"), "w", encoding="utf-8", newline="\n") as f:
         f.write(FUNCTION)
+    pool_functions = os.path.join(OUT, "functions", "pool", "api")
+    os.makedirs(pool_functions, exist_ok=True)
+    with open(os.path.join(pool_functions, "[[path]].js"), "w", encoding="utf-8", newline="
+") as f:
+        f.write(POOL_FUNCTION)
     print("built", OUT)
 
 

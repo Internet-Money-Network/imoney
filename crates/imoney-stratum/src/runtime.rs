@@ -38,6 +38,8 @@ pub struct PoolRuntime {
     state_path: PathBuf,
     fee_basis_points: u64,
     min_payout_atoms: u64,
+    /// Where miners connect, when the operator has said.
+    public_address: Option<String>,
     accounting: Mutex<Accounting>,
     pub live: Mutex<Live>,
     started: Instant,
@@ -63,6 +65,7 @@ fn load_or_create_key(path: &PathBuf) -> Result<SigningKey, String> {
 }
 
 impl PoolRuntime {
+    #[allow(clippy::too_many_arguments)]
     pub fn open(
         node: &str,
         key_path: PathBuf,
@@ -70,6 +73,7 @@ impl PoolRuntime {
         fee_percent: f64,
         min_payout_imn: f64,
         mainnet: bool,
+        public_address: Option<String>,
     ) -> Result<Self, String> {
         let key = load_or_create_key(&key_path)?;
         let network = if mainnet { Network::Mainnet } else { Network::Testnet };
@@ -87,6 +91,7 @@ impl PoolRuntime {
             state_path,
             fee_basis_points,
             min_payout_atoms: (min_payout_imn * imoney_core::constants::ATOMS_PER_IMN as f64) as u64,
+            public_address,
             accounting: Mutex::new(Accounting::new(state, fee_basis_points)),
             live: Mutex::new(Live::default()),
             started: Instant::now(),
@@ -265,6 +270,7 @@ impl PoolRuntime {
         let state = &accounting.state;
         json!({
             "pool_address": self.address,
+            "stratum_address": self.public_address,
             "fee_percent": self.fee_percent(),
             "min_payout_atoms": self.min_payout_atoms,
             "miners": live.miners,

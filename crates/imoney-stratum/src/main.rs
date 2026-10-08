@@ -97,6 +97,11 @@ struct Args {
     /// Address and port of the pool's status page
     #[arg(long, default_value = "0.0.0.0:18558")]
     status_bind: String,
+
+    /// The host and port miners should connect to, shown on the status page
+    /// (for example pool.example.org:18557). Default: the page's own host, port 18557.
+    #[arg(long)]
+    public_address: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -540,6 +545,7 @@ fn main() {
             args.fee_percent,
             args.min_payout,
             mainnet,
+            args.public_address.clone(),
         );
         let pool = match opened {
             Ok(pool) => Arc::new(pool),

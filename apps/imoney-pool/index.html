@@ -138,11 +138,14 @@
       while (hps >= 1000 && i < steps.length - 1) { hps /= 1000; i += 1; }
       return hps.toFixed(hps >= 100 || i === 0 ? 0 : 2) + ' ' + steps[i] + 'H/s';
     }
-    $('connect').innerText = 'imoney-gpu-miner --stratum ' + location.hostname + ':18557 --address YOUR_ADDRESS';
+    const connectLine = (host) => 'imoney-gpu-miner --stratum ' + host + ' --address YOUR_ADDRESS';
+    $('connect').innerText = connectLine(location.hostname + ':18557');
 
     async function refresh() {
       try {
-        const s = await (await fetch('/api/stats')).json();
+        // Relative, so the page works at the pool's own address and under a path on a website
+        const s = await (await fetch('api/stats')).json();
+        if (s.stratum_address) $('connect').innerText = connectLine(s.stratum_address);
         $('fee-badge').innerText = 'fee ' + s.fee_percent + '%';
         $('hashrate').innerText = rate(s.hashrate_hps);
         $('miners').innerText = s.miners;
@@ -162,7 +165,7 @@
       const address = $('address').value.trim();
       if (!address) return;
       try {
-        const res = await fetch('/api/miner/' + encodeURIComponent(address));
+        const res = await fetch('api/miner/' + encodeURIComponent(address));
         if (!res.ok) throw new Error();
         const m = await res.json();
         $('m-hashrate').innerText = rate(m.hashrate_hps);
