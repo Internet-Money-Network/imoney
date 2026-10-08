@@ -17,7 +17,7 @@ This covers the test network. There is no main network yet.
 cargo build --release
 
 # A node that follows the network
-./target/release/imoney-node --peers seed.internetmoneynetwork.org:18555
+./target/release/imoney-node --peers seed.internetmoneynetwork.org:18555,seed1.internetmoneynetwork.org:18555,seed2.internetmoneynetwork.org:18555,seed3.internetmoneynetwork.org:18555
 
 # The wallet and dashboard are then at http://127.0.0.1:18556
 ```

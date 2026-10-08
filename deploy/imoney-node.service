@@ -14,7 +14,7 @@ ExecStart=/usr/local/bin/imoney-node \
     --data-dir /var/lib/imoney \
     --p2p-bind 0.0.0.0:18555 \
     --rpc-bind 127.0.0.1:18556 \
-    --peers seed.internetmoneynetwork.org:18555
+    --peers seed.internetmoneynetwork.org:18555,seed1.internetmoneynetwork.org:18555,seed2.internetmoneynetwork.org:18555,seed3.internetmoneynetwork.org:18555
 Restart=on-failure
 RestartSec=5
 # The node saves its peer list on SIGINT

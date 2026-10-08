@@ -5,7 +5,7 @@ services:
     build: ..
     restart: unless-stopped
     # List the other seeds here so the seeds stay connected to each other
-    command: ["--peers", "seed.internetmoneynetwork.org:18555"]
+    command: ["--peers", "seed.internetmoneynetwork.org:18555,seed1.internetmoneynetwork.org:18555,seed2.internetmoneynetwork.org:18555,seed3.internetmoneynetwork.org:18555"]
     volumes:
       - imoney-data:/data
     ports:
