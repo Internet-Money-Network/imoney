@@ -18,7 +18,7 @@ PUBLIC = os.path.join(OUT, "public")
 UPSTREAM = "http://seed1.internetmoneynetwork.org:18556"
 
 # The pool, whose status page appears on the website under /pool
-POOL_UPSTREAM = "http://seed.internetmoneynetwork.org:18558"
+POOL_UPSTREAM = "http://pool.internetmoneynetwork.org:18558"
 
 POOL_FUNCTION = """// Passes the pool page's data requests (/pool/api/...) to the pool's own status server.
 const UPSTREAM = '%s';
