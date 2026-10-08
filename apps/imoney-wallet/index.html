@@ -3,282 +3,218 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Internet Money (IMN) Wallet</title>
+  <title>Internet Money Wallet</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
+    /* Banknote, as in the explorer: engraver's green on note paper, a band across the head,
+       wave-line borders, a monospace for anything copied or compared. */
     :root {
-      --bg: #090d13;
-      --card-bg: #161b22;
-      --border: #30363d;
-      --text: #c9d1d9;
-      --text-bright: #f0f6fc;
-      --accent-green: #39d353;
-      --accent-blue: #58a6ff;
+      --paper: #eef0e6;
+      --paper-raised: #e3e8d7;
+      --ink: #0f2e23;
+      --ink-soft: #3d6652;
+      --rule: #0f2e23;
+      --rule-soft: #a9b89a;
+      --accent: #0b7a4b;
+      --warn: #94580a;
+      --negative: #9b2c1f;
+      --band: #0f2e23;
+      --band-ink: #eef0e6;
+      --band-soft: #b9c9a4;
+      --wave: #1f5a43;
+      --wave-bed: #dfe5d2;
+      --serif: "Fraunces", "Iowan Old Style", Georgia, serif;
+      --mono: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
     }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --paper: #0b1f18;
+        --paper-raised: #12291f;
+        --ink: #e9eddc;
+        --ink-soft: #9db39a;
+        --rule: #e9eddc;
+        --rule-soft: #2c4a3b;
+        --accent: #6fe0a6;
+        --warn: #e8b04a;
+        --negative: #ff8a7a;
+        --band: #06140f;
+        --band-ink: #e9eddc;
+        --band-soft: #9db39a;
+        --wave: #3f7a5f;
+        --wave-bed: #0e261d;
+      }
+    }
+
     * { box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      margin: 0;
-      padding: 0;
-      display: flex;
-      justify-content: center;
-      min-height: 100vh;
+    body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--serif); font-size: 15px; line-height: 1.5; }
+    a { color: inherit; text-underline-offset: 3px; }
+    .soft { color: var(--ink-soft); }
+    .small { font-size: 13px; }
+    .label, label {
+      display: block; font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;
+      color: var(--ink-soft); margin-bottom: 6px;
     }
-    .wallet-container {
-      max-width: 620px;
-      width: 100%;
-      margin: 30px 16px;
-    }
-    header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 24px;
-    }
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-    .brand svg {
-      width: 38px;
-      height: 38px;
-    }
-    .brand h1 {
-      margin: 0;
-      font-size: 22px;
-      color: var(--text-bright);
-    }
-    .badge {
-      background: #238636;
-      color: white;
-      font-size: 11px;
-      font-weight: bold;
-      padding: 3px 8px;
-      border-radius: 4px;
-    }
-    .card {
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 24px;
-      margin-bottom: 20px;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.4);
-    }
-    .balance-box {
-      text-align: center;
-      padding: 16px 0;
-    }
-    .balance-label {
-      font-size: 13px;
-      color: #8b949e;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-    .balance-val {
-      font-size: 38px;
-      font-weight: 800;
-      color: var(--accent-green);
-      margin: 8px 0;
-      font-family: monospace;
-    }
-    .tabs {
-      display: flex;
-      gap: 10px;
-      margin-bottom: 20px;
-      border-bottom: 1px solid var(--border);
-      padding-bottom: 12px;
-    }
+
+    .band { background: var(--band); color: var(--band-ink); }
+    .masthead { max-width: 620px; margin: 0 auto; padding: 16px 18px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .brand svg { width: 30px; height: 30px; flex: none; }
+    .brand h1 { margin: 0; font-weight: 400; font-size: 24px; line-height: 1; letter-spacing: 0.01em; }
+    .brand h1 em { color: var(--band-soft); }
+    .badge { font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em; color: var(--band-soft); border: 1px solid var(--band-soft); padding: 4px 10px; }
+    .guilloche { display: block; color: var(--wave); background: var(--wave-bed); }
+
+    .wallet-container { max-width: 620px; margin: 0 auto; padding: 0 18px 56px; }
+
+    /* Node status: one quiet line and three figures */
+    .node { padding: 14px 0 0; }
+    .node-line { display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 13px; }
+    .node-line span:first-child { display: flex; align-items: center; gap: 8px; }
+    #node-status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-soft); display: inline-block; }
+    .node-figures { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--rule-soft); border-bottom: 1px solid var(--rule-soft); margin-top: 12px; }
+    .node-figures div { padding: 10px 14px; border-left: 1px solid var(--rule-soft); }
+    .node-figures div:first-child { border-left: 0; padding-left: 0; }
+    .node-figures b { font-family: var(--mono); font-weight: 500; font-size: 15px; }
+
+    .card { margin-top: 26px; }
+    h2 { font-weight: 600; font-size: 22px; line-height: 1.15; margin: 0 0 8px; }
+
+    /* The balance, set like the face of a note */
+    .note { border: 2px solid var(--rule); padding: 4px; margin-top: 26px; }
+    .note-inner { border: 1px solid var(--rule); text-align: center; padding: 20px 16px 16px; }
+    .balance-val { font-weight: 600; font-size: clamp(36px, 9vw, 54px); line-height: 1.1; margin: 6px 0 4px; }
+    .note .guilloche { margin: 12px auto 10px; max-width: 220px; background: none; }
+
+    .tabs { display: flex; gap: 22px; border-bottom: 2px solid var(--rule); margin-bottom: 20px; }
     .tab-btn {
-      background: none;
-      border: none;
-      color: #8b949e;
-      font-size: 15px;
-      font-weight: 600;
-      cursor: pointer;
-      padding: 6px 12px;
-      border-radius: 6px;
+      background: none; border: 0; border-bottom: 3px solid transparent; margin-bottom: -2px; padding: 8px 0; cursor: pointer;
+      font-family: var(--mono); font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-soft);
     }
-    .tab-btn.active {
-      color: var(--text-bright);
-      background: #21262d;
-    }
-    .tab-content {
-      display: none;
-    }
-    .tab-content.active {
-      display: block;
-    }
-    .form-group {
-      margin-bottom: 16px;
-    }
-    label {
-      display: block;
-      font-size: 12px;
-      color: #8b949e;
-      margin-bottom: 6px;
-    }
+    .tab-btn:hover { color: var(--ink); }
+    .tab-btn.active { color: var(--ink); border-bottom-color: var(--accent); }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    .form-group { margin-bottom: 16px; }
+    .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
     input {
-      width: 100%;
-      background: #0d1117;
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 10px 14px;
-      color: var(--text-bright);
-      font-size: 14px;
-      font-family: monospace;
+      width: 100%; background: var(--paper-raised); border: 1px solid var(--rule-soft); border-radius: 0; padding: 11px 12px;
+      color: var(--ink); font-family: var(--mono); font-size: 14px;
     }
-    input:focus {
-      outline: none;
-      border-color: var(--accent-blue);
-    }
+    input::placeholder { color: var(--ink-soft); opacity: 0.7; }
+    input:focus { outline: none; border-color: var(--rule); }
+
     .btn {
-      width: 100%;
-      background: #238636;
-      color: white;
-      border: none;
-      border-radius: 6px;
-      padding: 12px;
-      font-size: 15px;
-      font-weight: bold;
-      cursor: pointer;
-      transition: background 0.2s;
+      width: 100%; background: var(--ink); color: var(--paper); border: 1px solid var(--ink); border-radius: 0; padding: 13px;
+      font-family: var(--mono); font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; cursor: pointer;
     }
-    .btn:hover {
-      background: #2ea043;
-    }
+    .btn:hover { background: var(--accent); border-color: var(--accent); }
+    .btn.quiet { background: none; color: var(--ink); }
+    .btn.quiet:hover { background: var(--paper-raised); border-color: var(--ink); }
+    .btn.danger { background: none; color: var(--negative); border-color: var(--negative); }
+    .btn.danger:hover { background: var(--negative); color: var(--paper); }
+
     .address-card {
-      background: #0d1117;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 14px;
-      font-family: monospace;
-      font-size: 12px;
-      word-break: break-all;
-      color: var(--accent-blue);
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 10px;
+      background: var(--paper-raised); border: 1px solid var(--rule-soft); padding: 12px; font-family: var(--mono); font-size: 13px;
+      word-break: break-all; display: flex; justify-content: space-between; align-items: center; gap: 12px;
     }
     .copy-btn {
-      background: #21262d;
-      border: 1px solid var(--border);
-      color: var(--text);
-      border-radius: 4px;
-      padding: 4px 8px;
-      font-size: 11px;
-      cursor: pointer;
-      white-space: nowrap;
+      background: none; border: 1px solid var(--rule); color: var(--ink); padding: 5px 10px; cursor: pointer; white-space: nowrap;
+      font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
     }
-    .qr-container {
-      text-align: center;
-      margin: 20px 0;
-    }
-    .qr-img {
-      background: white;
-      padding: 12px;
-      border-radius: 8px;
-      display: inline-block;
-    }
-    .status-msg {
-      margin-top: 14px;
-      padding: 10px;
-      border-radius: 6px;
-      font-size: 13px;
-      display: none;
-    }
+    .copy-btn:hover { background: var(--ink); color: var(--paper); }
+    .qr-container { text-align: center; margin: 22px 0 12px; }
+    .qr-img { background: #ffffff; padding: 8px; display: inline-block; width: 200px; height: 200px; border: 1px solid var(--rule); }
+    .status-msg { margin-top: 14px; padding: 10px 12px; font-size: 14px; display: none; border: 1px solid currentColor; }
+    .divide { border-top: 1px solid var(--rule-soft); margin-top: 22px; padding-top: 18px; }
+    footer { margin-top: 14px; font-size: 12.5px; color: var(--ink-soft); display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    @media (max-width: 480px) { .pair { grid-template-columns: 1fr; } .tabs { gap: 4px 14px; flex-wrap: wrap; } .brand h1 { font-size: 20px; } }
   </style>
 </head>
 <body>
 
-  <div class="wallet-container">
-    <header>
+  <div class="band">
+    <header class="masthead">
       <div class="brand">
-        <svg viewBox="0 0 512 512">
+        <svg viewBox="0 0 512 512" aria-hidden="true">
           <rect width="512" height="512" rx="128" fill="#15181e"/>
           <rect x="116" y="128" width="56" height="256" rx="12" fill="#ffffff"/>
           <path d="M 212 384 L 212 232 L 272 128 L 328 128 L 268 232 L 268 384 Z" fill="#ffffff"/>
           <path d="M 340 384 L 340 232 L 400 128 L 456 128 L 396 232 L 396 384 Z" fill="#ffffff"/>
           <circle cx="144" cy="100" r="16" fill="#00e575"/>
         </svg>
-
-        <div>
-          <h1>Internet Money Wallet</h1>
-          <div style="font-size: 12px; color: #8b949e;">Keys stay in this browser • transactions are signed here</div>
-        </div>
+        <h1>Internet Money <em>Wallet</em></h1>
       </div>
       <span class="badge">TESTNET</span>
     </header>
+  </div>
+  <svg class="guilloche" height="14" width="100%" aria-hidden="true">
+    <defs>
+      <pattern id="guilloche-wave" width="34" height="14" patternUnits="userSpaceOnUse">
+        <path d="M0 7 Q8.5 -3 17 7 T34 7" fill="none" stroke="currentColor" stroke-width="1"/>
+        <path d="M0 7 Q8.5 17 17 7 T34 7" fill="none" stroke="currentColor" stroke-width="1"/>
+      </pattern>
+    </defs>
+    <rect width="100%" height="14" fill="url(#guilloche-wave)"/>
+  </svg>
 
-    <!-- Live Node Daemon & BlockDAG Status Card -->
-    <div class="card" style="background: #11161d; border-color: #21262d; padding: 16px 20px;">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <span id="node-status-dot" style="width: 10px; height: 10px; border-radius: 50%; background: #8b949e; display: inline-block;"></span>
-          <span style="font-size: 13px; font-weight: bold; color: var(--text-bright);" id="node-status-text">Connecting to node...</span>
-        </div>
-        <div style="font-size: 12px; color: #8b949e;">GHOSTDAG • 5s Blocks</div>
+  <div class="wallet-container">
+    <!-- The node this wallet talks to -->
+    <div class="node">
+      <div class="node-line">
+        <span><span id="node-status-dot"></span><span id="node-status-text">Connecting to node...</span></span>
+        <span class="soft">Keys stay in this browser</span>
       </div>
-      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; text-align: center; border-top: 1px solid #21262d; padding-top: 12px;">
-        <div>
-          <div style="font-size: 11px; color: #8b949e; text-transform: uppercase;">DAG Blue Score</div>
-          <div style="font-size: 17px; font-weight: bold; color: var(--accent-blue);" id="node-blue-score">--</div>
-        </div>
-        <div>
-          <div style="font-size: 11px; color: #8b949e; text-transform: uppercase;">Total DAG Blocks</div>
-          <div style="font-size: 17px; font-weight: bold; color: var(--text-bright);" id="node-total-blocks">--</div>
-        </div>
-        <div>
-          <div style="font-size: 11px; color: #8b949e; text-transform: uppercase;">Connected Peers</div>
-          <div style="font-size: 17px; font-weight: bold; color: var(--accent-green);" id="node-peers">--</div>
-        </div>
+      <div class="node-figures">
+        <div><span class="label">Height</span><b id="node-blue-score">--</b></div>
+        <div><span class="label">Blocks</span><b id="node-total-blocks">--</b></div>
+        <div><span class="label">Peers</span><b id="node-peers">--</b></div>
       </div>
-      <div id="network-alert" class="status-msg" style="background: #3d2e12; color: #e3b341;">
+      <div id="network-alert" class="status-msg" style="color: var(--warn);">
         The network is unsettled right now. Wait longer than usual before treating a payment as final.
       </div>
     </div>
 
     <!-- First run: create or restore a wallet -->
     <div class="card" id="setup-card" style="display: none;">
-      <h2 style="margin: 0 0 8px; font-size: 18px; color: var(--text-bright);">Set up your wallet</h2>
-      <p style="font-size: 13px; color: #8b949e; margin: 0 0 16px;">
+      <h2>Set up your wallet</h2>
+      <p class="soft" style="margin: 0 0 16px;">
         Your keys are created and kept in this browser. Nothing secret is sent to the node.
       </p>
       <button class="btn" id="create-wallet-btn">Create a new wallet</button>
 
-      <div id="new-phrase-box" style="display: none; margin-top: 16px;">
+      <div id="new-phrase-box" style="display: none; margin-top: 18px;">
         <label>Your recovery phrase. Write these 12 words down, in order:</label>
         <div class="address-card" style="font-size: 15px; line-height: 1.7;"><span id="new-phrase"></span></div>
-        <p style="font-size: 12px; color: #e3b341; margin: 8px 0 12px;">
+        <p class="small" style="color: var(--warn); margin: 8px 0 12px;">
           Anyone with these words can spend your money, and without them a lost browser means lost money.
           This is the only time they are shown.
         </p>
-        <button class="btn" id="confirm-phrase-btn" style="background: #1f6feb;">I have written it down</button>
+        <button class="btn" id="confirm-phrase-btn">I have written it down</button>
       </div>
 
-      <div style="border-top: 1px solid var(--border); margin-top: 20px; padding-top: 16px;">
+      <div class="divide">
         <div class="form-group">
           <label for="restore-phrase">Or restore from a recovery phrase:</label>
           <input type="text" id="restore-phrase" autocomplete="off" spellcheck="false" placeholder="twelve words separated by spaces" />
         </div>
-        <button class="btn" id="restore-wallet-btn" style="background: #21262d; border: 1px solid var(--border);">Restore wallet</button>
+        <button class="btn quiet" id="restore-wallet-btn">Restore wallet</button>
       </div>
       <div id="setup-status" class="status-msg"></div>
     </div>
 
     <div id="wallet-main" style="display: none;">
-      <!-- Main Balance Card -->
-      <div class="card">
-        <div class="balance-box">
-          <div class="balance-label">Spendable Balance</div>
+      <div class="note">
+        <div class="note-inner">
+          <div class="label" style="margin: 0;">Spendable balance</div>
           <div class="balance-val" id="wallet-balance">0 IMN</div>
-          <div style="font-size: 12px; color: #8b949e;" id="wallet-atoms">&nbsp;</div>
+          <svg class="guilloche" height="14" width="100%" aria-hidden="true"><rect width="100%" height="14" fill="url(#guilloche-wave)"/></svg>
+          <div class="small soft" id="wallet-atoms">&nbsp;</div>
         </div>
       </div>
 
-      <!-- Actions Container -->
       <div class="card">
         <div class="tabs">
           <button class="tab-btn active" data-tab="receive">Receive</button>
@@ -289,46 +225,46 @@
 
         <!-- Tab: Receive -->
         <div id="tab-receive" class="tab-content active">
-          <label>Your receiving address:</label>
+          <label>Your receiving address</label>
           <div class="address-card">
             <span id="current-address">…</span>
             <button class="copy-btn" id="copy-addr-btn">Copy</button>
           </div>
 
-          <div class="form-group" style="margin-top: 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+          <div class="form-group pair" style="margin-top: 16px;">
             <div>
-              <label for="request-amount">Request an amount (optional):</label>
+              <label for="request-amount">Request an amount (optional)</label>
               <input type="text" inputmode="decimal" id="request-amount" placeholder="0.00" />
             </div>
             <div>
-              <label for="request-invoice">Invoice number (optional):</label>
+              <label for="request-invoice">Invoice number (optional)</label>
               <input type="text" id="request-invoice" placeholder="INV-1042" maxlength="64" />
             </div>
           </div>
 
           <div class="qr-container">
-            <div class="qr-img" id="qr-code" style="width: 200px; height: 200px; background: white; padding: 8px; box-sizing: border-box;"></div>
+            <div class="qr-img" id="qr-code"></div>
           </div>
-          <p style="text-align: center; font-size: 12px; color: #8b949e; margin: 0; word-break: break-all;" id="request-uri"></p>
+          <p class="small soft" style="text-align: center; margin: 0; word-break: break-all; font-family: var(--mono);" id="request-uri"></p>
         </div>
 
         <!-- Tab: Send -->
         <div id="tab-send" class="tab-content">
           <div class="form-group">
-            <label for="send-recipient">Recipient address, or a pasted payment request:</label>
+            <label for="send-recipient">Recipient address, or a pasted payment request</label>
             <input type="text" id="send-recipient" placeholder="imntest:q..." autocomplete="off" spellcheck="false" />
           </div>
-          <div class="form-group" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+          <div class="form-group pair">
             <div>
-              <label for="send-amount">Amount (IMN):</label>
+              <label for="send-amount">Amount (IMN)</label>
               <input type="text" inputmode="decimal" id="send-amount" placeholder="0.00" />
             </div>
             <div>
-              <label for="send-invoice">Invoice number (if the shop gave one):</label>
+              <label for="send-invoice">Invoice number (if the shop gave one)</label>
               <input type="text" id="send-invoice" placeholder="optional" maxlength="64" />
             </div>
           </div>
-          <p style="font-size: 12px; color: #8b949e; margin: 0 0 12px;">The network fee is set from the size of the payment, usually about 0.00006 IMN.</p>
+          <p class="small soft" style="margin: 0 0 14px;">The network fee is set from the size of the payment, usually about 0.00006 IMN.</p>
           <button class="btn" id="send-btn">Sign &amp; send</button>
           <div id="send-status" class="status-msg"></div>
         </div>
@@ -336,38 +272,42 @@
         <!-- Tab: History -->
         <div id="tab-history" class="tab-content">
           <div id="history-list"></div>
-          <button class="btn" id="history-more-btn" style="display: none; background: #21262d; border: 1px solid var(--border); margin-top: 12px;">Show older</button>
+          <button class="btn quiet" id="history-more-btn" style="display: none; margin-top: 14px;">Show older</button>
         </div>
 
         <!-- Tab: Settings -->
         <div id="tab-settings" class="tab-content">
           <div class="form-group">
-            <label for="node-endpoint">Node to use:</label>
+            <label for="node-endpoint">Node to use</label>
             <input type="text" id="node-endpoint" value="http://127.0.0.1:18556" />
           </div>
-          <button class="btn" id="reconnect-btn" style="background: #21262d; border: 1px solid var(--border); margin-bottom: 16px;">
-            Reconnect &amp; refresh
-          </button>
+          <button class="btn quiet" id="reconnect-btn">Reconnect &amp; refresh</button>
 
-          <div style="border-top: 1px solid var(--border); padding-top: 16px; margin-bottom: 16px;">
-            <label>Tidy up small coins:</label>
-            <p style="font-size: 12px; color: #8b949e; margin: 0 0 10px;">
+          <div class="divide">
+            <label>Tidy up small coins</label>
+            <p class="small soft" style="margin: 0 0 12px;">
               You hold <span id="coin-count">0</span> spendable coins. Merging them into one keeps future payments small.
             </p>
-            <button class="btn" id="consolidate-btn" style="background: #21262d; border: 1px solid var(--border);">Merge coins</button>
+            <button class="btn quiet" id="consolidate-btn">Merge coins</button>
             <div id="consolidate-status" class="status-msg"></div>
           </div>
 
-          <div style="border-top: 1px solid var(--border); padding-top: 16px;">
-            <label>Remove this wallet from this browser:</label>
-            <p style="font-size: 12px; color: #8b949e; margin: 0 0 10px;">
+          <div class="divide">
+            <label>Remove this wallet from this browser</label>
+            <p class="small soft" style="margin: 0 0 12px;">
               You will need your recovery phrase to get it back.
             </p>
-            <button class="btn" id="forget-btn" style="background: #3e1b1e; color: #f85149;">Forget wallet</button>
+            <button class="btn danger" id="forget-btn">Forget wallet</button>
           </div>
         </div>
       </div>
     </div>
+
+    <svg class="guilloche" height="14" width="100%" aria-hidden="true" style="margin-top: 48px;"><rect width="100%" height="14" fill="url(#guilloche-wave)"/></svg>
+    <footer>
+      <span>Transactions are signed here; the node only receives signed payments.</span>
+      <a href="./explorer">Explorer</a>
+    </footer>
   </div>
 
   <script type="module">
@@ -401,8 +341,7 @@
 
     function show(el, text, ok) {
       el.style.display = 'block';
-      el.style.background = ok ? '#162b1b' : '#3e1b1e';
-      el.style.color = ok ? '#39d353' : '#f85149';
+      el.style.color = ok ? 'var(--accent)' : 'var(--negative)';
       el.innerText = text;
     }
 
@@ -526,13 +465,13 @@
 
     function historyRow(item) {
       const row = document.createElement('div');
-      row.style.cssText = 'display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13px;';
+      row.style.cssText = 'display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--rule-soft); font-size: 14px;';
       const what = document.createElement('div');
       const label = { received: 'Received', sent: 'Sent', reward: 'Mining reward' }[item.kind];
       const when = new Date(item.timestamp_ms).toLocaleString();
       what.innerText = `${label} · ${when} · ${item.confirmations} confirmation${item.confirmations === 1 ? '' : 's'}`;
       const amount = document.createElement('div');
-      amount.style.cssText = `font-weight: bold; white-space: nowrap; color: ${item.net_atoms < 0 ? '#f85149' : '#39d353'};`;
+      amount.style.cssText = `font-family: var(--mono); white-space: nowrap; color: ${item.net_atoms < 0 ? 'var(--negative)' : 'var(--accent)'};`;
       amount.innerText = `${item.net_atoms > 0 ? '+' : '-'}${formatImn(Math.abs(item.net_atoms))} IMN`;
       row.append(what, amount);
       return row;
@@ -562,7 +501,7 @@
       try {
         const info = await (await fetch(`${nodeUrl()}/api/v1/info`)).json();
         serviceAddress = info.service_address || null;
-        $('node-status-dot').style.background = '#39d353';
+        $('node-status-dot').style.background = 'var(--accent)';
         $('node-status-text').innerText = 'Node online';
         $('node-blue-score').innerText = info.virtual_blue_score;
         $('node-total-blocks').innerText = info.total_blocks;
@@ -570,7 +509,7 @@
         const peers = await (await fetch(`${nodeUrl()}/api/v1/peers`)).json();
         $('node-peers').innerText = peers.total_connected;
       } catch {
-        $('node-status-dot').style.background = '#f85149';
+        $('node-status-dot').style.background = 'var(--negative)';
         $('node-status-text').innerText = 'Node unreachable';
       }
     }

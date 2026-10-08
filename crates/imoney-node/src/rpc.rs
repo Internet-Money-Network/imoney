@@ -439,70 +439,11 @@ async fn wallet_sdk_handler() -> impl IntoResponse {
 
 
 
-async fn dashboard_handler(State(state): State<Arc<AppState>>) -> Html<String> {
-    let info = state.ledger.read().await.get_info();
-    let mining_addr_display = info.mining_address.unwrap_or_else(|| "None (Solo PoW)".to_string());
-    
-    let html = format!(
-        r#"<!DOCTYPE html>
-<html>
-<head>
-    <title>Internet Money (IMN) Testnet Node</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>
-        body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0d1117; color: #c9d1d9; padding: 2rem; margin: 0; }}
-        .card {{ background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 1.5rem; max-width: 850px; margin: 0 auto; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }}
-        h1 {{ color: #58a6ff; margin-top: 0; font-size: 1.8rem; }}
-        .badge {{ background: #238636; color: white; padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.85rem; font-weight: bold; margin-left: 0.5rem; }}
-        .row {{ display: flex; justify-content: space-between; padding: 0.75rem 0; border-bottom: 1px solid #21262d; }}
-        .row:last-child {{ border-bottom: none; }}
-        .hash {{ font-family: monospace; color: #79c0ff; word-break: break-all; }}
-        .api-box {{ margin-top: 1.5rem; background: #090d13; border: 1px solid #21262d; border-radius: 6px; padding: 1rem; }}
-        code {{ font-family: monospace; color: #39d353; }}
-    </style>
-</head>
-<body>
-    <div class="card">
-        <h1>Internet Money (IMN) Node <span class="badge">TESTNET</span></h1>
-        <div class="row"><span>BlockDAG Interval:</span><b>{} seconds (0.2 BPS)</b></div>
-        <div class="row"><span>Proof of Work:</span><b>Hallmark (FishHash)</b></div>
-        <div class="row"><span>Database Engine:</span><b>ACID On-Disk Storage (redb)</b></div>
-        <div class="row"><span>Current Blue Score:</span><b>{}</b></div>
-        <div class="row"><span>Total Blocks in DAG:</span><b>{}</b></div>
-        <div class="row"><span>Block Subsidy:</span><b>{} IMN</b></div>
-        <div class="row"><span>Difficulty (Bits):</span><b>{}</b></div>
-        <div class="row"><span>Active Mining Address:</span><span class="hash">{}</span></div>
-        <div class="row"><span>Virtual Selected Parent:</span><span class="hash">{}</span></div>
-        
-        <div style="margin-top: 1.5rem; text-align: center;">
-            <a href="/explorer" style="display: inline-block; background: #1f6feb; color: white; padding: 0.75rem 1.5rem; border-radius: 6px; text-decoration: none; font-weight: bold; font-size: 1rem; margin-right: 0.5rem;">Block Explorer</a>
-            <a href="/demo" style="display: inline-block; background: #21262d; color: white; padding: 0.75rem 1.5rem; border-radius: 6px; text-decoration: none; font-weight: bold; font-size: 1rem; margin-right: 0.5rem;">Checkout Demo</a>
-            <a href="/wallet" style="display: inline-block; background: #238636; color: white; padding: 0.75rem 1.5rem; border-radius: 6px; text-decoration: none; font-weight: bold; font-size: 1rem; box-shadow: 0 2px 8px rgba(35, 134, 54, 0.4);">Wallet</a>
-        </div>
-        
-        <div class="api-box">
-            <b>🔌 Merchant & Wallet API Endpoints:</b><br><br>
-            • GUI Wallet Interface: <code>GET /wallet</code><br>
-            • Balance Lookup: <code>GET /api/v1/address/:addr/balance</code><br>
-            • Invoice Status: <code>GET /api/v1/invoice/:id?address=:addr</code><br>
-            • Unspent Coins (UTXOs): <code>GET /api/v1/address/:addr/utxos</code><br>
-            • Network Statistics: <code>GET /api/v1/stats</code><br>
-            • Recent Blocks: <code>GET /api/v1/blocks?limit=50</code><br>
-            • Mining Work: <code>GET /api/v1/mining/template?address=:addr</code><br>
-            • Block Submission: <code>POST /api/v1/mining/submit</code>
-        </div>
-    </div>
-</body>
-</html>"#,
-        info.target_block_interval_sec,
-        info.virtual_blue_score,
-        info.total_blocks,
-        info.current_block_reward_imn,
-        info.current_bits,
-        mining_addr_display,
-        info.virtual_selected_parent
-    );
-    Html(html)
+const HOME_HTML: &str = include_str!("../../../apps/imoney-home/index.html");
+
+/// The node's front page. It reads the node's status from the API like any other client.
+async fn dashboard_handler() -> Html<&'static str> {
+    Html(HOME_HTML)
 }
 
 async fn info_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {

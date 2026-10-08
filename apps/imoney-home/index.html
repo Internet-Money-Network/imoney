@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Internet Money Node</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    /* Banknote, as in the explorer and the wallet */
+    :root {
+      --paper: #eef0e6; --paper-raised: #e3e8d7; --ink: #0f2e23; --ink-soft: #3d6652; --rule: #0f2e23; --rule-soft: #a9b89a;
+      --accent: #0b7a4b; --negative: #9b2c1f; --band: #0f2e23; --band-ink: #eef0e6; --band-soft: #b9c9a4; --wave: #1f5a43; --wave-bed: #dfe5d2;
+      --serif: "Fraunces", "Iowan Old Style", Georgia, serif;
+      --mono: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --paper: #0b1f18; --paper-raised: #12291f; --ink: #e9eddc; --ink-soft: #9db39a; --rule: #e9eddc; --rule-soft: #2c4a3b;
+        --accent: #6fe0a6; --negative: #ff8a7a; --band: #06140f; --band-ink: #e9eddc; --band-soft: #9db39a; --wave: #3f7a5f; --wave-bed: #0e261d;
+      }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--serif); font-size: 15px; line-height: 1.5; }
+    a { color: inherit; text-underline-offset: 3px; }
+    .band { background: var(--band); color: var(--band-ink); }
+    .masthead { max-width: 860px; margin: 0 auto; padding: 16px 22px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .brand svg { width: 30px; height: 30px; flex: none; }
+    .brand h1 { margin: 0; font-weight: 400; font-size: 24px; line-height: 1; }
+    .brand h1 em { color: var(--band-soft); }
+    .badge { font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--band-soft); border: 1px solid var(--band-soft); padding: 4px 10px; }
+    .guilloche { display: block; color: var(--wave); background: var(--wave-bed); }
+    .page { max-width: 860px; margin: 0 auto; padding: 0 22px 56px; }
+    .lede { font-size: clamp(24px, 4vw, 34px); line-height: 1.2; font-weight: 400; margin: 34px 0 26px; max-width: 22em; }
+    .doors { display: grid; grid-template-columns: repeat(3, 1fr); border: 2px solid var(--rule); }
+    .doors a { padding: 18px 18px 16px; text-decoration: none; border-left: 1px solid var(--rule); }
+    .doors a:first-child { border-left: 0; }
+    .doors a:hover { background: var(--ink); color: var(--paper); }
+    .doors b { display: block; font-weight: 600; font-size: 22px; line-height: 1.15; }
+    .doors span { font-size: 13.5px; opacity: 0.8; }
+    h2 { font-weight: 600; font-size: 22px; margin: 38px 0 12px; }
+    .label { font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-soft); }
+    dl { margin: 0; }
+    dl div { display: flex; justify-content: space-between; gap: 18px; padding: 9px 0; border-bottom: 1px solid var(--rule-soft); }
+    dl div:first-child { border-top: 1px solid var(--rule); }
+    dt { color: var(--ink-soft); white-space: nowrap; }
+    dd { margin: 0; text-align: right; word-break: break-all; }
+    .mono, code { font-family: var(--mono); font-size: 13px; word-break: break-all; }
+    table { width: 100%; border-collapse: collapse; }
+    td { padding: 9px 12px 9px 0; border-bottom: 1px solid var(--rule-soft); vertical-align: baseline; }
+    tr:first-child td { border-top: 1px solid var(--rule); }
+    td:last-child { padding-right: 0; }
+    footer { margin-top: 14px; font-size: 12.5px; color: var(--ink-soft); }
+    @media (max-width: 640px) {
+      .doors { grid-template-columns: 1fr; }
+      .doors a { border-left: 0; border-top: 1px solid var(--rule); }
+      .doors a:first-child { border-top: 0; }
+      td:first-child { display: block; border-bottom: 0; padding-bottom: 0; }
+      td:last-child { display: block; padding-top: 2px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="band">
+    <div class="masthead">
+      <div class="brand">
+        <svg viewBox="0 0 512 512" aria-hidden="true">
+          <rect width="512" height="512" rx="128" fill="#15181e"/>
+          <rect x="116" y="128" width="56" height="256" rx="12" fill="#ffffff"/>
+          <path d="M 212 384 L 212 232 L 272 128 L 328 128 L 268 232 L 268 384 Z" fill="#ffffff"/>
+          <path d="M 340 384 L 340 232 L 400 128 L 456 128 L 396 232 L 396 384 Z" fill="#ffffff"/>
+          <circle cx="144" cy="100" r="16" fill="#00e575"/>
+        </svg>
+        <h1>Internet Money <em>Node</em></h1>
+      </div>
+      <span class="badge" id="network">connecting</span>
+    </div>
+  </div>
+  <svg class="guilloche" height="14" width="100%" aria-hidden="true">
+    <defs>
+      <pattern id="guilloche-wave" width="34" height="14" patternUnits="userSpaceOnUse">
+        <path d="M0 7 Q8.5 -3 17 7 T34 7" fill="none" stroke="currentColor" stroke-width="1"/>
+        <path d="M0 7 Q8.5 17 17 7 T34 7" fill="none" stroke="currentColor" stroke-width="1"/>
+      </pattern>
+    </defs>
+    <rect width="100%" height="14" fill="url(#guilloche-wave)"/>
+  </svg>
+
+  <div class="page">
+    <p class="lede">This is an Internet Money node. It checks every block for itself and answers for nobody else.</p>
+
+    <div class="doors">
+      <a href="/explorer"><b>Explorer</b><span>Blocks, payments and addresses as this node sees them</span></a>
+      <a href="/wallet"><b>Wallet</b><span>Keys stay in your browser; the node only gets signed payments</span></a>
+      <a href="/demo"><b>Checkout demo</b><span>A shop taking a payment and matching it to an order</span></a>
+    </div>
+
+    <h2>This node</h2>
+    <dl>
+      <div><dt>Height</dt><dd class="mono" id="height">–</dd></div>
+      <div><dt>Blocks held</dt><dd class="mono" id="blocks">–</dd></div>
+      <div><dt>Block reward</dt><dd id="reward">–</dd></div>
+      <div><dt>Difficulty bits</dt><dd class="mono" id="bits">–</dd></div>
+      <div><dt>Proof of work</dt><dd id="pow">Hallmark</dd></div>
+      <div><dt>Mining address</dt><dd class="mono" id="mining">–</dd></div>
+      <div><dt>Latest block</dt><dd class="mono" id="tip">–</dd></div>
+    </dl>
+
+    <h2>For software</h2>
+    <table>
+      <tr><td>Node status</td><td><code>GET /api/v1/info</code></td></tr>
+      <tr><td>Network figures</td><td><code>GET /api/v1/stats</code></td></tr>
+      <tr><td>Balance</td><td><code>GET /api/v1/address/{address}/balance</code></td></tr>
+      <tr><td>Coins</td><td><code>GET /api/v1/address/{address}/utxos</code></td></tr>
+      <tr><td>History</td><td><code>GET /api/v1/address/{address}/history</code></td></tr>
+      <tr><td>Invoice</td><td><code>GET /api/v1/invoice/{id}?address={address}</code></td></tr>
+      <tr><td>Send a signed payment</td><td><code>POST /api/v1/tx/broadcast</code></td></tr>
+      <tr><td>Mining work</td><td><code>GET /api/v1/mining/template?address={address}</code></td></tr>
+    </table>
+
+    <svg class="guilloche" height="14" width="100%" aria-hidden="true" style="margin-top: 48px;"><rect width="100%" height="14" fill="url(#guilloche-wave)"/></svg>
+    <footer>Figures refresh every five seconds. Full guide: docs/INTEGRATION.md in the source.</footer>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    async function refresh() {
+      try {
+        const info = await (await fetch('/api/v1/info')).json();
+        $('network').innerText = info.network;
+        $('height').innerText = Number(info.virtual_blue_score).toLocaleString('en-US');
+        $('blocks').innerText = Number(info.total_blocks).toLocaleString('en-US');
+        $('reward').innerText = info.current_block_reward_imn + ' IMN';
+        $('bits').innerText = info.current_bits;
+        if (info.pow_dataset_items) {
+          const megabytes = info.pow_dataset_items * 128 / 1048576;
+          $('pow').innerText = 'Hallmark, ' + (megabytes >= 1024 ? (megabytes / 1024).toFixed(1) + ' GB' : Math.round(megabytes) + ' MB') + ' dataset';
+        }
+        $('mining').innerText = info.mining_address || 'none';
+        $('tip').innerText = info.virtual_selected_parent;
+      } catch {
+        $('network').innerText = 'unreachable';
+      }
+    }
+    refresh();
+    setInterval(refresh, 5000);
+  </script>
+</body>
+</html>
