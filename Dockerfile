@@ -4,11 +4,11 @@
 FROM rust:1-bookworm AS build
 WORKDIR /src
 COPY . .
-RUN cargo build --release --locked -p imoney-node -p imoney-miner
+RUN cargo build --release --locked -p imoney-node -p imoney-miner -p imoney-stratum
 
 FROM debian:bookworm-slim
 RUN useradd --system --create-home --home-dir /data imoney
-COPY --from=build /src/target/release/imoney-node /src/target/release/imoney-miner /usr/local/bin/
+COPY --from=build /src/target/release/imoney-node /src/target/release/imoney-miner /src/target/release/imoney-stratum /usr/local/bin/
 USER imoney
 VOLUME /data
 # 18555: peer-to-peer (open to the internet). 18556: RPC and wallet (keep private).
