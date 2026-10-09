@@ -31,6 +31,8 @@ Notable changes to Internet Money. Nothing has been released yet: everything bel
 - `SECURITY.md`, `CONTRIBUTING.md`, `TRADEMARKS.md`, an integration guide and this file.
 
 ### Changed
+- **Catching up is faster.** A syncing node waits for the disk once per batch of blocks
+  instead of once per block: about nine times faster on a fast SSD, more on slow disks.
 - **A node's memory no longer grows with the chain.** Only recent blocks are held in memory;
   older ones are read from disk when needed. Existing databases are upgraded when first opened.
 - **A faster difficulty rule.** Each block's difficulty now follows from how far the last step

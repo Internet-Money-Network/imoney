@@ -617,8 +617,12 @@ impl PeerManager {
                 }
             }
             Message::BlockBatch { blocks, next } => {
-                for block in blocks {
-                    self.receive_block(peer_addr, sender, block).await;
+                {
+                    // One wait for the disk per batch instead of one per block
+                    let _flush_at_end = self.ledger.read().await.storage.defer_flushes();
+                    for block in blocks {
+                        self.receive_block(peer_addr, sender, block).await;
+                    }
                 }
                 match next {
                     Some(cursor) => {

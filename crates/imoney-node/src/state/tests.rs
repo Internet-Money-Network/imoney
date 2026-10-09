@@ -1239,3 +1239,39 @@ fn a_database_from_before_the_level_index_gains_one_when_opened() {
     mine_tip(&mut reopened, &pow, &miner);
     assert_eq!(reopened.block_count(), 14);
 }
+
+/// Measures what waiting for the disk costs a node that is catching up. Not a pass/fail check:
+/// `cargo test --release -p imoney-node -- --ignored sync_write_speed --nocapture`
+#[test]
+#[ignore]
+fn sync_write_speed() {
+    let pow = test_pow();
+    let miner = address_of(&key(213));
+    let mut source = open("speed-source");
+    let blocks: Vec<Block> = (0..400)
+        .map(|_| {
+            let hash = mine_tip(&mut source, &pow, &miner);
+            source.storage.get_block(&hash).unwrap().unwrap()
+        })
+        .collect();
+
+    for batched in [false, true] {
+        let mut ledger = open(if batched { "speed-batched" } else { "speed-each" });
+        let started = std::time::Instant::now();
+        for chunk in blocks.chunks(200) {
+            let _flush_at_end = batched.then(|| ledger.storage.defer_flushes());
+            for block in chunk {
+                ledger.add_block(block.clone(), &pow).unwrap();
+            }
+        }
+        let seconds = started.elapsed().as_secs_f64();
+        println!(
+            "{}: {} blocks in {:.2}s ({:.0} blocks/s)",
+            if batched { "flush per batch of 200" } else { "flush per block" },
+            blocks.len(),
+            seconds,
+            blocks.len() as f64 / seconds
+        );
+        assert_eq!(ledger.virtual_selected_parent, source.virtual_selected_parent);
+    }
+}

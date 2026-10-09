@@ -418,6 +418,23 @@ impl WriteBatch {
 #[derive(Clone)]
 pub struct Storage {
     db: Arc<Database>,
+    /// How many callers are in the middle of writing a run of blocks and will flush at the end.
+    deferring: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+/// Held while a run of blocks is written. Commits made meanwhile are not forced to disk one
+/// by one; dropping the guard flushes them together. See `Storage::defer_flushes`.
+pub struct DeferredFlush {
+    storage: Storage,
+}
+
+impl Drop for DeferredFlush {
+    fn drop(&mut self) {
+        self.storage.deferring.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        if let Err(e) = self.storage.flush() {
+            eprintln!("[-] Could not flush the database: {}", e);
+        }
+    }
 }
 
 impl Storage {
@@ -441,7 +458,7 @@ impl Storage {
         }
         write_tx.commit()?;
 
-        let storage = Self { db: Arc::new(db) };
+        let storage = Self { db: Arc::new(db), deferring: Arc::new(std::sync::atomic::AtomicUsize::new(0)) };
         storage.build_level_index_if_missing()?;
         // A database from before the running total existed: count once and remember
         if storage.get_metadata(META_SUPPLY)?.is_none() {
@@ -456,9 +473,30 @@ impl Storage {
         Ok(storage)
     }
 
+    /// Stops forcing every commit to disk until the returned guard is dropped, which then
+    /// flushes them all at once. For a node catching up on hundreds of blocks, waiting for the
+    /// disk after each one is most of the time spent. A crash in between loses only the blocks
+    /// since the last flush: the database reopens at that point, whole, and the node fetches
+    /// them again.
+    pub fn defer_flushes(&self) -> DeferredFlush {
+        self.deferring.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        DeferredFlush { storage: self.clone() }
+    }
+
+    /// Forces everything committed so far onto the disk.
+    pub fn flush(&self) -> Result<(), StorageError> {
+        let write_tx = self.db.begin_write()?;
+        write_tx.commit()?;
+        Ok(())
+    }
+
     /// Writes a batch atomically: after a crash either all of it is on disk or none of it is.
     pub fn commit(&self, batch: &WriteBatch) -> Result<(), StorageError> {
-        let write_tx = self.db.begin_write()?;
+        let mut write_tx = self.db.begin_write()?;
+        if self.deferring.load(std::sync::atomic::Ordering::SeqCst) > 0 {
+            // Still atomic and still ordered; only the wait for the disk is put off
+            let _ = write_tx.set_durability(redb::Durability::None);
+        }
         {
             let mut blocks_table = write_tx.open_table(BLOCKS_TABLE)?;
             for (hash, bytes) in &batch.blocks {
