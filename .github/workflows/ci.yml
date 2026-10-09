@@ -17,12 +17,12 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         # Pinned so that lint results and builds are the same here as on developers' machines.
         # Keep in step with rust-toolchain.toml.
-        uses: dtolnay/rust-toolchain@1.97.1
+        uses: dtolnay/rust-toolchain@1.120.0
         with:
           components: clippy
 
@@ -62,7 +62,7 @@ jobs:
           Compress-Archive -Path dist/* -DestinationPath imoney-windows.zip -Force
 
       - name: Upload Binaries
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: binaries-${{ matrix.os }}
           path: |
@@ -73,10 +73,10 @@ jobs:
     name: Build & Test Developer SDK
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22
 
@@ -90,7 +90,7 @@ jobs:
         run: git diff --exit-code -- packages/imoney-sdk/dist plugins/imoney-payments-for-woocommerce/imoney.js
 
       - name: Upload Packaged WooCommerce Gateway
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: imoney-woocommerce-plugin
           path: plugins/imoney-payments-for-woocommerce.zip
@@ -101,7 +101,7 @@ jobs:
     # See fuzz/README.md for long runs.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install nightly Rust
         uses: dtolnay/rust-toolchain@nightly
@@ -129,7 +129,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           path: artifacts
           merge-multiple: true
