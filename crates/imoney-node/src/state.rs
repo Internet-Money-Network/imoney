@@ -970,6 +970,18 @@ impl DagLedger {
             return Err(StateError::Header(format!("Unsupported version {}", header.version)));
         }
 
+        // Proof of work comes first, against the difficulty the header itself claims: nothing
+        // below is worth doing for a block nobody paid to make. Whether the claimed difficulty
+        // is the right one is checked further down, once the block's place in the DAG is known.
+        if compact_to_u256(header.bits) > compact_to_u256(self.params.daa.max_target_bits) {
+            return Err(StateError::Header(format!("Difficulty 0x{:08x} is easier than the network allows", header.bits)));
+        }
+        let pre_pow_hash = header.pre_pow_hash().map_err(|e| StateError::Header(e.to_string()))?;
+        let pow_hash = pow_engine.calculate_hash(&pre_pow_hash, header.nonce);
+        if !is_valid_pow(&pow_hash, header.bits) {
+            return Err(StateError::InvalidPoW(block_hash));
+        }
+
         // Validate parents and work out where the block sits in the DAG
         if header.parents.len() > MAX_BLOCK_PARENTS {
             return Err(StateError::TooManyParents(header.parents.len(), MAX_BLOCK_PARENTS));
@@ -1018,13 +1030,6 @@ impl DagLedger {
         let now_ms = chrono::Utc::now().timestamp_millis() as u64;
         if header.timestamp_ms > now_ms + self.params.max_future_ms {
             return Err(StateError::TimestampInFuture);
-        }
-
-        // Validate Proof of Work
-        let pre_pow_hash = header.pre_pow_hash().map_err(|e| StateError::Header(e.to_string()))?;
-        let pow_hash = pow_engine.calculate_hash(&pre_pow_hash, header.nonce);
-        if !is_valid_pow(&pow_hash, header.bits) {
-            return Err(StateError::InvalidPoW(block_hash));
         }
 
         // Validate the body: coinbase first, sizes, merkle root
