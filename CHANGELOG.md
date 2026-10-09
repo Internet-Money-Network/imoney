@@ -31,6 +31,12 @@ Notable changes to Internet Money. Nothing has been released yet: everything bel
 - `SECURITY.md`, `CONTRIBUTING.md`, `TRADEMARKS.md`, an integration guide and this file.
 
 ### Changed
+- **Nodes are slower to ban each other.** Only a block without proof of work bans a peer at
+  once. Other invalid blocks, which an honest peer on an older version can relay, score a
+  little and the score fades with time. A failure of our own disk no longer counts against
+  the peer that sent the block.
+- **Seed names are looked up again** every ten minutes, and retried when the lookup fails at
+  startup. A node that falls far behind on a live connection catches up in batches.
 - **Catching up is faster.** A syncing node waits for the disk once per batch of blocks
   instead of once per block: about nine times faster on a fast SSD, more on slow disks.
 - **A node's memory no longer grows with the chain.** Only recent blocks are held in memory;

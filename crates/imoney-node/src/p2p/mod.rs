@@ -32,6 +32,16 @@ const MAX_ADDRS_PER_REPLY: usize = 100;
 /// Misbehaviour score at which a peer is disconnected and its IP banned.
 const BAN_THRESHOLD: u32 = 100;
 const BAN_DURATION: Duration = Duration::from_secs(10 * 60);
+/// A peer's misbehaviour score fades by one point for each of these that passes.
+const SCORE_FADE: Duration = Duration::from_secs(30);
+/// A block that fails proof of work cost its sender nothing to make: abuse, and nothing else.
+const PENALTY_INVALID_POW: u32 = BAN_THRESHOLD;
+/// A block that breaks another rule. An honest peer can relay one, for instance when it runs
+/// an older version than ours, so this only adds up if it keeps happening.
+const PENALTY_INVALID_BLOCK: u32 = 5;
+/// With this many blocks waiting for parents, fetching them one by one is the slow way round:
+/// ask for a batch sync instead.
+const ORPHANS_BEFORE_RESYNC: usize = 32;
 /// Limits on one batch of blocks sent to a syncing peer.
 const SYNC_BATCH_BLOCKS: usize = 200;
 const SYNC_BATCH_BYTES: usize = 2_000_000;
@@ -56,6 +66,8 @@ struct PeerHandle {
     /// Where the peer accepts connections, as it told us.
     listen_addr: Option<SocketAddr>,
     score: u32,
+    /// When the score last changed. It fades with time, so only sustained trouble adds up.
+    scored_at: Instant,
     /// Wakes the connection's task so it closes.
     shutdown: Arc<Notify>,
 }
@@ -309,6 +321,7 @@ impl PeerManager {
                     node_id: None,
                     listen_addr: None,
                     score: 0,
+                    scored_at: Instant::now(),
                     shutdown: shutdown.clone(),
                 },
             );
@@ -464,7 +477,9 @@ impl PeerManager {
     fn misbehave(&self, peer_addr: SocketAddr, points: u32) {
         let mut peers = self.peers.lock().unwrap();
         if let Some(peer) = peers.get_mut(&peer_addr) {
-            peer.score += points;
+            let faded = (peer.scored_at.elapsed().as_secs() / SCORE_FADE.as_secs()) as u32;
+            peer.score = peer.score.saturating_sub(faded) + points;
+            peer.scored_at = Instant::now();
             if peer.score >= BAN_THRESHOLD {
                 self.banned.lock().unwrap().insert(peer_addr.ip(), Instant::now() + BAN_DURATION);
                 peer.shutdown.notify_one();
@@ -491,10 +506,11 @@ impl PeerManager {
     }
 
     /// Adds a block whose parents are known, then any waiting blocks it unblocks.
-    /// Returns the hash of each block added, and whether the given block itself was acceptable.
-    fn connect_block_and_orphans(&self, ledger: &mut DagLedger, block: Block) -> (Vec<Hash>, bool) {
+    /// Returns the hash of each block added, and the misbehaviour points the given block itself
+    /// earns its sender (zero when it was acceptable).
+    fn connect_block_and_orphans(&self, ledger: &mut DagLedger, block: Block) -> (Vec<Hash>, u32) {
         let mut connected = Vec::new();
-        let mut first_valid = true;
+        let mut penalty = 0;
         let mut is_first = true;
         let mut queue = vec![block];
         while let Some(next) = queue.pop() {
@@ -505,9 +521,14 @@ impl PeerManager {
                 Err(StateError::BlockAlreadyExists(_)) => continue,
                 // A clock disagreement is not misbehaviour; the block is fetched again later
                 Err(StateError::TimestampInFuture) => continue,
-                Err(_) => {
+                // Our own disk failing says nothing about the peer
+                Err(StateError::Storage(e)) => {
+                    eprintln!("[-] Could not store a block: {}", e);
+                    continue;
+                }
+                Err(e) => {
                     if was_first {
-                        first_valid = false;
+                        penalty = if matches!(e, StateError::InvalidPoW(_)) { PENALTY_INVALID_POW } else { PENALTY_INVALID_BLOCK };
                     }
                     continue;
                 }
@@ -526,13 +547,13 @@ impl PeerManager {
                 }
             }
         }
-        (connected, first_valid)
+        (connected, penalty)
     }
 
     /// Handles a block from a peer: connects it, or parks it and asks for its missing parents.
     async fn receive_block(&self, peer_addr: SocketAddr, sender: &mpsc::Sender<Message>, block: Block) {
         // The ledger lock is released before anything is queued for sending
-        let (missing_parents, connected, valid) = {
+        let (missing_parents, connected, penalty) = {
             let mut ledger = self.ledger.write().await;
             if ledger.has_block(&block.hash()) {
                 return;
@@ -545,11 +566,11 @@ impl PeerManager {
                 .copied()
                 .collect();
             if missing.is_empty() {
-                let (connected, valid) = self.connect_block_and_orphans(&mut ledger, block);
-                (missing, connected, valid)
+                let (connected, penalty) = self.connect_block_and_orphans(&mut ledger, block);
+                (missing, connected, penalty)
             } else {
                 self.park_orphan(block);
-                (missing, Vec::new(), true)
+                (missing, Vec::new(), 0)
             }
         };
 
@@ -558,8 +579,8 @@ impl PeerManager {
                 let _ = sender.try_send(Message::GetBlock(parent));
             }
         }
-        if !valid {
-            self.misbehave(peer_addr, 20);
+        if penalty > 0 {
+            self.misbehave(peer_addr, penalty);
         }
         for hash in &connected {
             self.announce(Message::InvBlock(*hash), Some(peer_addr));
@@ -585,6 +606,11 @@ impl PeerManager {
                 };
                 if unknown.is_empty() {
                     self.mark_synced_if_caught_up();
+                } else if self.orphans.lock().unwrap().len() >= ORPHANS_BEFORE_RESYNC {
+                    // Far behind on a link that stayed up: catch up in batches
+                    let locator = self.ledger.read().await.locator();
+                    let _ = sender.try_send(Message::GetBlocksAfter { locator, cursor: None });
+                    return;
                 }
                 for tip in unknown {
                     if !self.is_orphan(&tip) {

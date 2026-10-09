@@ -311,11 +311,12 @@ async fn nodes_on_another_network_are_refused_and_banned() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn peer_sending_invalid_blocks_is_banned() {
+async fn only_a_block_without_proof_of_work_bans_at_once() {
     let a = TestNode::start("ban-a").await;
     let miner = address_of(&SigningKey::from_bytes(&[4u8; 32]));
 
-    // A hand-driven peer: completes the handshake, then sends blocks with a forged blue score
+    // A hand-driven peer: completes the handshake, then sends blocks with a forged blue score.
+    // An honest peer on an older version could relay such blocks, so a few of them are tolerated.
     let mut stream = TcpStream::connect(a.addr).await.unwrap();
     let genesis = a.ledger.read().await.genesis_hash;
     let version = Message::Version {
@@ -342,9 +343,26 @@ async fn peer_sending_invalid_blocks_is_banned() {
         write_frame(&mut stream, MAGIC, &Message::Block(block)).await.unwrap();
     }
 
+    // A properly mined block that the ledger accepts proves the earlier ones were all handled
+    let good = a.ledger.read().await.get_mining_template(Some(&miner)).block;
+    let pre_pow_hash = good.header.pre_pow_hash().unwrap();
+    let mut good = good;
+    good.header.nonce =
+        a.pow.mine(&pre_pow_hash, good.header.bits, 0, 1_000_000, Arc::new(AtomicBool::new(false))).unwrap().0;
+    write_frame(&mut stream, MAGIC, &Message::Block(good)).await.unwrap();
+    eventually!("the good block is added", a.block_count().await == 2);
+    assert_eq!(a.peer_count().await, 1);
+    assert!(!a.manager.is_banned(&"127.0.0.1".parse().unwrap()));
+
+    // A block with no work behind it costs nothing to make: one is enough
+    let mut unmined = a.ledger.read().await.get_mining_template(Some(&miner)).block;
+    let pre_pow_hash = unmined.header.pre_pow_hash().unwrap();
+    unmined.header.nonce = (0..).find(|nonce| !a.pow.verify(&pre_pow_hash, *nonce, unmined.header.bits)).unwrap();
+    write_frame(&mut stream, MAGIC, &Message::Block(unmined)).await.unwrap();
+
     eventually!("the peer is dropped", a.peer_count().await == 0);
     assert!(a.manager.is_banned(&"127.0.0.1".parse().unwrap()));
-    assert_eq!(a.block_count().await, 1);
+    assert_eq!(a.block_count().await, 2);
 }
 
 #[tokio::test(flavor = "multi_thread")]

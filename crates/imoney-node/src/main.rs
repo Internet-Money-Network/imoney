@@ -177,20 +177,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Peers learned in earlier runs are remembered, so the node can rejoin without its seeds
     p2p_manager.use_peer_store(args.data_dir.join("peers.txt"));
 
-    // Connect outbound to configured peer nodes. A host name may resolve to several nodes.
-    for peer_str in args.peers {
-        let trimmed = peer_str.trim();
-        if !trimmed.is_empty() {
-            match tokio::net::lookup_host(trimmed).await {
-                Ok(resolved) => {
-                    for peer_addr in resolved {
-                        p2p_manager.require_initial_sync();
-                        p2p_manager.clone().connect_to_peer(peer_addr);
+    // Connect outbound to configured peer nodes. A host name may resolve to several nodes, and
+    // what it resolves to can change, so names are looked up again from time to time. A lookup
+    // that fails at startup (the network may not be up yet) is simply tried again.
+    let peer_names: Vec<String> = args.peers.iter().map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect();
+    if !peer_names.is_empty() {
+        p2p_manager.require_initial_sync();
+        let manager = p2p_manager.clone();
+        tokio::spawn(async move {
+            let mut warned = false;
+            loop {
+                let mut found = false;
+                for name in &peer_names {
+                    match tokio::net::lookup_host(name.as_str()).await {
+                        Ok(resolved) => {
+                            for peer_addr in resolved {
+                                manager.clone().connect_to_peer(peer_addr);
+                                found = true;
+                            }
+                        }
+                        Err(e) if !warned => eprintln!("[-] Warning: Could not resolve peer '{}': {}", name, e),
+                        Err(_) => {}
                     }
                 }
-                Err(e) => eprintln!("[-] Warning: Could not resolve peer '{}': {}", trimmed, e),
+                warned = true;
+                // Soon again while nothing resolves; otherwise every ten minutes
+                tokio::time::sleep(std::time::Duration::from_secs(if found { 600 } else { 15 })).await;
             }
-        }
+        });
     }
 
     // Background auto-miner task
