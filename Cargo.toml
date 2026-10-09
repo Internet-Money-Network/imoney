@@ -11,6 +11,7 @@ members = [
     "crates/imoney-loadtest",
     "crates/imoney-gpu-miner",
     "crates/imoney-stratum",
+    "examples/cookbook",
 ]
 
 [workspace.package]

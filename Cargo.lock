@@ -882,6 +882,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "imoney-cookbook"
+version = "0.1.1"
+dependencies = [
+ "ed25519-dalek",
+ "hex",
+ "imoney-core",
+ "rand",
+ "serde",
+ "serde_json",
+ "ureq",
+]
+
+[[package]]
 name = "imoney-core"
 version = "0.1.1"
 dependencies = [

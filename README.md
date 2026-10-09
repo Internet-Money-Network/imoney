@@ -117,6 +117,8 @@ cargo run --release --bin imoney-node -- --devnet mytest --auto-mine
 ---
 
 See [docs/RUNNING-A-NODE.md](docs/RUNNING-A-NODE.md) for options, seed nodes, pruning and running a node for a shop.
+Building on Internet Money: the [cookbook](docs/cookbook/README.md) explains how it works and walks through reading the chain, sending, accepting payments, a paid API, shared wallets and mining, with examples you can run.
+
 Exchanges, wallet developers and mining pools: see [docs/INTEGRATION.md](docs/INTEGRATION.md).
 
 ### Rebuilding the browser pieces

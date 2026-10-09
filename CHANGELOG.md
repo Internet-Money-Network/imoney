@@ -6,6 +6,9 @@ Notable changes to Internet Money. Nothing has been released yet: everything bel
 ## Unreleased
 
 ### Added
+- **A cookbook** (`docs/cookbook`): nine chapters on how the network works and how to build on
+  it, with runnable examples in `examples/cookbook`, including a paid API and a client that
+  pays for it by itself.
 - **A mining pool.** `imoney-stratum --pool` shares out each matured block reward among miners
   by the work their shares prove, less a fee (1.5% by default), pays out automatically and
   serves a status page.

@@ -1,0 +1,17 @@
+[package]
+name = "imoney-cookbook"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Runnable examples for the Internet Money cookbook (docs/cookbook)"
+publish = false
+
+[dependencies]
+imoney-core = { path = "../../crates/imoney-core" }
+serde.workspace = true
+serde_json.workspace = true
+ed25519-dalek.workspace = true
+rand.workspace = true
+hex.workspace = true
+ureq = { version = "2", default-features = false, features = ["json"] }
