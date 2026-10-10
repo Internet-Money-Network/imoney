@@ -121,6 +121,9 @@ pub struct InvoicePaymentResponse {
     pub confirmations: u64,
     /// "seen" (in the mempool), "included" (in a block) or "final".
     pub level: &'static str,
+    /// The address the payment came from. A refund goes here unless the customer names
+    /// another address: a payment sent from an exchange comes from the exchange's address.
+    pub payer_address: Option<String>,
 }
 
 /// What has been paid towards an invoice, summed by how settled each payment is.
@@ -155,6 +158,8 @@ pub struct TxStatusResponse {
     pub inputs: Vec<String>,
     /// Where the money went. An output without an address uses a script type this node cannot name.
     pub outputs: Vec<TxOutputView>,
+    /// The addresses whose coins the payment spends, without repeats: who paid.
+    pub senders: Vec<String>,
     /// The invoice the payment names, if any.
     pub invoice_id: Option<String>,
     /// The node address that receives half of the fee, if the payment names one.
@@ -638,6 +643,7 @@ async fn invoice_handler(
             amount_atoms: payment.amount_atoms,
             confirmations: payment.confirmations,
             level,
+            payer_address: payment.payer.map(|address| address.to_string()),
         });
     }
     Ok(Json(response))
@@ -712,6 +718,14 @@ async fn tx_status_handler(
                         amount_imn: (output.value_atoms as f64) / (imoney_core::constants::ATOMS_PER_IMN as f64),
                     })
                     .collect(),
+                senders: {
+                    let mut senders: Vec<String> = (0..info.tx.inputs.len())
+                        .filter_map(|index| info.tx.input_address(ledger.network, index))
+                        .map(|address| address.to_string())
+                        .collect();
+                    senders.dedup();
+                    senders
+                },
                 invoice_id: info.tx.invoice_id().map(str::to_string),
                 service_address: info.tx.service.as_ref().and_then(|script| script_address(ledger.network, script)),
                 size_bytes: imoney_core::Encode::to_bytes(&info.tx).len(),
@@ -729,6 +743,7 @@ async fn tx_status_handler(
             total_output_imn: 0.0,
             inputs: Vec::new(),
             outputs: Vec::new(),
+            senders: Vec::new(),
             invoice_id: None,
             service_address: None,
             size_bytes: 0,

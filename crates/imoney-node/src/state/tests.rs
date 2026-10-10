@@ -498,6 +498,8 @@ fn multisig_address_receives_and_spends_with_enough_signatures() {
     // Two holders, signing separately, are enough
     let second = payment.multisig_sign(Network::Testnet, 0, &holders[0]);
     payment.set_multisig_signatures(0, &script, &[first, second]).unwrap();
+    // Whoever is paid can see that the shared address paid, and would refund there
+    assert_eq!(payment.input_address(Network::Testnet, 0), Some(script.address(Network::Testnet)));
     ledger.broadcast_transaction(payment.clone()).unwrap();
     mine_tip(&mut ledger, &pow, &address_of(&key(200)));
 
@@ -1274,4 +1276,37 @@ fn sync_write_speed() {
         );
         assert_eq!(ledger.virtual_selected_parent, source.virtual_selected_parent);
     }
+}
+
+#[test]
+fn an_invoice_payment_names_its_payer_and_a_refund_is_found_the_same_way() {
+    let customer = key(220);
+    let shop = key(221);
+    let (mut ledger, pow) = funded_ledger("refund", &customer);
+    let miner = address_of(&key(222));
+
+    // The customer pays an order
+    let coins = ledger.get_spendable_utxos(&address_of(&customer)).unwrap();
+    let payment =
+        Transaction::build_invoice_payment(&customer, Network::Testnet, &address_of(&shop), 300_000, 1_000, coins, None, Some("order-7"))
+            .unwrap();
+    ledger.broadcast_transaction(payment).unwrap();
+    let paid = ledger.invoice_payments("order-7", &address_of(&shop)).unwrap();
+    assert_eq!(paid.len(), 1);
+    assert_eq!(paid[0].payer, Some(address_of(&customer)));
+    mine_tip(&mut ledger, &pow, &miner);
+    assert_eq!(ledger.invoice_payments("order-7", &address_of(&shop)).unwrap()[0].payer, Some(address_of(&customer)));
+
+    // The shop refunds part of it to the paying address, under the order's refund number
+    let payer = paid[0].payer.clone().unwrap();
+    let coins = ledger.get_spendable_utxos(&address_of(&shop)).unwrap();
+    let refund =
+        Transaction::build_invoice_payment(&shop, Network::Testnet, &payer, 100_000, 1_000, coins, None, Some("order-7.refund")).unwrap();
+    ledger.broadcast_transaction(refund).unwrap();
+    mine_tip(&mut ledger, &pow, &miner);
+    let refunded = ledger.invoice_payments("order-7.refund", &payer).unwrap();
+    assert_eq!(refunded.iter().map(|p| p.amount_atoms).sum::<u64>(), 100_000);
+    assert_eq!(refunded[0].payer, Some(address_of(&shop)));
+    // The order's own record is untouched
+    assert_eq!(ledger.invoice_payments("order-7", &address_of(&shop)).unwrap()[0].amount_atoms, 300_000);
 }

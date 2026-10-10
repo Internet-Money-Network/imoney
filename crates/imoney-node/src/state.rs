@@ -242,6 +242,8 @@ pub struct InvoicePayment {
     pub amount_atoms: u64,
     /// 0 while pending; 1 once accepted, then one more per blue block added on top.
     pub confirmations: u64,
+    /// The address the payment came from: where a refund would go by default.
+    pub payer: Option<Address>,
 }
 
 /// One page of blocks for a syncing peer, and the position to continue from if more remain.
@@ -1353,7 +1355,12 @@ impl DagLedger {
         let mut payments: Vec<InvoicePayment> = self
             .mempool
             .by_invoice(invoice_id)
-            .map(|tx| InvoicePayment { tx_id: tx.id(), amount_atoms: paid_to_address(tx), confirmations: 0 })
+            .map(|tx| InvoicePayment {
+                tx_id: tx.id(),
+                amount_atoms: paid_to_address(tx),
+                confirmations: 0,
+                payer: tx.input_address(self.network, 0),
+            })
             .collect();
         for tx_id in self.storage.get_invoice_tx_ids(invoice_id)? {
             if let Some(info) = self.get_transaction(&tx_id)? {
@@ -1361,6 +1368,7 @@ impl DagLedger {
                     tx_id,
                     amount_atoms: paid_to_address(&info.tx),
                     confirmations: info.confirmations,
+                    payer: info.tx.input_address(self.network, 0),
                 });
             }
         }

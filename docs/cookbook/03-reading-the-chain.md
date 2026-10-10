@@ -81,7 +81,7 @@ curl $N/api/v1/tx/491e5f3437bf119045f09ed68f16e03e28cfdae5e7a0829d1b333ad7611b0c
   "inputs": ["000e5fe6…:0"],
   "outputs": [ { "address": "imntest:qqzh3r…", "amount_atoms": 250000000, "amount_imn": 2.5 },
                { "address": "imntest:qr48j0…", "amount_atoms": 249990000, "amount_imn": 2.4999 } ],
-  "invoice_id": "order-1001", "size_bytes": 263 }
+  "senders": ["imntest:qr48j0…"], "invoice_id": "order-1001", "size_bytes": 263 }
 ```
 
 `status` is `pending` (a node has it, no block yet), `confirmed` or `not_found`. The second
@@ -95,7 +95,8 @@ curl "$N/api/v1/invoice/order-1001?address=$A"
 
 ```json
 { "invoice_id": "order-1001",
-  "payments": [ { "tx_id": "491e5f34…", "amount_atoms": 250000000, "confirmations": 3, "level": "included" } ],
+  "payments": [ { "tx_id": "491e5f34…", "amount_atoms": 250000000, "confirmations": 3, "level": "included",
+                  "payer_address": "imntest:qr48j0…" } ],
   "seen_atoms": 250000000, "included_atoms": 250000000, "final_atoms": 0,
   "final_confirmations": 60, "network_alert": false }
 ```

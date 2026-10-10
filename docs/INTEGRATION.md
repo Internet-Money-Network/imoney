@@ -67,6 +67,10 @@ GET /api/v1/invoice/{id}?address={your address}
     "final_confirmations": 60, "network_alert": false }
 ```
 
+Each payment also carries `payer_address`, the address it was sent from. To refund, pay that
+address (or one the customer names: a payment from another exchange comes from that
+exchange's address) with the invoice ID `{id}.refund`, and look refunds up the same way.
+
 `final_atoms` counts payments with at least `final_confirmations` confirmations while the node
 is not reporting `network_alert`. Set the threshold with the node's `--final-confirmations`
 option to match the value you are protecting.

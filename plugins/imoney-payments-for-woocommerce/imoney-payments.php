@@ -3,7 +3,7 @@
  * Plugin Name: Internet Money (IMN) Payments for WooCommerce
  * Plugin URI: https://internetmoneynetwork.org
  * Description: Accept Internet Money (IMN) payments straight to your own address. Each order gets its own invoice number, and your own node confirms the payment on the server. No intermediary holds the money.
- * Version: 2.2.0
+ * Version: 2.3.0
  * Author: Internet Money Network Developers
  * Author URI: https://github.com/Internet-Money-Network
  * License: MIT OR Apache-2.0
@@ -176,6 +176,7 @@ function imoney_payments_init_gateway_class() {
 
             $this->supports = array(
                 'products',
+                'refunds',
             );
 
             // Method with all the options fields
@@ -287,14 +288,61 @@ function imoney_payments_init_gateway_class() {
             $order->update_status('pending', __('Awaiting Internet Money (IMN) payment.', 'imoney-payments'));
             $order->save();
 
-            // Clear cart
-            WC()->cart->empty_cart();
+            // Clear the cart. There is none when an order is paid for outside a shopping session.
+            if (WC()->cart) {
+                WC()->cart->empty_cart();
+            }
 
             // Return thank you redirect
             return array(
                 'result'   => 'success',
                 'redirect' => $this->get_return_url($order)
             );
+        }
+
+        /**
+         * Records a refund and prepares the payment that carries it out.
+         *
+         * Nothing is sent from here: the shop's key is not on this server. The refund becomes a
+         * payment request, shown on the order, for the merchant to pay from their own wallet.
+         * It names the order's refund number, so the shop's node can see when it has been paid.
+         */
+        public function process_refund($order_id, $amount = null, $reason = '') {
+            $order = wc_get_order($order_id);
+            $atoms = $order ? (int) $order->get_meta('_imoney_amount_atoms') : 0;
+            $total = $order ? (float) $order->get_total() : 0;
+            if (!$order || $atoms <= 0 || $total <= 0 || !$order->get_meta('_imoney_invoice_id')) {
+                return new WP_Error('imoney_refund', __('This order was not paid with Internet Money.', 'imoney-payments'));
+            }
+            if ($amount === null || (float) $amount <= 0) {
+                return new WP_Error('imoney_refund', __('Enter the amount to refund.', 'imoney-payments'));
+            }
+            $address = imoney_refund_address($order);
+            if (!$address) {
+                return new WP_Error('imoney_refund', __('No refund address is known for this order. Enter the customer\'s IMN address in the Internet Money refund box and save the order first.', 'imoney-payments'));
+            }
+
+            // The same share of the IMN the customer paid as the share of the order being refunded
+            $refund_atoms = (int) round($atoms * min(1, (float) $amount / $total));
+            $owed = min($atoms, (int) $order->get_meta('_imoney_refund_atoms') + $refund_atoms);
+            $order->update_meta_data('_imoney_refund_atoms', (string) $owed);
+            $order->update_meta_data('_imoney_refund_address', $address);
+            // Every address a refund of this order was directed to, so a change of address
+            // part-way does not hide what was already sent
+            $used = array_filter((array) $order->get_meta('_imoney_refund_addresses'));
+            if (!in_array($address, $used, true)) {
+                $used[] = $address;
+                $order->update_meta_data('_imoney_refund_addresses', $used);
+            }
+            $order->save();
+
+            $order->add_order_note(sprintf(
+                /* translators: 1: IMN amount, 2: payment request */
+                __('Internet Money refund of %1$s IMN recorded. It is not sent yet: pay this request from your wallet to send it. %2$s', 'imoney-payments'),
+                imoney_atoms_to_imn($refund_atoms),
+                imoney_refund_uri($order, $refund_atoms)
+            ));
+            return true;
         }
 
         /**
@@ -402,6 +450,154 @@ function imoney_payments_init_gateway_class() {
 }
 
 // Register the WooCommerce gateway class
+/**
+ * The invoice number a refund of this order carries: the order's own with ".refund" added.
+ */
+function imoney_refund_invoice_id($order) {
+    return substr((string) $order->get_meta('_imoney_invoice_id'), 0, 57) . '.refund';
+}
+
+/**
+ * Asks the shop's node about an invoice at an address. Returns the decoded reply, or null.
+ */
+function imoney_node_invoice($invoice_id, $address) {
+    $gateway = imoney_gateway();
+    if (!$gateway || !$invoice_id || !$address) {
+        return null;
+    }
+    $url = untrailingslashit($gateway->node_url) . '/api/v1/invoice/' . rawurlencode($invoice_id) . '?address=' . rawurlencode($address);
+    $response = wp_remote_get($url, array('timeout' => 10));
+    if (is_wp_error($response) || wp_remote_retrieve_response_code($response) !== 200) {
+        return null;
+    }
+    $invoice = json_decode(wp_remote_retrieve_body($response), true);
+    return is_array($invoice) ? $invoice : null;
+}
+
+/**
+ * The address the order was paid from, as the shop's node reports it.
+ */
+function imoney_payer_address($order) {
+    $invoice = imoney_node_invoice($order->get_meta('_imoney_invoice_id'), $order->get_meta('_imoney_address'));
+    $payer = isset($invoice['payments'][0]['payer_address']) ? (string) $invoice['payments'][0]['payer_address'] : '';
+    return imoney_is_address($payer) ? $payer : '';
+}
+
+function imoney_is_address($address) {
+    return (bool) preg_match('/^imn(test)?:[a-z0-9]{40,90}$/', (string) $address);
+}
+
+/**
+ * Where a refund of this order goes: the address the merchant entered, or else the address
+ * that paid.
+ */
+function imoney_refund_address($order) {
+    $chosen = (string) $order->get_meta('_imoney_refund_address');
+    return imoney_is_address($chosen) ? $chosen : imoney_payer_address($order);
+}
+
+/**
+ * Atoms of refund the shop's node has seen for this order, across every address a refund was
+ * directed to. Null when the node cannot be reached.
+ */
+function imoney_refund_sent($order) {
+    $addresses = array_filter((array) $order->get_meta('_imoney_refund_addresses'));
+    $current = imoney_refund_address($order);
+    if ($current && !in_array($current, $addresses, true)) {
+        $addresses[] = $current;
+    }
+    $sent = 0;
+    foreach ($addresses as $address) {
+        $status = imoney_node_invoice(imoney_refund_invoice_id($order), $address);
+        if (!$status || !isset($status['seen_atoms'])) {
+            return null;
+        }
+        $sent += (int) $status['seen_atoms'];
+    }
+    return $sent;
+}
+
+function imoney_refund_uri($order, $atoms) {
+    return imoney_refund_address($order) . '?amount=' . imoney_atoms_to_imn($atoms) . '&invoice=' . rawurlencode(imoney_refund_invoice_id($order));
+}
+
+/**
+ * The refund box on the order screen: where a refund would go, what is still to be sent, and
+ * the payment request that sends it.
+ */
+add_action('add_meta_boxes', 'imoney_add_refund_box');
+function imoney_add_refund_box() {
+    $screens = array('shop_order');
+    if (function_exists('wc_get_page_screen_id')) {
+        $screens[] = wc_get_page_screen_id('shop-order');
+    }
+    foreach (array_unique($screens) as $screen) {
+        add_meta_box('imoney-refund', __('Internet Money refund', 'imoney-payments'), 'imoney_render_refund_box', $screen, 'side');
+    }
+}
+
+function imoney_render_refund_box($post_or_order) {
+    $order = $post_or_order instanceof WC_Order ? $post_or_order : wc_get_order($post_or_order->ID);
+    if (!$order || $order->get_payment_method() !== 'imoney' || !$order->get_meta('_imoney_invoice_id')) {
+        echo '<p>' . esc_html__('This order was not paid with Internet Money.', 'imoney-payments') . '</p>';
+        return;
+    }
+    $payer = imoney_payer_address($order);
+    $chosen = (string) $order->get_meta('_imoney_refund_address');
+    $owed = (int) $order->get_meta('_imoney_refund_atoms');
+
+    echo '<p><strong>' . esc_html__('Paid from', 'imoney-payments') . '</strong><br><code style="word-break: break-all;">' . esc_html($payer ? $payer : __('not known yet', 'imoney-payments')) . '</code></p>';
+    echo '<p><label for="imoney_refund_address"><strong>' . esc_html__('Refund to', 'imoney-payments') . '</strong></label><br>';
+    echo '<input type="text" id="imoney_refund_address" name="imoney_refund_address" value="' . esc_attr($chosen) . '" placeholder="' . esc_attr($payer) . '" style="width: 100%;"></p>';
+    echo '<p class="description">' . esc_html__('Leave empty to refund the address that paid. If the customer paid from an exchange, that address is the exchange\'s: ask the customer for their own address and enter it here.', 'imoney-payments') . '</p>';
+
+    if ($owed <= 0) {
+        echo '<p>' . esc_html__('To refund, use the Refund button under the order items. The refund is then shown here as a payment request for your wallet.', 'imoney-payments') . '</p>';
+        return;
+    }
+
+    $address = imoney_refund_address($order);
+    $sent = imoney_refund_sent($order);
+    $remaining = max(0, $owed - (int) $sent);
+    echo '<hr><p><strong>' . esc_html__('Refunds recorded', 'imoney-payments') . ':</strong> ' . esc_html(imoney_atoms_to_imn($owed)) . ' IMN<br>';
+    echo '<strong>' . esc_html__('Sent so far', 'imoney-payments') . ':</strong> ' . esc_html($sent !== null ? imoney_atoms_to_imn($sent) . ' IMN' : __('node not reachable', 'imoney-payments')) . '</p>';
+    if ($sent === null) {
+        return;
+    }
+    if ($remaining > 0 && $address) {
+        $uri = imoney_refund_uri($order, $remaining);
+        echo '<p>' . esc_html__('Pay this request from the wallet that holds the shop\'s funds:', 'imoney-payments') . '</p>';
+        echo '<div id="imoney-refund-qr" style="background: #fff; border: 1px solid #0f2e23; padding: 6px; width: 180px; height: 180px; box-sizing: border-box;"></div>';
+        echo '<p><code style="word-break: break-all; font-size: 11px;">' . esc_html($uri) . '</code></p>';
+        echo '<p class="description">' . esc_html__('You pay the network fee, about 0.0001 IMN, on top. Reload this page afterwards to see it arrive.', 'imoney-payments') . '</p>';
+        echo '<script src="' . esc_url(plugins_url('imoney.js', __FILE__)) . '"></script>';
+        echo '<script>if (window.IMoney && IMoney.qrSvg) { document.getElementById("imoney-refund-qr").innerHTML = IMoney.qrSvg(' . wp_json_encode($uri) . '); }</script>';
+    } elseif ($remaining === 0) {
+        echo '<p style="color: #0b7a4b; font-weight: bold;">' . esc_html__('The refund has been sent in full.', 'imoney-payments') . '</p>';
+    }
+}
+
+add_action('woocommerce_process_shop_order_meta', 'imoney_save_refund_address');
+function imoney_save_refund_address($order_id) {
+    if (!isset($_POST['imoney_refund_address']) || !current_user_can('edit_shop_orders')) { // phpcs:ignore WordPress.Security.NonceVerification.Missing -- WooCommerce verified the order form's nonce before this hook
+        return;
+    }
+    $order = wc_get_order($order_id);
+    $address = strtolower(trim(sanitize_text_field(wp_unslash($_POST['imoney_refund_address'])))); // phpcs:ignore WordPress.Security.NonceVerification.Missing
+    if (!$order || $order->get_payment_method() !== 'imoney') {
+        return;
+    }
+    if ($address === '') {
+        $order->delete_meta_data('_imoney_refund_address');
+    } elseif (imoney_is_address($address)) {
+        $order->update_meta_data('_imoney_refund_address', $address);
+    } else {
+        $order->add_order_note(__('The Internet Money refund address entered is not a valid IMN address and was not saved.', 'imoney-payments'));
+        return;
+    }
+    $order->save();
+}
+
 add_filter('woocommerce_payment_gateways', 'imoney_add_gateway_class');
 function imoney_add_gateway_class($gateways) {
     $gateways[] = 'WC_Gateway_IMoney';

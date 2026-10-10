@@ -109,6 +109,59 @@ The WooCommerce plugin in [`plugins/imoney-payments-for-woocommerce`](../../plug
 does all of the above for a WordPress shop: one invoice per order, a checkout window, and a
 server-side check against the shop's node before the order is marked paid.
 
+## Refunds
+
+Nobody but the shop can take a payment back: there are no chargebacks. A refund is a payment
+the shop chooses to send, in full or in part. Three conventions make it tidy.
+
+**Where it goes.** The invoice lookup reports the address each payment came from:
+
+```json
+{ "payments": [ { "tx_id": "2b59228a…", "amount_atoms": 500000000, "level": "included",
+                  "payer_address": "imntest:qp2r0p62qzze…" } ] }
+```
+
+Refund there by default, but let the customer name another address. A payment sent from an
+exchange comes from the exchange's address, and a refund sent back to it does not reach the
+customer.
+
+**What it is called.** A refund of `order-1001` carries the invoice ID `order-1001.refund`.
+Every refund of that order uses it, so part refunds add up under one number, and both sides
+can find it:
+
+```bash
+curl "$N/api/v1/invoice/order-1001.refund?address=<the customer's address>"
+```
+
+`seen_atoms` there is how much has been refunded so far.
+
+**Who sends it.** The shop's own wallet, not the server. The server only prepares a payment
+request, which the merchant opens or scans:
+
+```
+imntest:qp2r0p62qzze…?amount=2&invoice=order-1001.refund
+```
+
+In the SDK:
+
+```js
+const refund = client.createRefund({ invoiceId: 'order-1001', toAddress: payerAddress, amountImn: '2' });
+console.log(refund.uri);                                  // show as a link or QR code to the merchant
+const status = await client.getRefund('order-1001', payerAddress);
+console.log('refunded so far:', status.seen_atoms);
+```
+
+**Who pays the fee.** Whoever sends a payment pays its network fee, so the shop pays about
+0.0001 IMN on a refund and the customer receives exactly the amount named. The fee the
+customer paid on the original payment went to the network and cannot be returned. A shop that
+wants the customer to bear the refund fee refunds that much less; at a hundredth of a cent it
+is rarely worth the argument.
+
+**In WooCommerce.** Use the ordinary Refund button on the order. The plugin records the
+refund, works out the IMN amount as the same share of what the customer paid, and shows an
+**Internet Money refund** box with a QR code to pay from your wallet. The box reports what has
+been sent, reading it from your node, and lets you enter a different refund address.
+
 ## Things that catch people out
 
 - **Reusing an invoice ID.** Two orders with one ID share their payments. Make IDs unique.
@@ -117,6 +170,6 @@ server-side check against the shop's node before the order is marked paid.
 - **Asking someone else's node.** Whoever runs the node you ask can tell you anything. A node
   that verifies everything itself runs on a small server; see
   [RUNNING-A-NODE.md](../RUNNING-A-NODE.md).
-- **Refunds.** There is no "reverse". A refund is a new payment from you to the customer.
+- **A refund is a new payment.** Nothing is reversed; see [Refunds](#refunds) above.
 
 Next: [a paid API](06-paid-api.md).

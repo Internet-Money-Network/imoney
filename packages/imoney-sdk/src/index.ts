@@ -104,6 +104,11 @@ export interface InvoicePayment {
   amount_atoms: number;
   confirmations: number;
   level: PaymentLevel;
+  /**
+   * The address the payment came from. A refund goes here unless the customer names another:
+   * a payment sent from an exchange comes from the exchange's address, not the customer's.
+   */
+  payer_address?: string | null;
 }
 
 /** What has been paid towards an invoice. `seen_atoms >= included_atoms >= final_atoms`. */
@@ -161,6 +166,17 @@ export interface CheckoutOptions {
 const INVOICE_ID_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
 
 /** An invoice ID is 1 to 64 characters from `A-Z a-z 0-9 - _ .` */
+/**
+ * The invoice ID a refund of `invoiceId` carries: the same ID with `.refund` added. Every
+ * refund of an order uses it, so part refunds add up under one number. An ID too long to
+ * take the suffix is shortened first; such IDs must still differ in their first 57 characters.
+ */
+export function refundInvoiceId(invoiceId: string): string {
+  if (!isValidInvoiceId(invoiceId)) throw new Error('Invoice ID must be 1-64 characters of A-Z a-z 0-9 - _ .');
+  const suffix = '.refund';
+  return invoiceId.slice(0, 64 - suffix.length) + suffix;
+}
+
 export function isValidInvoiceId(id: string): boolean {
   return INVOICE_ID_PATTERN.test(id);
 }
@@ -293,6 +309,27 @@ export class IMoneyClient {
     if (amountAtoms <= 0) throw new Error('Invoice amount must be positive');
     const amountImn = atomsToImn(amountAtoms);
     return { invoiceId, address: options.address, amountAtoms, amountImn, uri: paymentUri(options.address, amountImn, invoiceId) };
+  }
+
+  /**
+   * A request for a refund of `invoiceId`, for the merchant's own wallet to pay. Open or scan
+   * `uri` in a wallet that holds the shop's funds: the server never needs a key.
+   *
+   * `toAddress` is where the money goes back: the `payer_address` of the original payment, or
+   * an address the customer gave you. The network fee, about 0.0001 IMN, is paid by whoever
+   * sends, so the customer receives the full amount named here.
+   */
+  createRefund(options: { invoiceId: string; toAddress: string; amountImn: number | string }): Invoice {
+    return this.createInvoice({
+      address: options.toAddress,
+      amountImn: options.amountImn,
+      invoiceId: refundInvoiceId(options.invoiceId),
+    });
+  }
+
+  /** What has been refunded for `invoiceId` to `toAddress` so far. */
+  getRefund(invoiceId: string, toAddress: string): Promise<InvoiceStatus> {
+    return this.getInvoice(refundInvoiceId(invoiceId), toAddress);
   }
 
   /** What has been paid towards an invoice so far. */

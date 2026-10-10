@@ -6,6 +6,11 @@ Notable changes to Internet Money. Nothing has been released yet: everything bel
 ## Unreleased
 
 ### Added
+- **Refunds.** A node reports the address each invoice payment came from (`payer_address`) and
+  the senders of any transaction. A refund is a payment back under the invoice ID
+  `<id>.refund`, sent from the merchant's own wallet. The SDK gains `createRefund`,
+  `getRefund` and `refundInvoiceId`; the WooCommerce plugin supports the Refund button, with
+  part refunds, a QR code to pay from the shop's wallet, and a field for another address.
 - **A cookbook** (`docs/cookbook`): nine chapters on how the network works and how to build on
   it, with runnable examples in `examples/cookbook`, including a paid API and a client that
   pays for it by itself.

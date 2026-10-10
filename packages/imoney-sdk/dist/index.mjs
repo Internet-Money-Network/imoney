@@ -1715,6 +1715,11 @@ var require_qrcode = __commonJS({
 var import_qrcode_generator = __toESM(require_qrcode());
 var ATOMS_PER_IMN = 1e8;
 var INVOICE_ID_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
+function refundInvoiceId(invoiceId) {
+  if (!isValidInvoiceId(invoiceId)) throw new Error("Invoice ID must be 1-64 characters of A-Z a-z 0-9 - _ .");
+  const suffix = ".refund";
+  return invoiceId.slice(0, 64 - suffix.length) + suffix;
+}
 function isValidInvoiceId(id) {
   return INVOICE_ID_PATTERN.test(id);
 }
@@ -1821,6 +1826,25 @@ var IMoneyClient = class {
     if (amountAtoms <= 0) throw new Error("Invoice amount must be positive");
     const amountImn = atomsToImn(amountAtoms);
     return { invoiceId, address: options.address, amountAtoms, amountImn, uri: paymentUri(options.address, amountImn, invoiceId) };
+  }
+  /**
+   * A request for a refund of `invoiceId`, for the merchant's own wallet to pay. Open or scan
+   * `uri` in a wallet that holds the shop's funds: the server never needs a key.
+   *
+   * `toAddress` is where the money goes back: the `payer_address` of the original payment, or
+   * an address the customer gave you. The network fee, about 0.0001 IMN, is paid by whoever
+   * sends, so the customer receives the full amount named here.
+   */
+  createRefund(options) {
+    return this.createInvoice({
+      address: options.toAddress,
+      amountImn: options.amountImn,
+      invoiceId: refundInvoiceId(options.invoiceId)
+    });
+  }
+  /** What has been refunded for `invoiceId` to `toAddress` so far. */
+  getRefund(invoiceId, toAddress) {
+    return this.getInvoice(refundInvoiceId(invoiceId), toAddress);
   }
   /** What has been paid towards an invoice so far. */
   getInvoice(invoiceId, address) {
@@ -2053,5 +2077,6 @@ export {
   newInvoiceId,
   parsePaymentUri,
   paymentUri,
-  qrSvg
+  qrSvg,
+  refundInvoiceId
 };

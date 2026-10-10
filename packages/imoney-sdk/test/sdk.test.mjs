@@ -130,3 +130,18 @@ test('waitForPayment can be cancelled and survives a node outage', async () => {
   assert.equal(status.included_atoms, 100_000);
   assert.equal(attempts, 3);
 });
+
+test('a refund is a payment request back to the customer under the order\'s refund number', () => {
+  const client = new IMoneyClient({ nodeUrl: 'http://node.test' });
+  assert.equal(sdk.refundInvoiceId('order-1001'), 'order-1001.refund');
+  // An ID too long for the suffix is shortened, and the result is still a valid ID
+  const long = 'x'.repeat(64);
+  assert.equal(sdk.refundInvoiceId(long).length, 64);
+  assert.ok(sdk.isValidInvoiceId(sdk.refundInvoiceId(long)));
+  assert.throws(() => sdk.refundInvoiceId('not valid!'));
+
+  const refund = client.createRefund({ invoiceId: 'order-1001', toAddress: ADDRESS, amountImn: '0.5' });
+  assert.equal(refund.invoiceId, 'order-1001.refund');
+  assert.equal(refund.amountAtoms, 50_000_000);
+  assert.equal(refund.uri, `${ADDRESS}?amount=0.5&invoice=order-1001.refund`);
+});

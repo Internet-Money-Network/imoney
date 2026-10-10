@@ -154,6 +154,21 @@ impl Transaction {
     }
 
     /// Checks an input that spends a multi-signature output locked to `script_hash`.
+    /// The address whose coin the given input spends, read from the input's signature script:
+    /// the key's address for an ordinary spend, the script's address for a multi-signature one.
+    ///
+    /// This is who paid. It is only meaningful for a transaction whose signatures have been
+    /// checked, as every transaction a node holds has been; on its own it proves nothing.
+    pub fn input_address(&self, network: Network, input_index: usize) -> Option<Address> {
+        let signature_script = &self.inputs.get(input_index)?.signature_script;
+        if signature_script.len() == 96 {
+            return Some(Address::from_public_key(network, AddressType::PubKeyHash, &signature_script[..32]));
+        }
+        let key_count = *signature_script.get(1)? as usize;
+        let script = MultisigScript::from_bytes(signature_script.get(..2 + 32 * key_count)?).ok()?;
+        Some(script.address(network))
+    }
+
     pub(crate) fn verify_multisig_input(
         &self,
         network: Network,
