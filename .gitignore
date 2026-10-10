@@ -25,6 +25,7 @@ node_modules/
 
 # Local launcher with this machine's own server address
 START-HOME-NODE-MINER.bat
+START-SOAK.bat
 
 # Fuzzing output
 fuzz/target/
