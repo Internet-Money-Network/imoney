@@ -151,7 +151,10 @@ impl GpuSearcher {
     fn new(device: &Device, flat: &[u32]) -> Result<Self, Error> {
         let context = Context::from_device(device)?;
         let queue = CommandQueue::create_default(&context, 0)?;
-        let program = Program::create_and_build_from_source(&context, KERNEL_SOURCE, "")
+        // The dataset size is fixed for a network, and a kernel compiled with it as a constant
+        // divides by it far faster than one handed it at run time
+        let options = format!("-D DATASET_ITEMS={}u", flat.len() / 32);
+        let program = Program::create_and_build_from_source(&context, KERNEL_SOURCE, &options)
             .map_err(|log| format!("the OpenCL kernel did not compile:\n{}", log))?;
         let kernel = Kernel::create(&program, "search")?;
 

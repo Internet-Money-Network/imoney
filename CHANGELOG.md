@@ -31,6 +31,9 @@ Notable changes to Internet Money. Nothing has been released yet: everything bel
 - `SECURITY.md`, `CONTRIBUTING.md`, `TRADEMARKS.md`, an integration guide and this file.
 
 ### Changed
+- **The GPU miner is about 40% faster**: 26 to 37-39 MH/s on a Radeon RX 7800 XT at full
+  dataset size. The kernel now works on 64-bit words and is compiled with the dataset size
+  as a constant.
 - **Nodes are slower to ban each other.** Only a block without proof of work bans a peer at
   once. Other invalid blocks, which an honest peer on an older version can relay, score a
   little and the score fades with time. A failure of our own disk no longer counts against

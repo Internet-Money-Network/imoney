@@ -216,7 +216,7 @@ builds the dataset on the CPU, copies it to the card, and checks every nonce the
 the CPU before submitting. `--list-devices` shows the cards, `--device N` picks one, and
 every start compares the card's hashes with the CPU's before mining, and `--benchmark` then measures the hashrate
 (`--pow-size mainnet` for the full 4.6 GB dataset). Measured on a Radeon RX 7800 XT: about
-50 MH/s on the test network's dataset and 26 MH/s on the full-size one. The search kernel is
+37 to 39 MH/s on the full-size dataset. The search kernel is
 `crates/imoney-gpu-miner/src/search.cl`.
 
 ### Stratum

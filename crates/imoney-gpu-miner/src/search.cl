@@ -12,6 +12,12 @@
 #define NUM_DATASET_ACCESSES 32
 #define MAX_RESULTS 4
 
+// The host compiles this with -D DATASET_ITEMS=<count>, so the three reductions per round are by
+// a constant. Without it the count passed to the kernel is used.
+#ifndef DATASET_ITEMS
+#define DATASET_ITEMS dataset_items
+#endif
+
 #define CHUNK_START 1u
 #define CHUNK_END 2u
 #define ROOT 8u
@@ -96,40 +102,37 @@ __kernel void search(__global const uint *dataset,
     uint seed[16];
     blake3_compress(iv, block, 40u, CHUNK_START | CHUNK_END | ROOT, seed);
 
-    // The mix starts as the seed twice
-    uint mix[32];
-    for (int i = 0; i < 16; i++) {
-        mix[i] = seed[i];
-        mix[i + 16] = seed[i];
+    // The mix starts as the seed twice. It is kept as sixteen 64-bit words: the round below
+    // works on 64-bit halves, and items are read from memory the same way.
+    ulong mix[16];
+    for (int i = 0; i < 8; i++) {
+        mix[i] = (ulong)seed[2 * i] | ((ulong)seed[2 * i + 1] << 32);
+        mix[i + 8] = mix[i];
     }
 
+    __global const ulong *items = (__global const ulong *)dataset;
     for (int round = 0; round < NUM_DATASET_ACCESSES; round++) {
-        __global const uint *item0 = dataset + (ulong)(mix[0] % dataset_items) * 32;
-        __global const uint *item1 = dataset + (ulong)(mix[4] % dataset_items) * 32;
-        __global const uint *item2 = dataset + (ulong)(mix[8] % dataset_items) * 32;
+        // 32-bit words 0, 4 and 8 of the mix pick the three items
+        __global const ulong *item0 = items + (ulong)((uint)mix[0] % DATASET_ITEMS) * 16;
+        __global const ulong *item1 = items + (ulong)((uint)mix[2] % DATASET_ITEMS) * 16;
+        __global const ulong *item2 = items + (ulong)((uint)mix[4] % DATASET_ITEMS) * 16;
 
-        uint fetch1[32];
-        uint fetch2[32];
-        for (int j = 0; j < 32; j++) {
-            fetch1[j] = fnv1(mix[j], item1[j]);
-            fetch2[j] = mix[j] ^ item2[j];
-        }
         for (int j = 0; j < 16; j++) {
-            ulong a = (ulong)item0[2 * j] | ((ulong)item0[2 * j + 1] << 32);
-            ulong b = (ulong)fetch1[2 * j] | ((ulong)fetch1[2 * j + 1] << 32);
-            ulong c = (ulong)fetch2[2 * j] | ((ulong)fetch2[2 * j + 1] << 32);
-            ulong value = a * b + c;
-            mix[2 * j] = (uint)value;
-            mix[2 * j + 1] = (uint)(value >> 32);
+            ulong m = mix[j];
+            ulong i1 = item1[j];
+            // FNV on each 32-bit half
+            ulong b = (ulong)fnv1((uint)m, (uint)i1) | ((ulong)fnv1((uint)(m >> 32), (uint)(i1 >> 32)) << 32);
+            ulong c = m ^ item2[j];
+            mix[j] = item0[j] * b + c;
         }
     }
 
     // Fold the 128-byte mix to 32 bytes
     uint folded[16];
     for (int i = 0; i < 8; i++) {
-        uint h = fnv1(mix[4 * i], mix[4 * i + 1]);
-        h = fnv1(h, mix[4 * i + 2]);
-        folded[i] = fnv1(h, mix[4 * i + 3]);
+        uint h = fnv1((uint)mix[2 * i], (uint)(mix[2 * i] >> 32));
+        h = fnv1(h, (uint)mix[2 * i + 1]);
+        folded[i] = fnv1(h, (uint)(mix[2 * i + 1] >> 32));
     }
     for (int i = 8; i < 16; i++) folded[i] = 0u;
 
