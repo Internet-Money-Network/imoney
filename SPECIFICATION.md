@@ -168,5 +168,15 @@ An address of type `ScriptHash` (type byte 2) locks coins to the hash of a scrip
 
 An input spending such a coin carries the script followed by exactly `m` entries of one byte (the signing key's position in the script) and a 64-byte signature, with positions strictly ascending. Each signature is over the ordinary signing hash of that input. The signing hash does not cover signature scripts, so key holders sign independently and in any order.
 
-### 8.4 Keys
+### 8.4 Hash locks
+An address of type `HashLock` (type byte 3) locks coins to the hash of a 104-byte script: the recipient's Ed25519 public key (32 bytes), the refunder's (32), a SHA-256 hash (32), and a blue score as an 8-byte big-endian number. The address hash is `Blake3-derive-key("IMN 2026 hash lock script", script)`.
+
+An input spending such a coin carries the script, one branch byte, a 64-byte signature over the ordinary signing hash of that input, and for a claim a 32-byte secret:
+
+- **Claim** (branch 0): signed by the recipient, and `SHA-256(secret)` equals the hash in the script. Valid at any time.
+- **Refund** (branch 1): signed by the refunder. Valid only when the blue score of the block that accepts the transaction is at least the script's.
+
+Two parties who lock coins for each other under one hash, here and on another chain, can exchange them without a third party: claiming either side publishes the secret that claims the other, and an unclaimed lock returns to its owner after its deadline. The refund deadline on the chain where the secret is revealed second must be the later of the two, with enough margin for the other party to act.
+
+### 8.5 Keys
 Nodes do not create, store or receive private keys. Wallets sign locally; the reference wallet uses a WebAssembly build of the same transaction code the node runs. A wallet's key is derived from a 12-word BIP-39 recovery phrase as `Blake3-derive-key("IMN 2026 wallet key 0", BIP-39 seed)`.

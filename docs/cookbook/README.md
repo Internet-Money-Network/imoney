@@ -41,6 +41,7 @@ export IMN_NODE=http://127.0.0.1:28556
 | `paid_api_server` | 6 | A service that answers once an invoice is paid |
 | `paid_api_client` | 6 | A program that gets a quote, pays it and collects |
 | `multisig` | 7 | Funds a 2-of-3 address and spends from it |
+| `hashlock` | — | The IMN half of an atomic swap: lock under a secret's hash, claim, refund |
 
 ## Other documents
 

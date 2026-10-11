@@ -164,6 +164,10 @@ impl Transaction {
         if signature_script.len() == 96 {
             return Some(Address::from_public_key(network, AddressType::PubKeyHash, &signature_script[..32]));
         }
+        if let Some(spend) = self.hashlock_spend(input_index) {
+            let (crate::HashLockSpend::Claim { script, .. } | crate::HashLockSpend::Refund { script }) = spend;
+            return Some(script.address(network));
+        }
         let key_count = *signature_script.get(1)? as usize;
         let script = MultisigScript::from_bytes(signature_script.get(..2 + 32 * key_count)?).ok()?;
         Some(script.address(network))

@@ -605,7 +605,7 @@ impl DagLedger {
             }
 
             // Verify signature against public key and address hash
-            tx.verify_input(self.network, i, &utxo.output.script_public_key)
+            tx.verify_input_at(self.network, i, &utxo.output.script_public_key, spending_blue_score)
                 .map_err(|e| StateError::Transaction(format!("Signature check failed on input {}: {}", i, e)))?;
 
             total_input_atoms = total_input_atoms

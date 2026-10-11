@@ -26,6 +26,8 @@ pub enum AddressType {
     PostQuantumHash = 0x01,
     /// Multi-signature Script Hash (P2SH)
     ScriptHash = 0x02,
+    /// Hash-and-time lock, for atomic swaps
+    HashLock = 0x03,
 }
 
 impl AddressType {
@@ -34,6 +36,7 @@ impl AddressType {
             0x00 => Some(AddressType::PubKeyHash),
             0x01 => Some(AddressType::PostQuantumHash),
             0x02 => Some(AddressType::ScriptHash),
+            0x03 => Some(AddressType::HashLock),
             _ => None,
         }
     }

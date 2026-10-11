@@ -6,6 +6,10 @@ Notable changes to Internet Money. Nothing has been released yet: everything bel
 ## Unreleased
 
 ### Added
+- **Hash locks**, the building block of atomic swaps: coins that the recipient can claim with
+  a secret, or the sender can take back after a deadline. With the same lock on another chain,
+  two people can trade IMN for another asset with no exchange and no custodian. A consensus
+  rule: every node must run this version before anyone uses it.
 - **Refunds.** A node reports the address each invoice payment came from (`payer_address`) and
   the senders of any transaction. A refund is a payment back under the invoice ID
   `<id>.refund`, sent from the merchant's own wallet. The SDK gains `createRefund`,

@@ -160,6 +160,9 @@ pub struct TxStatusResponse {
     pub outputs: Vec<TxOutputView>,
     /// The addresses whose coins the payment spends, without repeats: who paid.
     pub senders: Vec<String>,
+    /// Swap secrets this payment revealed by claiming hash-locked coins, as hex. The other
+    /// party of a swap reads the secret here to claim their side.
+    pub revealed_secrets: Vec<String>,
     /// The invoice the payment names, if any.
     pub invoice_id: Option<String>,
     /// The node address that receives half of the fee, if the payment names one.
@@ -726,6 +729,7 @@ async fn tx_status_handler(
                     senders.dedup();
                     senders
                 },
+                revealed_secrets: (0..info.tx.inputs.len()).filter_map(|index| info.tx.revealed_secret(index)).map(hex::encode).collect(),
                 invoice_id: info.tx.invoice_id().map(str::to_string),
                 service_address: info.tx.service.as_ref().and_then(|script| script_address(ledger.network, script)),
                 size_bytes: imoney_core::Encode::to_bytes(&info.tx).len(),
@@ -744,6 +748,7 @@ async fn tx_status_handler(
             inputs: Vec::new(),
             outputs: Vec::new(),
             senders: Vec::new(),
+            revealed_secrets: Vec::new(),
             invoice_id: None,
             service_address: None,
             size_bytes: 0,

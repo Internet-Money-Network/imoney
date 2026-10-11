@@ -42,6 +42,8 @@ pub enum TransactionError {
     PublicKeyAddressMismatch,
     #[error("Unsupported script version: {0}")]
     UnsupportedScriptVersion(u8),
+    #[error("Invalid hash-lock spend: {0}")]
+    InvalidHashLock(String),
     #[error("Invalid multi-signature spend: {0}")]
     InvalidMultisig(String),
 }
@@ -219,6 +221,22 @@ impl Transaction {
         input_index: usize,
         spent_script: &ScriptPublicKey,
     ) -> Result<(), TransactionError> {
+        // With no block to judge a deadline by, nothing time-locked has matured
+        self.verify_input_at(network, input_index, spent_script, 0)
+    }
+
+    /// Checks an input as spent in a block of the given blue score. Only a hash-lock refund
+    /// depends on the score; everything else is valid at any time or not at all.
+    pub fn verify_input_at(
+        &self,
+        network: Network,
+        input_index: usize,
+        spent_script: &ScriptPublicKey,
+        spending_blue_score: u64,
+    ) -> Result<(), TransactionError> {
+        if spent_script.version == crate::hashlock::SCRIPT_VERSION_HASHLOCK {
+            return self.verify_hashlock_input(network, input_index, &spent_script.script, spending_blue_score);
+        }
         if spent_script.version == crate::multisig::SCRIPT_VERSION_MULTISIG {
             return self.verify_multisig_input(network, input_index, &spent_script.script);
         }

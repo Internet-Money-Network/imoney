@@ -1310,3 +1310,65 @@ fn an_invoice_payment_names_its_payer_and_a_refund_is_found_the_same_way() {
     // The order's own record is untouched
     assert_eq!(ledger.invoice_payments("order-7", &address_of(&shop)).unwrap()[0].amount_atoms, 300_000);
 }
+
+#[test]
+fn hash_locked_coins_are_claimed_with_the_secret_or_refunded_after_the_deadline() {
+    use imoney_core::{secret_hash, HashLockScript};
+    let alice = key(230);
+    let bob = key(231);
+    let (mut ledger, pow) = funded_ledger("hashlock", &alice);
+    let miner = address_of(&key(232));
+    let secret = [0x5a; 32];
+    let lock = |ledger: &mut DagLedger, refund_after: u64| {
+        let script =
+            HashLockScript::new(bob.verifying_key().to_bytes(), alice.verifying_key().to_bytes(), secret_hash(&secret), refund_after).unwrap();
+        let address = script.address(Network::Testnet);
+        let coins = ledger.get_spendable_utxos(&address_of(&alice)).unwrap();
+        let funding = Transaction::build_payment(&alice, Network::Testnet, &address, 400_000, 1_000, coins, None).unwrap();
+        let outpoint = Outpoint { transaction_id: ledger.broadcast_transaction(funding).unwrap(), index: 0 };
+        (script, address, outpoint)
+    };
+
+    // Alice locks coins for Bob, who claims them by revealing the secret
+    let (script, address, outpoint) = lock(&mut ledger, 1_000_000);
+    mine_tip(&mut ledger, &pow, &miner);
+    assert_eq!(balance(&ledger, &address), 400_000);
+    let claim =
+        Transaction::spend_hashlock(&script, Network::Testnet, (outpoint.clone(), 400_000), &address_of(&bob), 1_000, &bob, Some(secret)).unwrap();
+    let claim_id = ledger.broadcast_transaction(claim).unwrap();
+    mine_tip(&mut ledger, &pow, &miner);
+    assert_eq!(balance(&ledger, &address_of(&bob)), 399_000);
+    assert_eq!(balance(&ledger, &address), 0);
+    // Alice reads the secret off the chain
+    let seen = ledger.get_transaction(&claim_id).unwrap().unwrap().tx;
+    assert_eq!(seen.revealed_secret(0), Some(secret));
+    assert_eq!(seen.input_address(Network::Testnet, 0), Some(address));
+    // The coin is gone: Alice cannot also take a refund
+    let late = Transaction::spend_hashlock(&script, Network::Testnet, (outpoint, 400_000), &address_of(&alice), 1_000, &alice, None).unwrap();
+    assert!(ledger.broadcast_transaction(late).is_err());
+
+    // A second lock that Bob never claims: Alice gets it back, but not before the deadline
+    let deadline = ledger.virtual_blue_score + 6;
+    let (script, address, outpoint) = lock(&mut ledger, deadline);
+    mine_tip(&mut ledger, &pow, &miner);
+    let refund =
+        Transaction::spend_hashlock(&script, Network::Testnet, (outpoint.clone(), 400_000), &address_of(&alice), 1_000, &alice, None).unwrap();
+    assert!(ledger.broadcast_transaction(refund.clone()).is_err());
+
+    // A miner who puts the early refund in a block anyway gains nothing: it is skipped
+    let tip = ledger.virtual_selected_parent;
+    let early = mine_on(&ledger, &pow, &[tip], &miner, vec![refund.clone()]);
+    ledger.add_block(early, &pow).unwrap();
+    mine_tip(&mut ledger, &pow, &miner);
+    assert_eq!(balance(&ledger, &address), 400_000);
+
+    while ledger.virtual_blue_score < deadline {
+        mine_tip(&mut ledger, &pow, &miner);
+    }
+    let before = balance(&ledger, &address_of(&alice));
+    ledger.broadcast_transaction(refund).unwrap();
+    mine_tip(&mut ledger, &pow, &miner);
+    assert_eq!(balance(&ledger, &address), 0);
+    assert_eq!(balance(&ledger, &address_of(&alice)), before + 399_000);
+    assert_supply_total_is_exact(&ledger);
+}
