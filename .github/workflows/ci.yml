@@ -86,6 +86,12 @@ jobs:
           npm ci
           npm test
 
+      - name: Build & Test the Swap Contract
+        working-directory: contracts
+        run: |
+          npm ci
+          npm test
+
       - name: Check committed SDK bundles are up to date
         run: git diff --exit-code -- packages/imoney-sdk/dist plugins/imoney-payments-for-woocommerce/imoney.js
 
