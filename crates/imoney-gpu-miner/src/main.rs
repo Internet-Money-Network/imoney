@@ -287,7 +287,19 @@ fn run(args: Args) -> Result<(), Error> {
     let batch = 1usize << args.intensity.min(30);
 
     if let Some(server) = &args.stratum {
-        return mine_stratum(device, server, &args, batch);
+        if args.address.is_none() {
+            return Err("--stratum needs --address, the address to be paid".into());
+        }
+        // A pool restarts, a connection drops: keep trying instead of leaving the card idle
+        loop {
+            match mine_stratum(device, server, &args, batch) {
+                Ok(()) => return Ok(()),
+                Err(e) => {
+                    eprintln!("[-] {}. Trying again in 15 seconds.", e);
+                    std::thread::sleep(Duration::from_secs(15));
+                }
+            }
+        }
     }
 
     let Some(node) = args.node.as_deref().map(|n| n.trim_end_matches('/')) else {
