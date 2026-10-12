@@ -1,0 +1,16 @@
+{
+  "name": "imn-swap-contracts",
+  "private": true,
+  "version": "0.1.0",
+  "description": "The Ethereum-side hash lock for atomic swaps with Internet Money",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node build.mjs && node --test \"test/**/*.test.mjs\""
+  },
+  "devDependencies": {
+    "ethers": "^6.13.0",
+    "ganache": "^7.9.2",
+    "solc": "0.8.26"
+  }
+}

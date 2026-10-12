@@ -35,3 +35,4 @@ fuzz/Cargo.lock
 /target-next/
 imoney-cache/
 /dist-site/
+contracts/out/
