@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { BrowserProvider, ContractFactory, ZeroAddress, parseEther } from 'ethers';
+import { BrowserProvider, ContractFactory, Interface, ZeroAddress, parseEther } from 'ethers';
 import ganache from 'ganache';
 
 const artifact = (name) => JSON.parse(readFileSync(`out/${name}.json`, 'utf8'));
@@ -39,8 +39,18 @@ async function setup() {
   return { provider, alice, bob, carol, swap, deploy, wait, now, secret, lock };
 }
 
-/** The call must be refused with exactly this one of the contract's errors. */
-const reverts = (promise, error) => assert.rejects(promise, (e) => e.revert?.name === error);
+/**
+ * The call must be refused with exactly this one of the contract's errors. The test chain
+ * reports the refusal as raw data, which is decoded against the contract's own error list.
+ */
+const errors = new Interface(artifact('ImnSwap').abi);
+const reverts = (promise, error) =>
+  assert.rejects(promise, (e) => {
+    const data = e.data ?? e.info?.error?.data?.result;
+    const name = e.revert?.name ?? (data ? errors.parseError(data)?.name : undefined);
+    assert.equal(name, error);
+    return true;
+  });
 
 test('the recipient is paid when anyone presents the secret, and the secret is published', async () => {
   const { provider, alice, bob, carol, swap, secret, lock } = await setup();
