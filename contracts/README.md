@@ -20,6 +20,9 @@ The tests run on an in-process Ethereum chain and cover claims, refunds, deadlin
 (including one that returns `false` instead of reverting), duplicate locks and a recipient
 that tries to be paid twice.
 
+`e2e-swap.mjs` runs one whole swap, 3 IMN for 0.01 ether, between a private Internet Money
+node and the in-process Ethereum chain. Its header says how to run it.
+
 ## A swap, step by step
 
 Alice has IMN and wants ether; Bob has ether and wants IMN.
