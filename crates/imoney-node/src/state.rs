@@ -137,6 +137,8 @@ pub struct NodeInfo {
     /// Identifies the network; also the base seed of its proof of work.
     pub genesis_hash: String,
     pub total_blocks: usize,
+    /// How many of those blocks are held in memory; the rest are read from disk when needed.
+    pub blocks_in_memory: usize,
     pub virtual_selected_parent: String,
     pub virtual_blue_score: u64,
     pub virtual_daa_score: u64,
@@ -1569,6 +1571,7 @@ impl DagLedger {
             .to_string(),
             genesis_hash: self.genesis_hash.to_hex(),
             total_blocks: self.block_count as usize,
+            blocks_in_memory: self.dag.len(),
             virtual_selected_parent: self.virtual_selected_parent.to_hex(),
             virtual_blue_score: self.virtual_blue_score,
             virtual_daa_score: self.virtual_daa_score,

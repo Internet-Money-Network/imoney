@@ -188,6 +188,8 @@ pub struct StatsResponse {
     pub blue_score: u64,
     pub daa_score: u64,
     pub total_blocks: usize,
+    /// How many of those are held in memory; the rest are read from disk when needed.
+    pub blocks_in_memory: usize,
     pub tips: usize,
     pub mempool_size: usize,
     pub peers: usize,
@@ -353,6 +355,7 @@ async fn stats_handler(State(state): State<Arc<AppState>>) -> Result<Json<StatsR
         blue_score: info.virtual_blue_score,
         daa_score: info.virtual_daa_score,
         total_blocks: info.total_blocks,
+        blocks_in_memory: info.blocks_in_memory,
         tips: info.tips.len(),
         mempool_size: info.mempool_size,
         peers,

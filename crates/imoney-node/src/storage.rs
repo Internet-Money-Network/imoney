@@ -40,6 +40,9 @@ const INVOICE_TABLE: TableDefinition<&[u8], ()> = TableDefinition::new("v4/invoi
 /// What each locking script received and sent, oldest first: key is
 /// `script key ++ accepting blue score ++ transaction id`.
 const HISTORY_TABLE: TableDefinition<&[u8], &[u8]> = TableDefinition::new("v4/script_history");
+/// Memory the database may use to keep recently read pages at hand.
+const DATABASE_CACHE_BYTES: usize = 256 * 1024 * 1024;
+
 /// Every block by `level ++ hash`, with no value: an order in which parents come before
 /// children. It is how a node finds its most recent blocks at startup without reading the
 /// whole chain, and how it pages through the chain for a peer that is syncing.
@@ -440,7 +443,9 @@ impl Drop for DeferredFlush {
 impl Storage {
     /// Opens or creates the on-disk database at the specified path.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, StorageError> {
-        let db = Database::create(path.as_ref())?;
+        // The library's own default is 1 GiB, which a node would grow into as its database
+        // grew. Recent data is what a node reads, and it fits in far less.
+        let db = redb::Builder::new().set_cache_size(DATABASE_CACHE_BYTES).create(path.as_ref())?;
 
         // Ensure initial tables exist
         let write_tx = db.begin_write()?;

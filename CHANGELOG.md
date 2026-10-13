@@ -82,6 +82,9 @@ Notable changes to Internet Money. Nothing has been released yet: everything bel
 - The WooCommerce plugin zip now contains a top-level folder, as WordPress expects.
 
 ### Fixed
+- **The database cache is capped at 256 MB.** The library's default of 1 GB let a node's memory
+  climb as its database grew. Found in the soak run. `/api/v1/info` now reports
+  `blocks_in_memory`.
 - **Signatures are checked strictly.** A public key of small order let one fixed signature
   pass for any message, so coins sent to an address made from such a key could be taken by
   anyone. Ordinary keys were never affected. Found by the fuzzer in CI.
