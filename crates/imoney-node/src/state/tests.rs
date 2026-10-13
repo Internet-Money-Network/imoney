@@ -29,7 +29,7 @@ fn test_params() -> ConsensusParams {
 }
 
 fn fresh_db(name: &str) -> PathBuf {
-    let path = std::env::temp_dir().join(format!("imoney-test-{}-{}.redb", name, std::process::id()));
+    let path = std::env::temp_dir().join(format!("imoney-test-{}.redb", name));
     let _ = std::fs::remove_file(&path);
     path
 }
@@ -462,7 +462,7 @@ fn address_history_lists_rewards_and_payments_newest_first() {
     }
 
     // The history is on disk, not rebuilt: it is the same after a restart
-    let path = std::env::temp_dir().join(format!("imoney-test-history-{}.redb", std::process::id()));
+    let path = std::env::temp_dir().join("imoney-test-history.redb");
     drop(ledger);
     let reopened = DagLedger::open_with_params(path, None, test_params()).unwrap();
     assert_eq!(history(&reopened, &address_of(&miner)), miner_rows);
@@ -995,7 +995,7 @@ fn blocks_with_payments_are_stored_smaller_and_read_back_exactly() {
     assert!(stored <= raw + 1);
 
     // Everything still reads back after a restart
-    let path = std::env::temp_dir().join(format!("imoney-test-packed-{}.redb", std::process::id()));
+    let path = std::env::temp_dir().join("imoney-test-packed.redb");
     let balance_before = balance(&ledger, &address_of(&key(171)));
     drop(ledger);
     let reopened = DagLedger::open_with_params(path, None, test_params()).unwrap();

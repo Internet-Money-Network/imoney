@@ -26,7 +26,7 @@ impl TestNode {
     }
 
     async fn start_with_magic(name: &str, magic: [u8; 4]) -> Self {
-        let path = std::env::temp_dir().join(format!("imoney-p2p-{}-{}.redb", name, std::process::id()));
+        let path = std::env::temp_dir().join(format!("imoney-p2p-{}.redb", name));
         let _ = std::fs::remove_file(&path);
         let mut params = ConsensusParams::devnet();
         params.coinbase_maturity = 2;
@@ -427,7 +427,7 @@ async fn node_stops_waiting_for_sync_when_no_peer_is_reachable() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn learned_peer_addresses_survive_a_restart() {
-    let path = std::env::temp_dir().join(format!("imoney-peers-{}.txt", std::process::id()));
+    let path = std::env::temp_dir().join("imoney-peers-test.txt");
     let _ = std::fs::remove_file(&path);
     let learned: SocketAddr = "203.0.113.9:18555".parse().unwrap();
 
