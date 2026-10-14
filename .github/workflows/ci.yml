@@ -88,8 +88,10 @@ jobs:
 
       - name: Build & Test the Swap Contract
         working-directory: contracts
+        # Not `npm ci`: ganache bundles a macOS-only package that its lockfile entry does not
+        # mark optional, and `npm ci` refuses it on Linux
         run: |
-          npm ci
+          npm install --no-audit --no-fund
           npm test
 
       - name: Check committed SDK bundles are up to date
