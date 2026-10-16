@@ -33,6 +33,8 @@ if ! docker image inspect imoney:latest >/dev/null 2>&1; then
   rm -rf /opt/imoney
   git clone --depth 1 https://github.com/Internet-Money-Network/imoney.git /opt/imoney
   docker build -t imoney:latest /opt/imoney
+  # Each build leaves its 2.7 GB build stage behind; a small disk fills after a few updates
+  docker image prune -f
 fi
 
 if ! docker ps -a --format '{{.Names}}' | grep -q '^imoney-node$'; then
