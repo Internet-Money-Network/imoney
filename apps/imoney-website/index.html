@@ -149,6 +149,9 @@
     h2 { font-family: var(--serif); font-weight: 600; font-size: clamp(30px, 3.6vw, 44px); line-height: 1.05; letter-spacing: -0.01em; margin: 0 0 22px; max-width: 18em; }
     .body p { max-width: 40em; margin: 0 0 16px; }
     .body p.note { color: var(--ink-soft); font-size: 15px; }
+    details.more { margin-top: 26px; border-top: 1px solid var(--rule-soft); padding-top: 14px; }
+    details.more summary { cursor: pointer; font-family: var(--mono); font-size: 13px; letter-spacing: 0.04em; color: var(--ink-soft); }
+    details.more summary:hover { color: var(--ink); }
 
     /* Figures */
     .figures { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--rule-soft); border-left: 1px solid var(--rule-soft); margin: 0; }
@@ -242,10 +245,9 @@
           <a href="/explorer">Explorer</a>
           <a href="/wallet">Wallet</a>
           <a href="/pool/">Pool</a>
-          <a class="optional" href="#why">Why</a>
-          <a class="optional" href="#merchants">Merchants</a>
-          <a class="optional" href="#programmable">Tokens</a>
-          <a class="optional" href="#supply">Supply</a>
+          <a class="optional" href="#why">What you can do</a>
+          <a class="optional" href="#merchants">Shops</a>
+                    <a class="optional" href="#supply">Supply</a>
           <a href="#status">Status</a>
           <a href="https://github.com/Internet-Money-Network/imoney">GitHub</a>
         </nav>
@@ -275,14 +277,13 @@
         <div>
           <h1>Money for the internet that a shop can <em>check for itself.</em></h1>
           <p class="lede">
-            Internet Money is an open-source proof-of-work currency built for payments.
-            Blocks arrive about every five seconds, and the network is kept small enough that a
-            merchant can run a full node and verify every payment without a payment processor in between.
+            Send money, sell things and trade, with no bank or company in the middle.
+            Payments arrive in about five seconds and cost less than a cent.
           </p>
           <div class="actions">
-            <a class="button" href="https://github.com/Internet-Money-Network/imoney">Read the code</a>
-            <a class="textlink" href="https://github.com/Internet-Money-Network/imoney/blob/main/SPECIFICATION.md">Protocol specification</a>
-            <a class="textlink" href="#status">What works today</a>
+            <a class="button" href="/wallet">Open the wallet</a>
+            <a class="textlink" href="#why">What you can do</a>
+            <a class="textlink" href="https://github.com/Internet-Money-Network/imoney">Read the code</a>
           </div>
         </div>
 
@@ -310,90 +311,108 @@
       </div>
 
       <section class="block" id="numbers">
-        <div class="label"><span class="num">§1</span>The numbers</div>
+        <div class="label"><span class="num">§1</span>At a glance</div>
         <div class="body">
           <dl class="figures">
-            <div><dt>Block time</dt><dd>5<small>seconds</small></dd></div>
-            <div><dt>Consensus</dt><dd>GHOSTDAG<small>k = 8</small></dd></div>
-            <div><dt>Launch reward</dt><dd>5<small>IMN / block</small></dd></div>
-            <div><dt>Halving</dt><dd>4<small>years</small></dd></div>
-            <div><dt>Reward floor</dt><dd>0.3125<small>IMN / block</small></dd></div>
-            <div><dt>Smallest unit</dt><dd>10<sup>−8</sup><small>IMN (1 atom)</small></dd></div>
+            <div><dt>A payment arrives in</dt><dd>~5<small>seconds</small></dd></div>
+            <div><dt>Network fee</dt><dd>&lt;1¢<small>per payment</small></dd></div>
+            <div><dt>Middlemen</dt><dd>0<small>no bank, no processor</small></dd></div>
+            <div><dt>Coins made in advance</dt><dd>0<small>every coin is mined</small></dd></div>
+            <div><dt>Chargebacks</dt><dd>0<small>refunds are your choice</small></dd></div>
+            <div><dt>Code</dt><dd>100%<small>open source</small></dd></div>
           </dl>
         </div>
       </section>
 
       <section class="block" id="why">
-        <div class="label"><span class="num">§2</span>Why build it</div>
+        <div class="label"><span class="num">§2</span>What you can do</div>
         <div class="body">
-          <h2>Three decisions, each made for the person taking the payment.</h2>
+          <h2>Pay, get paid, trade. Nobody in the middle.</h2>
           <ol class="arguments">
             <li>
               <div>
-                <h3>A node small enough to run yourself</h3>
+                <h3>Get paid, and know it</h3>
                 <p>
-                  Fast chains produce so much data that shops end up trusting someone else's API.
-                  At one block every five seconds the chain grows slowly, so a merchant can keep a
-                  verifying node on an inexpensive server and ask it directly whether they were paid.
+                  Every order has its own number, so you see exactly which order was paid. The money goes
+                  straight to you. If you want to give some back, the refund is linked to the order.
                 </p>
               </div>
             </li>
             <li>
               <div>
-                <h3>Parallel blocks are merged, not thrown away</h3>
+                <h3>Buy and sell without an exchange</h3>
                 <p>
-                  When two miners find a block at the same moment, a plain chain discards one.
-                  The GHOSTDAG protocol keeps both and puts them in a single agreed order,
-                  which is what lets the block time be short without wasting honest work.
+                  Put coins up for sale at your price, or take someone else's offer. The trade happens in one
+                  step: you get what you paid for, or nothing happens and you keep your money.
                 </p>
               </div>
             </li>
             <li>
               <div>
-                <h3>Mining bound by memory, not by custom chips</h3>
+                <h3>Make your own token</h3>
                 <p>
-                  The proof of work is called Hallmark. It is FishHash, the memory-hard algorithm built for
-                  Iron Fish, with a seed of our own. Every hash makes random reads across gigabytes of memory, the thing consumer
-                  graphics cards already do well. That limits what custom chips can gain; it does not rule them out.
+                  Loyalty points, a game currency, a community coin. Give it a name and say how many. Nobody can
+                  fake it: each token has its own pattern, and copies look different.
+                </p>
+              </div>
+            </li>
+            <li>
+              <div>
+                <h3>Escrow that can't run off with the money</h3>
+                <p>
+                  Pay into escrow and release it when the goods arrive. If there's a dispute, a referee decides who
+                  gets it. The referee can be a person or a program, and can only ever pay the buyer or the seller.
                 </p>
               </div>
             </li>
           </ol>
+          <details class="more">
+            <summary>How it works, for the technically curious</summary>
+            <ul class="plain">
+              <li>A block every five seconds. When two miners find one at the same moment, both are kept and put in order (GHOSTDAG), so a short block time wastes no work.</li>
+              <li>A full node is small enough for a shop to run on a cheap server and check its own payments, instead of trusting someone else's.</li>
+              <li>Mining uses graphics cards. The algorithm, Hallmark, is FishHash with our own seed: each hash reads randomly across gigabytes of memory.</li>
+              <li>Escrow, trading and tokens are fixed rules every node checks, not contracts anyone can deploy, which keeps them small enough to review.</li>
+              <li>Trades with other chains use hash locks with SHA-256, which Ethereum-style chains can check too.</li>
+            </ul>
+            <p class="note" style="margin-top: 16px;">
+              The details are in the <a href="https://github.com/Internet-Money-Network/imoney/blob/main/SPECIFICATION.md">specification</a>
+              and the <a href="https://github.com/Internet-Money-Network/imoney/tree/main/docs/cookbook">developer cookbook</a>.
+            </p>
+          </details>
+          <p class="note" style="margin-top: 20px;">
+            This is a test network. Getting paid and refunds work on it today; trading, tokens and escrow arrive with the next one.
+          </p>
         </div>
       </section>
 
       <section class="block" id="merchants">
-        <div class="label"><span class="num">§3</span>For merchants</div>
+        <div class="label"><span class="num">§3</span>For shops</div>
         <div class="body">
-          <h2>Take a payment with a few lines of code.</h2>
+          <h2>Add it to your shop in minutes.</h2>
           <div class="split">
             <div>
               <p>
-                Every order gets an invoice number that the payer's wallet signs into the payment, so your
-                node can tell you exactly which order was paid and how settled it is. Funds go straight to an
-                address you control. Nobody holds them on the way.
+                On WordPress, install the WooCommerce plugin and enter your address. Customers scan a code to pay,
+                and the order is marked paid by itself.
               </p>
               <ul class="plain">
-                <li>SDK for the browser and Node.js</li>
-                <li>WooCommerce plugin for WordPress stores</li>
-                <li>No intermediary fee; the network fee is a fraction of a cent</li>
+                <li>No sign-up and no account with anyone</li>
+                <li>The money goes straight to your address</li>
+                <li>The Refund button works as you'd expect</li>
+                <li>For other sites, a few lines of JavaScript</li>
               </ul>
               <p class="note" style="margin-top: 20px;">
-                Both are in development and run against the test network only. Do not use them for real orders yet.
+                Test network only for now. Don't use it for real orders yet.
               </p>
             </div>
             <div>
               <div class="filetab"><span>checkout.js</span><span>@imoney/sdk</span></div>
-<pre><span class="c">// Talk to a node you run</span>
-const client = new IMoneyClient({
-  nodeUrl: <span class="s">'http://127.0.0.1:18556'</span>
-});
-
+<pre><span class="c">// Show a checkout for one order</span>
 client.openCheckoutModal({
   merchantAddress: <span class="s">'imntest:q...'</span>,
   amountImn: <span class="s">'12.5'</span>,
   invoiceId: <span class="s">'INV-1042'</span>,
-  level: <span class="s">'included'</span>,
   onSuccess: (payment) =&gt; {
     markOrderPaid(payment.invoiceId);
   }
@@ -403,74 +422,10 @@ client.openCheckoutModal({
         </div>
       </section>
 
-      <section class="block" id="programmable">
-        <div class="label"><span class="num">§4</span>Beyond payments</div>
-        <div class="body">
-          <h2>Money with rules built in, and no contract code to trust.</h2>
-          <p>
-            Each of these is a small, fixed rule that every node checks, not a program anyone can deploy.
-            That keeps them reviewable and keeps the worst kinds of contract bugs off the chain.
-          </p>
-          <ol class="arguments">
-            <li>
-              <div>
-                <h3>Tokens anyone can issue</h3>
-                <p>
-                  Loyalty points, a game currency, a community coin: one transaction creates a token with a
-                  name, a ticker and a supply. Fees are paid in IMN. Every node checks that no token is created or
-                  lost in a transfer, and a token's ID, and the icon drawn from it, cannot be copied by an imitation.
-                </p>
-              </div>
-            </li>
-            <li>
-              <div>
-                <h3>Escrow with an arbiter who cannot take the money</h3>
-                <p>
-                  A buyer pays into an escrow. The buyer can release it to the seller, the seller can refund the
-                  buyer, and an arbiter can settle a dispute by paying either or both, never themselves. After a
-                  deadline one side collects alone. The arbiter can be a person, a company or a program,
-                  including an AI agent, and even a compromised one can only pay the buyer or the seller.
-                </p>
-              </div>
-            </li>
-            <li>
-              <div>
-                <h3>Trading with no exchange in between</h3>
-                <p>
-                  The trading layer is part of the protocol. A seller places an offer that the chain holds under
-                  public terms; anyone can take all or part of it in one transaction that pays the seller, or
-                  nothing happens. Every node lists the open offers, so the order book, and the price of each token
-                  in IMN, can be read from the chain itself without any outside price feed.
-                </p>
-                <p>
-                  For other chains' coins, hash locks let two people swap directly. They use SHA-256, which
-                  Ethereum-style chains can check too, and a swap of IMN for ether has run end to end on test networks.
-                </p>
-              </div>
-            </li>
-            <li>
-              <div>
-                <h3>Refunds linked to the order</h3>
-                <p>
-                  Nothing can reverse a payment, so there are no chargebacks. When a shop chooses to give money back,
-                  the node knows who paid, the refund carries the order's number, and the shop sends it from its own
-                  wallet. The WooCommerce plugin supports the ordinary Refund button.
-                </p>
-              </div>
-            </li>
-          </ol>
-          <p class="note" style="margin-top: 20px;">
-            Refunds work on the test network today. Tokens, escrow, the trading layer and swaps are finished in the code and arrive
-            with the next test network, which starts from a fresh chain. The Ethereum swap contract has not been
-            audited or deployed.
-          </p>
-        </div>
-      </section>
-
       <section class="block" id="supply">
-        <div class="label"><span class="num">§5</span>Supply</div>
+        <div class="label"><span class="num">§4</span>Supply</div>
         <div class="body">
-          <h2>Every coin is mined. The schedule is fixed in the code.</h2>
+          <h2>Every coin is mined. Nobody can print more.</h2>
           <p>
             The reward halves every four years, four times, and then stays at 0.3125 IMN per block for good,
             so miners are always paid to secure the network. There is no premine and no share for the developers.
@@ -512,45 +467,40 @@ client.openCheckoutModal({
       </section>
 
       <section class="block" id="status">
-        <div class="label"><span class="num">§6</span>Where it stands</div>
+        <div class="label"><span class="num">§5</span>Where it stands</div>
         <div class="body">
-          <h2>A test network is running. Here is exactly how far along it is.</h2>
-          <p>The coins on the test network have no value and the chain can be restarted. There is no main network and no coin to buy. Anyone offering IMN for sale today is not us.</p>
+          <h2>A test network is running. Here's how far along it is.</h2>
+          <p>Test coins have no value. There is no coin to buy yet, so anyone selling IMN today is not us.</p>
           <div class="status" style="margin-top: 30px;">
             <div class="done">
               <h3><i></i>Works today</h3>
               <ul>
-                <li>A test network with nodes on three continents</li>
-                <li><a href="/explorer">Explorer</a> and <a href="/wallet">wallet</a> you can use from this site</li>
-                <li>GHOSTDAG ordering: nodes agree even when blocks conflict</li>
-                <li>Hallmark proof of work (FishHash), mined with graphics cards</li>
-                <li>Difficulty that follows the hashrate within minutes</li>
-                <li>A <a href="/pool/">mining pool</a>, and a pool protocol for other miners</li>
-                <li>Invoice numbers with seen, in-a-block and final levels</li>
-                <li>Shared wallets that need several people to approve a payment</li>
-                <li>Fees shared between the miner and the node that served the payment</li>
-                <li>12-hour finality: older payments cannot be rewritten</li>
-                <li>Pruning, so a shop's node stays small, and memory that stays level as the chain grows</li>
-                <li>Refunds tied to the original order, from the shop's own wallet</li>
-                <li>A graphics-card miner at about 38 MH/s on a Radeon RX 7800 XT</li>
+                <li>Nodes on three continents</li>
+                <li><a href="/wallet">Wallet</a> and <a href="/explorer">explorer</a> on this site</li>
+                <li>Mining with graphics cards, and a <a href="/pool/">mining pool</a></li>
+                <li>Order numbers, so a shop sees which order was paid</li>
+                <li>Refunds linked to the order</li>
+                <li>Shared wallets that need two people to approve</li>
+                <li>Payments older than 12 hours can never be undone</li>
+                <li>A node small enough for a shop to run</li>
                 <li><a href="https://github.com/Internet-Money-Network/imoney/releases">Downloads</a> for Windows, Linux and macOS</li>
               </ul>
             </div>
             <div class="doing">
               <h3><i></i>Being built</h3>
               <ul>
-                <li>Ready for the next test network: tokens, escrow, a trading layer with an order book, and atomic swaps</li>
-                <li>Subscriptions and vaults</li>
-                <li>A wallet screen for swaps with other chains</li>
-                <li>A desktop app for the wallet and node</li>
+                <li>Ready for the next test network: trading, tokens and escrow</li>
+                <li>Subscriptions and savings vaults</li>
+                <li>Swaps with Ethereum, in the wallet</li>
+                <li>A desktop app</li>
               </ul>
             </div>
             <div class="todo">
               <h3><i></i>Not started</h3>
               <ul>
                 <li>Independent security review</li>
-                <li>Swaps with Bitcoin and Lightning</li>
-                <li>Hardware-wallet support</li>
+                <li>Swaps with Bitcoin</li>
+                <li>Hardware wallets</li>
                 <li>Main network</li>
               </ul>
             </div>
