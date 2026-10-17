@@ -437,10 +437,14 @@ client.openCheckoutModal({
               <div>
                 <h3>Trading with no exchange in between</h3>
                 <p>
-                  Hash locks let two people swap coins directly: claiming one side reveals the secret that claims
-                  the other, and if either walks away both are refunded. They work for IMN and for any token on the
-                  chain, and use SHA-256, which Ethereum-style chains can check too. A swap of IMN for ether has run
-                  end to end on test networks.
+                  The trading layer is part of the protocol. A seller places an offer that the chain holds under
+                  public terms; anyone can take all or part of it in one transaction that pays the seller, or
+                  nothing happens. Every node lists the open offers, so the order book, and the price of each token
+                  in IMN, can be read from the chain itself without any outside price feed.
+                </p>
+                <p>
+                  For other chains' coins, hash locks let two people swap directly. They use SHA-256, which
+                  Ethereum-style chains can check too, and a swap of IMN for ether has run end to end on test networks.
                 </p>
               </div>
             </li>
@@ -456,7 +460,7 @@ client.openCheckoutModal({
             </li>
           </ol>
           <p class="note" style="margin-top: 20px;">
-            Refunds work on the test network today. Tokens, escrow and swaps are finished in the code and arrive
+            Refunds work on the test network today. Tokens, escrow, the trading layer and swaps are finished in the code and arrive
             with the next test network, which starts from a fresh chain. The Ethereum swap contract has not been
             audited or deployed.
           </p>
@@ -535,9 +539,9 @@ client.openCheckoutModal({
             <div class="doing">
               <h3><i></i>Being built</h3>
               <ul>
-                <li>Ready for the next test network: tokens, escrow and atomic swaps</li>
+                <li>Ready for the next test network: tokens, escrow, a trading layer with an order book, and atomic swaps</li>
                 <li>Subscriptions and vaults</li>
-                <li>A swap screen and a board for posting trade offers</li>
+                <li>A wallet screen for swaps with other chains</li>
                 <li>A desktop app for the wallet and node</li>
               </ul>
             </div>
