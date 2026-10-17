@@ -17,6 +17,7 @@ Read chapter 1 once. After that, jump to whatever you need.
 | 7 | [Shared wallets](07-shared-wallets.md) | Hold funds that need two of three keys to move |
 | 8 | [Mining](08-mining.md) | Get work from a node, submit a block, run through a pool |
 | 9 | [Reference](09-reference.md) | Look up units, limits, every endpoint and common errors |
+| 10 | [Tokens](10-tokens.md) | Issue a token, send it for an invoice, mint more, and trade it without an exchange |
 
 ## The examples
 
@@ -41,6 +42,7 @@ export IMN_NODE=http://127.0.0.1:28556
 | `paid_api_server` | 6 | A service that answers once an invoice is paid |
 | `paid_api_client` | 6 | A program that gets a quote, pays it and collects |
 | `multisig` | 7 | Funds a 2-of-3 address and spends from it |
+| `token` | 10 | Issues a token, sends some for an invoice, mints more |
 | `hashlock` | — | The IMN half of an atomic swap: lock under a secret's hash, claim, refund |
 | `swap_cli` | — | The same steps as single commands, driven by [`contracts/e2e-swap.mjs`](../../contracts/e2e-swap.mjs) for a whole cross-chain swap |
 

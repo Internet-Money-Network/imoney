@@ -225,7 +225,7 @@
 
   <div class="page">
     <div class="search">
-      <input type="text" id="search-input" autocomplete="off" spellcheck="false" placeholder="Block hash, transaction ID or address" aria-label="Search by block hash, transaction ID or address" />
+      <input type="text" id="search-input" autocomplete="off" spellcheck="false" placeholder="Block, transaction, token ID or address" aria-label="Search by block hash, transaction ID, token ID or address" />
       <button id="search-btn">Search</button>
     </div>
 
@@ -658,6 +658,10 @@
         event.preventDefault();
         showAddress(link.dataset.address);
       }));
+      $('modal-content').querySelectorAll('a[data-token]').forEach((link) => link.addEventListener('click', (event) => {
+        event.preventDefault();
+        showToken(link.dataset.token);
+      }));
     }
     function closeModal() {
       $('sheet').style.display = 'none';
@@ -667,6 +671,45 @@
     const blockLink = (hash) => '<a href="#" class="mono" data-block="' + escapeHtml(hash) + '">' + escapeHtml(hash) + '</a>';
     const txLink = (id, text) => '<a href="#" class="mono" data-tx="' + escapeHtml(id) + '">' + escapeHtml(text || id) + '</a>';
     const addressLink = (address) => '<a href="#" class="mono" data-address="' + escapeHtml(address) + '">' + escapeHtml(address) + '</a>';
+
+    // Tokens: names and tickers are chosen by whoever issued them, so they are always escaped
+    const tokenInfo = new Map();
+    async function tokenOf(id) {
+      if (!tokenInfo.has(id)) tokenInfo.set(id, getJson('/api/v1/token/' + encodeURIComponent(id)).catch(() => null));
+      return tokenInfo.get(id);
+    }
+    function formatUnits(units, decimals) {
+      const text = BigInt(units).toString().padStart(decimals + 1, '0');
+      // BigInt keeps every digit of large supplies
+      const whole = BigInt(decimals ? text.slice(0, -decimals) : text).toLocaleString('en-US');
+      const fraction = decimals ? text.slice(-decimals).replace(/0+$/, '') : '';
+      return whole + (fraction ? '.' + fraction : '');
+    }
+    async function tokenAmount(token) {
+      const info = await tokenOf(token.token_id);
+      const label = info ? escapeHtml(info.ticker) : short(token.token_id);
+      const link = '<a href="#" class="mono" data-token="' + escapeHtml(token.token_id) + '">' + label + '</a>';
+      if (token.mint_authority) return 'right to mint ' + link;
+      return formatUnits(token.amount, info ? info.decimals : 0) + ' ' + link;
+    }
+
+    async function showToken(id) {
+      const info = await tokenOf(id);
+      if (!info) return false;
+      openModal('Token', [
+        line('Name', '<span class="big">' + escapeHtml(info.name) + '</span>'),
+        line('Ticker', code(info.ticker)),
+        line('Token ID', code(info.token_id)),
+        line('Created with', formatUnits(info.initial_supply, info.decimals) + ' ' + escapeHtml(info.ticker)
+          + (info.mintable_at_issue ? ' <span class="soft">· more can be minted</span>' : ' <span class="soft">· fixed supply</span>')),
+        line('Decimals', info.decimals),
+        info.url ? line('Link given by the issuer', code(info.url)) : '',
+        info.issuer ? line('Issued by', addressLink(info.issuer)) : '',
+        line('Issued in', txLink(info.issued_in)),
+        '<p class="soft">Anyone can issue a token with any name. Only the token ID identifies this one.</p>',
+      ].join(''));
+      return true;
+    }
 
     async function showBlock(hash) {
       try {
@@ -699,16 +742,21 @@
         ]);
         const kinds = { received: 'Received', sent: 'Sent', reward: 'Mining reward' };
         const historyRows = history.items.map((item) =>
-          '<tr><td>' + kinds[item.kind] + '</td>'
-          + '<td class="mono ' + (item.net_atoms < 0 ? 'loss' : 'gain') + '">' + (item.net_atoms > 0 ? '+' : '') + item.net_imn + '</td>'
+          // History counts IMN; a row that moved no IMN moved tokens
+          '<tr><td>' + (item.net_atoms === 0 ? 'Tokens' : kinds[item.kind]) + '</td>'
+          + '<td class="mono ' + (item.net_atoms < 0 ? 'loss' : 'gain') + '">' + (item.net_atoms === 0 ? '<span class="soft">no IMN</span>' : (item.net_atoms > 0 ? '+' : '') + item.net_imn) + '</td>'
           + '<td class="soft">' + age(item.timestamp_ms) + '</td>'
           + '<td class="num">' + (item.kind === 'reward' ? '' : txLink(item.tx_id, short(item.tx_id))) + '</td></tr>').join('');
         const maturing = utxos.filter((u) => u.spendable === false).reduce((sum, u) => sum + u.value_atoms, 0);
+        const held = await getJson('/api/v1/address/' + encodeURIComponent(address) + '/tokens').catch(() => []);
+        const tokenRows = (await Promise.all(held.map(async (t) =>
+          '<tr><td>' + (await tokenAmount(t)) + (t.mint_authority && t.amount ? ' <span class="soft">· can mint more</span>' : '') + '</td></tr>'))).join('');
         openModal('Address', [
           line('Address', code(balance.address)),
           line('Balance', '<span class="big">' + balance.balance_imn + ' IMN</span>'),
           maturing ? line('Of which mining rewards still maturing', (maturing / 1e8) + ' IMN') : '',
           line('Unspent coins', utxos.length),
+          held.length ? line('Tokens', '<table>' + tokenRows + '</table>') : '',
           history.items.length
             ? line('Latest activity' + (history.next ? ' (newest 25)' : ''), '<table>' + historyRows + '</table>')
             : '',
@@ -722,8 +770,9 @@
       try {
         const tx = await getJson('/api/v1/tx/' + encodeURIComponent(txId));
         if (tx.status === 'not_found') return false;
-        const outputs = tx.outputs.map((o) =>
-          '<tr><td>' + (o.address ? addressLink(o.address) : '<span class="soft">unknown script</span>') + '</td><td class="num mono">' + o.amount_imn + '</td></tr>').join('');
+        const outputs = (await Promise.all(tx.outputs.map(async (o) =>
+          '<tr><td>' + (o.address ? addressLink(o.address) : '<span class="soft">' + (o.token ? 'destroyed' : 'unknown script') + '</span>') + '</td>'
+          + '<td class="num mono">' + (o.token ? (await tokenAmount(o.token)) + (o.amount_atoms ? ' + ' + o.amount_imn + ' IMN' : '') : o.amount_imn + ' IMN') + '</td></tr>'))).join('');
         openModal('Transaction', [
           line('ID', code(tx.tx_id)),
           line('Status', tx.status === 'pending'
@@ -732,6 +781,7 @@
           line('Total sent', '<span class="big">' + tx.total_output_imn + ' IMN</span>'),
           tx.block_hash ? line('Block', blockLink(tx.block_hash)) : '',
           tx.invoice_id ? line('Invoice', code(tx.invoice_id)) : '',
+          tx.issued_token ? line('Issues a token', '<a href="#" class="mono" data-token="' + escapeHtml(tx.issued_token) + '">' + escapeHtml(tx.issued_token) + '</a>') : '',
           line('Paid to', '<table>' + outputs + '</table>'),
           tx.service_address ? line('Fee shared with node', addressLink(tx.service_address)) : '',
           line('Size', grouped(tx.size_bytes) + ' bytes'),
@@ -746,8 +796,8 @@
       const q = $('search-input').value.trim();
       if (!q) return;
       if (/^imn(test)?:/i.test(q)) return showAddress(q.split('?')[0]);
-      if (/^[0-9a-fA-F]{64}$/.test(q) && ((await showBlock(q.toLowerCase())) || (await showTransaction(q.toLowerCase())))) return;
-      openModal('Not found', '<p>No block, transaction or address matches ' + code(q) + '.</p><p class="soft">A node that prunes old data no longer has transactions older than 36 hours.</p>');
+      if (/^[0-9a-fA-F]{64}$/.test(q) && ((await showBlock(q.toLowerCase())) || (await showTransaction(q.toLowerCase())) || (await showToken(q.toLowerCase())))) return;
+      openModal('Not found', '<p>No block, transaction, token or address matches ' + code(q) + '.</p><p class="soft">A node that prunes old data no longer has transactions older than 36 hours.</p>');
     }
     $('search-btn').addEventListener('click', search);
     $('search-input').addEventListener('keydown', (event) => {

@@ -107,6 +107,15 @@
       width: 100%; min-height: 96px; resize: vertical; background: var(--paper-raised); border: 1px solid var(--rule-soft);
       border-radius: 0; padding: 10px 12px; color: var(--ink); font-family: var(--mono); font-size: 12px; line-height: 1.5;
     }
+    select {
+      width: 100%; background: var(--paper-raised); border: 1px solid var(--rule-soft); border-radius: 0; padding: 11px 12px;
+      color: var(--ink); font-family: var(--mono); font-size: 14px;
+    }
+    input[type="checkbox"] { width: auto; padding: 0; }
+    .section-label {
+      margin: 0 0 12px; font-family: var(--mono); font-size: 11px; font-weight: 500; letter-spacing: 0.16em;
+      text-transform: uppercase; color: var(--ink-soft); border-top: 1px solid var(--rule); padding-top: 14px;
+    }
     input::placeholder, textarea::placeholder { color: var(--ink-soft); opacity: 0.7; }
     input:focus, textarea:focus { outline: none; border-color: var(--rule); }
     .facts { margin: 0 0 14px; font-size: 14px; }
@@ -230,6 +239,7 @@
           <button class="tab-btn active" data-tab="receive">Receive</button>
           <button class="tab-btn" data-tab="send">Send</button>
           <button class="tab-btn" data-tab="history">History</button>
+          <button class="tab-btn" data-tab="tokens">Tokens</button>
           <button class="tab-btn" data-tab="shared">Shared</button>
           <button class="tab-btn" data-tab="settings">Settings</button>
         </div>
@@ -284,6 +294,69 @@
         <div id="tab-history" class="tab-content">
           <div id="history-list"></div>
           <button class="btn quiet" id="history-more-btn" style="display: none; margin-top: 14px;">Show older</button>
+        </div>
+
+        <!-- Tab: Tokens -->
+        <div id="tab-tokens" class="tab-content">
+          <div id="token-list"><p class="small soft">No tokens yet.</p></div>
+
+          <h3 class="section-label" style="margin-top: 22px;">Send a token</h3>
+          <div class="form-group">
+            <label for="token-send-select">Token</label>
+            <select id="token-send-select"></select>
+          </div>
+          <div class="form-group">
+            <label for="token-send-recipient">Recipient address</label>
+            <input type="text" id="token-send-recipient" placeholder="imntest:q..." autocomplete="off" spellcheck="false" />
+          </div>
+          <div class="form-group pair">
+            <div>
+              <label for="token-send-amount">Amount</label>
+              <input type="text" inputmode="decimal" id="token-send-amount" placeholder="0" />
+            </div>
+            <div>
+              <label for="token-send-invoice">Invoice number (optional)</label>
+              <input type="text" id="token-send-invoice" placeholder="optional" maxlength="64" />
+            </div>
+          </div>
+          <p class="small soft" style="margin: 0 0 14px;">The network fee is paid in IMN, usually about 0.00006 IMN.</p>
+          <button class="btn" id="token-send-btn">Sign &amp; send</button>
+          <div id="token-send-status" class="status-msg"></div>
+
+          <h3 class="section-label" style="margin-top: 26px;">Issue a new token</h3>
+          <p class="small soft" style="margin: 0 0 14px;">
+            Anyone can issue a token. Its name and ticker are labels anyone else may reuse: a token
+            is identified by its ID, which is set when it is created and cannot be copied.
+          </p>
+          <div class="form-group pair">
+            <div>
+              <label for="token-issue-name">Name</label>
+              <input type="text" id="token-issue-name" placeholder="Coffee points" maxlength="32" />
+            </div>
+            <div>
+              <label for="token-issue-ticker">Ticker</label>
+              <input type="text" id="token-issue-ticker" placeholder="BEAN" maxlength="8" style="text-transform: uppercase;" />
+            </div>
+          </div>
+          <div class="form-group pair">
+            <div>
+              <label for="token-issue-supply">Supply</label>
+              <input type="text" inputmode="decimal" id="token-issue-supply" placeholder="1000000" />
+            </div>
+            <div>
+              <label for="token-issue-decimals">Decimals (0 to 12)</label>
+              <input type="number" id="token-issue-decimals" value="0" min="0" max="12" />
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="token-issue-url">Link (optional)</label>
+            <input type="text" id="token-issue-url" placeholder="https://..." maxlength="120" />
+          </div>
+          <label class="small" style="display: flex; gap: 8px; align-items: center; margin: 0 0 14px;">
+            <input type="checkbox" id="token-issue-mintable" /> Keep the right to mint more later
+          </label>
+          <button class="btn" id="token-issue-btn">Issue token</button>
+          <div id="token-issue-status" class="status-msg"></div>
         </div>
 
         <!-- Tab: Shared wallet (multi-signature) -->
@@ -505,6 +578,7 @@
         btn.classList.add('active');
         $('tab-' + btn.dataset.tab).classList.add('active');
         if (btn.dataset.tab === 'history') refreshHistory();
+        if (btn.dataset.tab === 'tokens') refreshTokens();
         if (btn.dataset.tab === 'shared') openShared();
       });
     });
@@ -558,12 +632,13 @@
       const row = document.createElement('div');
       row.style.cssText = 'display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--rule-soft); font-size: 14px;';
       const what = document.createElement('div');
-      const label = { received: 'Received', sent: 'Sent', reward: 'Mining reward' }[item.kind];
+      // History counts IMN; a row that moved no IMN moved tokens (see the Tokens tab)
+      const label = item.net_atoms === 0 ? 'Tokens' : { received: 'Received', sent: 'Sent', reward: 'Mining reward' }[item.kind];
       const when = new Date(item.timestamp_ms).toLocaleString();
       what.innerText = `${label} · ${when} · ${item.confirmations} confirmation${item.confirmations === 1 ? '' : 's'}`;
       const amount = document.createElement('div');
       amount.style.cssText = `font-family: var(--mono); white-space: nowrap; color: ${item.net_atoms < 0 ? 'var(--negative)' : 'var(--accent)'};`;
-      amount.innerText = `${item.net_atoms > 0 ? '+' : '-'}${formatImn(Math.abs(item.net_atoms))} IMN`;
+      amount.innerText = item.net_atoms === 0 ? 'no IMN' : `${item.net_atoms > 0 ? '+' : '-'}${formatImn(Math.abs(item.net_atoms))} IMN`;
       row.append(what, amount);
       return row;
     }
@@ -694,6 +769,148 @@
         show(statusEl, err.message || String(err), false);
       }
     });
+
+    // ---------------------------------------------------------------- tokens
+    let tokens = []; // [{ token_id, amount, mint_authority, name, ticker, decimals }]
+
+    // Amounts are whole numbers of the token's smallest unit; `decimals` places the point.
+    function toUnits(text, decimals) {
+      const clean = String(text).trim();
+      if (!/^\d+(\.\d+)?$/.test(clean)) throw new Error('Enter an amount like 12 or 12.5');
+      const [whole, fraction = ''] = clean.split('.');
+      if (fraction.length > decimals) throw new Error(`This token has ${decimals} decimal place${decimals === 1 ? '' : 's'}.`);
+      return BigInt(whole + fraction.padEnd(decimals, '0'));
+    }
+    function formatUnits(units, decimals) {
+      const text = BigInt(units).toString().padStart(decimals + 1, '0');
+      if (decimals === 0) return text;
+      const fraction = text.slice(-decimals).replace(/0+$/, '');
+      return text.slice(0, -decimals) + (fraction ? '.' + fraction : '');
+    }
+    const tokenLabel = (t) => (t.ticker ? `${t.ticker} · ${t.name}` : `Unknown token ${t.token_id.slice(0, 12)}…`);
+
+    async function refreshTokens() {
+      if (!wallet) return;
+      try {
+        const res = await fetch(`${nodeUrl()}/api/v1/address/${encodeURIComponent(wallet.address)}/tokens`);
+        if (!res.ok) return;
+        tokens = await res.json();
+      } catch (err) {
+        console.warn('Token refresh failed:', err);
+        return;
+      }
+      const list = $('token-list');
+      list.replaceChildren();
+      if (!tokens.length) {
+        const empty = document.createElement('p');
+        empty.className = 'small soft';
+        empty.innerText = 'No tokens yet.';
+        list.append(empty);
+      }
+      const select = $('token-send-select');
+      select.replaceChildren();
+      for (const t of tokens) {
+        const decimals = t.decimals ?? 0;
+        const row = document.createElement('div');
+        row.style.cssText = 'display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--rule-soft); font-size: 14px;';
+        const what = document.createElement('div');
+        const title = document.createElement('div');
+        title.innerText = tokenLabel(t); // names are chosen by whoever issued the token: text only
+        const id = document.createElement('div');
+        id.className = 'small soft';
+        id.style.fontFamily = 'var(--mono)';
+        id.innerText = t.token_id.slice(0, 24) + '…' + (t.mint_authority ? ' · you can mint more' : '');
+        what.append(title, id);
+        const amount = document.createElement('div');
+        amount.style.cssText = 'font-family: var(--mono); white-space: nowrap;';
+        amount.innerText = formatUnits(t.amount, decimals);
+        row.append(what, amount);
+        if (t.mint_authority) {
+          const mint = document.createElement('button');
+          mint.className = 'btn quiet';
+          mint.style.cssText = 'width: auto; padding: 6px 12px;';
+          mint.innerText = 'Mint';
+          mint.addEventListener('click', () => mintToken(t));
+          row.append(mint);
+        }
+        list.append(row);
+        if (t.amount > 0) {
+          const option = document.createElement('option');
+          option.value = t.token_id;
+          option.innerText = `${tokenLabel(t)} (${formatUnits(t.amount, decimals)})`;
+          select.append(option);
+        }
+      }
+    }
+
+    $('token-send-btn').addEventListener('click', async () => {
+      const statusEl = $('token-send-status');
+      try {
+        const token = tokens.find((t) => t.token_id === $('token-send-select').value);
+        if (!token) throw new Error('Choose a token to send.');
+        const recipient = $('token-send-recipient').value.trim();
+        if (!wasm.is_valid_address(recipient, TESTNET)) throw new Error('That is not a valid testnet address.');
+        const units = toUnits($('token-send-amount').value, token.decimals ?? 0);
+        if (units <= 0n) throw new Error('Enter an amount greater than zero.');
+        await refreshBalance();
+        const invoice = $('token-send-invoice').value.trim();
+        const signed = await broadcast(
+          wasm.token_transfer(wallet.private_key_hex, TESTNET, recipient, token.token_id, units, 0n, JSON.stringify(spendable), invoice || undefined)
+        );
+        show(statusEl, `Sent. Transaction ${signed.tx_id.slice(0, 16)}… should be in a block in about 5 seconds.`, true);
+        $('token-send-amount').value = '';
+        $('token-send-invoice').value = '';
+        setTimeout(() => { refreshBalance(); refreshTokens(); }, 1500);
+      } catch (err) {
+        show(statusEl, err.message || String(err), false);
+      }
+    });
+
+    $('token-issue-btn').addEventListener('click', async () => {
+      const statusEl = $('token-issue-status');
+      try {
+        const decimals = Number($('token-issue-decimals').value);
+        if (!Number.isInteger(decimals) || decimals < 0 || decimals > 12) throw new Error('Decimals must be a whole number from 0 to 12.');
+        const mintable = $('token-issue-mintable').checked;
+        const supplyText = $('token-issue-supply').value.trim();
+        const supply = supplyText ? toUnits(supplyText, decimals) : 0n;
+        if (supply === 0n && !mintable) throw new Error('Give the token a supply, or keep the right to mint it.');
+        await refreshBalance();
+        const signed = await broadcast(
+          wasm.token_issue(
+            wallet.private_key_hex,
+            TESTNET,
+            $('token-issue-name').value,
+            $('token-issue-ticker').value,
+            decimals,
+            $('token-issue-url').value,
+            supply,
+            mintable,
+            0n,
+            JSON.stringify(spendable)
+          )
+        );
+        show(statusEl, `Issued. The token's ID is ${signed.token_id}. It appears above once it is in a block.`, true);
+        setTimeout(() => { refreshBalance(); refreshTokens(); }, 6000);
+      } catch (err) {
+        show(statusEl, err.message || String(err), false);
+      }
+    });
+
+    async function mintToken(token) {
+      const statusEl = $('token-issue-status');
+      try {
+        const text = prompt(`How much more ${token.ticker || 'of this token'} to mint?`);
+        if (!text) return;
+        const units = toUnits(text, token.decimals ?? 0);
+        await refreshBalance();
+        const signed = await broadcast(wasm.token_mint(wallet.private_key_hex, TESTNET, token.token_id, units, false, 0n, JSON.stringify(spendable)));
+        show(statusEl, `Minted. Transaction ${signed.tx_id.slice(0, 16)}…`, true);
+        setTimeout(() => { refreshBalance(); refreshTokens(); }, 6000);
+      } catch (err) {
+        show(statusEl, err.message || String(err), false);
+      }
+    }
 
     // ---------------------------------------------------------------- shared wallet
     let shared = null; // { address, threshold, public_keys, script_hex }

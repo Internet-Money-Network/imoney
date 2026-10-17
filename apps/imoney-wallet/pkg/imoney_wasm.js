@@ -350,6 +350,127 @@ export function shared_wallet_open(script_hex, testnet) {
         wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
     }
 }
+
+/**
+ * Issues a token. Returns the signed transaction as JSON, with the new token's ID in
+ * `token_id`. A fee of 0 sets the fee from the transaction's size.
+ * @param {string} private_key_hex
+ * @param {boolean} testnet
+ * @param {string} name
+ * @param {string} ticker
+ * @param {number} decimals
+ * @param {string} url
+ * @param {bigint} supply
+ * @param {boolean} mintable
+ * @param {bigint} fee_atoms
+ * @param {string} utxos_json
+ * @returns {string}
+ */
+export function token_issue(private_key_hex, testnet, name, ticker, decimals, url, supply, mintable, fee_atoms, utxos_json) {
+    let deferred7_0;
+    let deferred7_1;
+    try {
+        const ptr0 = passStringToWasm0(private_key_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passStringToWasm0(ticker, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ptr3 = passStringToWasm0(url, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len3 = WASM_VECTOR_LEN;
+        const ptr4 = passStringToWasm0(utxos_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len4 = WASM_VECTOR_LEN;
+        const ret = wasm.token_issue(ptr0, len0, testnet, ptr1, len1, ptr2, len2, decimals, ptr3, len3, supply, mintable, fee_atoms, ptr4, len4);
+        var ptr6 = ret[0];
+        var len6 = ret[1];
+        if (ret[3]) {
+            ptr6 = 0; len6 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred7_0 = ptr6;
+        deferred7_1 = len6;
+        return getStringFromWasm0(ptr6, len6);
+    } finally {
+        wasm.__wbindgen_free(deferred7_0, deferred7_1, 1);
+    }
+}
+
+/**
+ * Mints more of a token whose mint authority the wallet holds.
+ * @param {string} private_key_hex
+ * @param {boolean} testnet
+ * @param {string} token_id
+ * @param {bigint} amount
+ * @param {boolean} give_up_authority
+ * @param {bigint} fee_atoms
+ * @param {string} utxos_json
+ * @returns {string}
+ */
+export function token_mint(private_key_hex, testnet, token_id, amount, give_up_authority, fee_atoms, utxos_json) {
+    let deferred5_0;
+    let deferred5_1;
+    try {
+        const ptr0 = passStringToWasm0(private_key_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(token_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passStringToWasm0(utxos_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ret = wasm.token_mint(ptr0, len0, testnet, ptr1, len1, amount, give_up_authority, fee_atoms, ptr2, len2);
+        var ptr4 = ret[0];
+        var len4 = ret[1];
+        if (ret[3]) {
+            ptr4 = 0; len4 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred5_0 = ptr4;
+        deferred5_1 = len4;
+        return getStringFromWasm0(ptr4, len4);
+    } finally {
+        wasm.__wbindgen_free(deferred5_0, deferred5_1, 1);
+    }
+}
+
+/**
+ * Sends a token. `amount` is in the token's smallest unit.
+ * @param {string} private_key_hex
+ * @param {boolean} testnet
+ * @param {string} recipient
+ * @param {string} token_id
+ * @param {bigint} amount
+ * @param {bigint} fee_atoms
+ * @param {string} utxos_json
+ * @param {string | null} [invoice_id]
+ * @returns {string}
+ */
+export function token_transfer(private_key_hex, testnet, recipient, token_id, amount, fee_atoms, utxos_json, invoice_id) {
+    let deferred7_0;
+    let deferred7_1;
+    try {
+        const ptr0 = passStringToWasm0(private_key_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(recipient, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passStringToWasm0(token_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ptr3 = passStringToWasm0(utxos_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len3 = WASM_VECTOR_LEN;
+        var ptr4 = isLikeNone(invoice_id) ? 0 : passStringToWasm0(invoice_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        var len4 = WASM_VECTOR_LEN;
+        const ret = wasm.token_transfer(ptr0, len0, testnet, ptr1, len1, ptr2, len2, amount, fee_atoms, ptr3, len3, ptr4, len4);
+        var ptr6 = ret[0];
+        var len6 = ret[1];
+        if (ret[3]) {
+            ptr6 = 0; len6 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred7_0 = ptr6;
+        deferred7_1 = len6;
+        return getStringFromWasm0(ptr6, len6);
+    } finally {
+        wasm.__wbindgen_free(deferred7_0, deferred7_1, 1);
+    }
+}
 function __wbg_get_imports() {
     const import0 = {
         __proto__: null,

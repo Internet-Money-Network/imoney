@@ -1820,6 +1820,14 @@ var IMoneyClient = class {
     const suffix = query.toString() ? `?${query}` : "";
     return this.get(`/api/v1/address/${encodeURIComponent(address)}/history${suffix}`, "get history");
   }
+  /** The tokens an address holds, one entry per token. */
+  getTokens(address) {
+    return this.get(`/api/v1/address/${encodeURIComponent(address)}/tokens`, "get tokens");
+  }
+  /** A token's name, ticker, decimals and issuance. */
+  getToken(tokenId) {
+    return this.get(`/api/v1/token/${encodeURIComponent(tokenId)}`, "get token");
+  }
   /** Query a transaction's status and confirmations. */
   getTxStatus(txId) {
     return this.get(`/api/v1/tx/${encodeURIComponent(txId)}`, "get transaction status");

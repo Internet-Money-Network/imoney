@@ -74,6 +74,33 @@ export interface UtxoItem {
     value_imn: number;
     /** False for a block reward that has not matured yet. */
     spendable: boolean;
+    /** The token the coin carries besides its IMN, if any. */
+    token?: TokenAmount | null;
+}
+/** A token amount, or a token's mint authority, carried by a coin. */
+export interface TokenAmount {
+    token_id: string;
+    /** In the token's smallest unit. */
+    amount: number;
+    mint_authority: boolean;
+}
+/** What an address holds of one token. */
+export interface TokenBalance extends TokenAmount {
+    name?: string | null;
+    ticker?: string | null;
+    decimals?: number | null;
+}
+/** A token's terms, set when it was issued. Names and tickers are chosen by the issuer: show them as text. */
+export interface TokenDetails {
+    token_id: string;
+    name: string;
+    ticker: string;
+    decimals: number;
+    url: string;
+    issued_in: string;
+    issuer?: string | null;
+    initial_supply: number;
+    mintable_at_issue: boolean;
 }
 export interface TxStatus {
     tx_id: string;
@@ -195,6 +222,10 @@ export declare class IMoneyClient {
         limit?: number;
         before?: string;
     }): Promise<AddressHistory>;
+    /** The tokens an address holds, one entry per token. */
+    getTokens(address: string): Promise<TokenBalance[]>;
+    /** A token's name, ticker, decimals and issuance. */
+    getToken(tokenId: string): Promise<TokenDetails>;
     /** Query a transaction's status and confirmations. */
     getTxStatus(txId: string): Promise<TxStatus>;
     /** Submit a signed transaction (as produced by the wallet's signing module). */

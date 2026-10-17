@@ -7,7 +7,8 @@ use bip39::Mnemonic;
 use ed25519_dalek::SigningKey;
 use imoney_core::constants::MIN_RELAY_FEE_PER_BYTE;
 use imoney_core::{
-    Address, AddressType, Encode, Hash, MultisigScript, Network, Outpoint, PartialSignature, ScriptPublicKey, Transaction,
+    Address, AddressType, Encode, Hash, MultisigScript, Network, Outpoint, PartialSignature, ScriptPublicKey, TokenAmount,
+    TokenInfo, Transaction,
     TxOutput,
 };
 use rand::RngCore;
@@ -83,6 +84,24 @@ struct UtxoItem {
     value_atoms: u64,
     /// Absent on older nodes; a missing flag is treated as spendable.
     spendable: Option<bool>,
+    /// The token the coin carries, if any. A coin listed without it is plain IMN.
+    #[serde(default)]
+    token: Option<TokenItem>,
+}
+
+#[derive(Deserialize)]
+struct TokenItem {
+    token_id: String,
+    amount: u64,
+    #[serde(default)]
+    mint_authority: bool,
+}
+
+impl TokenItem {
+    fn parse(&self) -> Result<TokenAmount, String> {
+        let id = Hash::from_hex(&self.token_id).map_err(|_| "Invalid token ID in UTXO list".to_string())?;
+        Ok(TokenAmount { id, amount: self.amount, mint_authority: self.mint_authority })
+    }
 }
 
 /// A signed transaction ready for the node's `/tx/broadcast` endpoint.
@@ -93,6 +112,9 @@ pub struct SignedTransaction {
     pub inputs_used: usize,
     /// The fee the transaction pays, in atoms.
     pub fee_atoms: u64,
+    /// The token the transaction issues, if it issues one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_id: Option<String>,
 }
 
 fn network(testnet: bool) -> Network {
@@ -202,14 +224,38 @@ fn spendable_utxos(utxos_json: &str, owner: &Address) -> Result<Vec<(Outpoint, T
                 Hash::from_hex(&item.transaction_id).map_err(|_| "Invalid transaction ID in UTXO list".to_string())?;
             Ok((
                 Outpoint { transaction_id, index: item.index },
-                TxOutput { value_atoms: item.value_atoms, script_public_key: script.clone(), token: None },
+                TxOutput {
+                    value_atoms: item.value_atoms,
+                    script_public_key: script.clone(),
+                    token: item.token.as_ref().map(TokenItem::parse).transpose()?,
+                },
             ))
         })
         .collect()
 }
 
 fn signed(tx: Transaction, fee_atoms: u64) -> SignedTransaction {
-    SignedTransaction { tx_id: tx.id().to_hex(), inputs_used: tx.inputs.len(), transaction: tx, fee_atoms }
+    let token_id = tx.issued_token().map(|id| id.to_hex());
+    SignedTransaction { tx_id: tx.id().to_hex(), inputs_used: tx.inputs.len(), transaction: tx, fee_atoms, token_id }
+}
+
+/// Builds with `fee_atoms`, or when that is 0, with a fee that covers the transaction's size.
+/// A higher fee can pull in another input and make the transaction larger, so it repeats
+/// until the fee covers the size.
+fn with_fee(fee_atoms: u64, build: impl Fn(u64) -> Result<Transaction, String>) -> Result<SignedTransaction, String> {
+    if fee_atoms > 0 {
+        return Ok(signed(build(fee_atoms)?, fee_atoms));
+    }
+    let mut fee = DEFAULT_FEE_PER_BYTE * 300;
+    for _ in 0..8 {
+        let tx = build(fee)?;
+        let needed = DEFAULT_FEE_PER_BYTE * tx.to_bytes().len() as u64;
+        if fee >= needed {
+            return Ok(signed(tx, fee));
+        }
+        fee = needed;
+    }
+    Err("Could not settle on a fee for this transaction".to_string())
 }
 
 /// The wallet logic, kept free of JavaScript types so it can be tested natively.
@@ -282,6 +328,66 @@ pub mod wallet {
             fee = needed;
         }
         Err("Could not settle on a fee for this payment".to_string())
+    }
+
+    /// Issues a token: `supply` units to the wallet, plus the right to mint more if `mintable`.
+    /// The new token's ID is in the result's `token_id`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn token_issue(
+        private_key_hex: &str,
+        testnet: bool,
+        name: &str,
+        ticker: &str,
+        decimals: u8,
+        url: &str,
+        supply: u64,
+        mintable: bool,
+        fee_atoms: u64,
+        utxos_json: &str,
+    ) -> Result<SignedTransaction, String> {
+        let key = signing_key(private_key_hex)?;
+        let utxos = spendable_utxos(utxos_json, &address_of(&key, testnet))?;
+        let info = TokenInfo { name: name.trim().to_string(), ticker: ticker.trim().to_uppercase(), decimals, url: url.trim().to_string() };
+        with_fee(fee_atoms, |fee| Transaction::build_token_issue(&key, network(testnet), info.clone(), supply, mintable, fee, utxos.clone()))
+    }
+
+    /// Sends `amount` (in the token's smallest unit) of a token, optionally for an invoice.
+    #[allow(clippy::too_many_arguments)]
+    pub fn token_transfer(
+        private_key_hex: &str,
+        testnet: bool,
+        recipient: &str,
+        token_id: &str,
+        amount: u64,
+        fee_atoms: u64,
+        utxos_json: &str,
+        invoice_id: Option<&str>,
+    ) -> Result<SignedTransaction, String> {
+        let key = signing_key(private_key_hex)?;
+        let recipient = parse_address(recipient, testnet, "recipient")?;
+        let id = Hash::from_hex(token_id.trim()).map_err(|_| "Invalid token ID".to_string())?;
+        let utxos = spendable_utxos(utxos_json, &address_of(&key, testnet))?;
+        let invoice_id = invoice_id.filter(|id| !id.is_empty());
+        with_fee(fee_atoms, |fee| {
+            Transaction::build_token_transfer(&key, network(testnet), &recipient, id, amount, fee, utxos.clone(), invoice_id)
+        })
+    }
+
+    /// Mints more of a token whose mint authority the wallet holds. `give_up_authority` fixes
+    /// the supply for good.
+    pub fn token_mint(
+        private_key_hex: &str,
+        testnet: bool,
+        token_id: &str,
+        amount: u64,
+        give_up_authority: bool,
+        fee_atoms: u64,
+        utxos_json: &str,
+    ) -> Result<SignedTransaction, String> {
+        let key = signing_key(private_key_hex)?;
+        let id = Hash::from_hex(token_id.trim()).map_err(|_| "Invalid token ID".to_string())?;
+        let utxos = spendable_utxos(utxos_json, &address_of(&key, testnet))?;
+        with_fee(fee_atoms, |fee| Transaction::build_token_mint(&key, network(testnet), id, amount, give_up_authority, fee, utxos.clone()))
     }
 
     /// Sets up a shared wallet from its co-signers' public keys (hex, in any order).
@@ -518,6 +624,55 @@ pub fn build_payment(
     ))
 }
 
+/// Issues a token. Returns the signed transaction as JSON, with the new token's ID in
+/// `token_id`. A fee of 0 sets the fee from the transaction's size.
+#[wasm_bindgen]
+#[allow(clippy::too_many_arguments)]
+pub fn token_issue(
+    private_key_hex: &str,
+    testnet: bool,
+    name: &str,
+    ticker: &str,
+    decimals: u8,
+    url: &str,
+    supply: u64,
+    mintable: bool,
+    fee_atoms: u64,
+    utxos_json: &str,
+) -> Result<String, JsError> {
+    to_json(wallet::token_issue(private_key_hex, testnet, name, ticker, decimals, url, supply, mintable, fee_atoms, utxos_json))
+}
+
+/// Sends a token. `amount` is in the token's smallest unit.
+#[wasm_bindgen]
+#[allow(clippy::too_many_arguments)]
+pub fn token_transfer(
+    private_key_hex: &str,
+    testnet: bool,
+    recipient: &str,
+    token_id: &str,
+    amount: u64,
+    fee_atoms: u64,
+    utxos_json: &str,
+    invoice_id: Option<String>,
+) -> Result<String, JsError> {
+    to_json(wallet::token_transfer(private_key_hex, testnet, recipient, token_id, amount, fee_atoms, utxos_json, invoice_id.as_deref()))
+}
+
+/// Mints more of a token whose mint authority the wallet holds.
+#[wasm_bindgen]
+pub fn token_mint(
+    private_key_hex: &str,
+    testnet: bool,
+    token_id: &str,
+    amount: u64,
+    give_up_authority: bool,
+    fee_atoms: u64,
+    utxos_json: &str,
+) -> Result<String, JsError> {
+    to_json(wallet::token_mint(private_key_hex, testnet, token_id, amount, give_up_authority, fee_atoms, utxos_json))
+}
+
 fn parse_proposal(proposal_json: &str) -> Result<Proposal, String> {
     serde_json::from_str(proposal_json.trim()).map_err(|_| "That is not a payment proposal".to_string())
 }
@@ -606,6 +761,42 @@ mod tests {
             .map(|(i, v)| format!(r#"{{"transaction_id":"{}","index":{},"value_atoms":{},"value_imn":0,"spendable":true}}"#, "ab".repeat(32), i, v))
             .collect();
         format!("[{}]", items.join(","))
+    }
+
+    #[test]
+    fn wallet_issues_sends_and_mints_tokens_and_keeps_them_out_of_plain_payments() {
+        let keys = keys_from_mnemonic(PHRASE, true).unwrap();
+        let other = keys_from_mnemonic("legal winner thank year wave sausage worth useful legal winner thank yellow", true).unwrap();
+
+        let issued = token_issue(&keys.private_key_hex, true, "Coffee points", "bean", 0, "", 1_000, true, 0, &utxos(&[5_000_000])).unwrap();
+        let id = issued.token_id.clone().expect("an issuing transaction names its token");
+        assert_eq!(issued.transaction.issue.as_ref().unwrap().ticker, "BEAN");
+
+        // The coins the node would then list: the tokens, the authority and the IMN change
+        let tx_id = issued.tx_id.clone();
+        let coin = |index: u32, atoms: u64, token: &str| {
+            format!(r#"{{"transaction_id":"{}","index":{},"value_atoms":{},"value_imn":0,"spendable":true{}}}"#, tx_id, index, atoms, token)
+        };
+        let listed = format!(
+            "[{},{},{}]",
+            coin(0, 0, &format!(r#","token":{{"token_id":"{}","amount":1000,"mint_authority":false}}"#, id)),
+            coin(1, 0, &format!(r#","token":{{"token_id":"{}","amount":0,"mint_authority":true}}"#, id)),
+            coin(2, issued.transaction.outputs[2].value_atoms, ""),
+        );
+
+        let sent = token_transfer(&keys.private_key_hex, true, &other.address, &id, 250, 0, &listed, Some("order-1")).unwrap();
+        let token_out = sent.transaction.outputs[0].token.as_ref().unwrap();
+        assert_eq!((token_out.amount, token_out.mint_authority), (250, false));
+        assert_eq!(sent.transaction.outputs[1].token.as_ref().unwrap().amount, 750);
+
+        let minted = token_mint(&keys.private_key_hex, true, &id, 500, false, 0, &listed).unwrap();
+        assert!(minted.transaction.outputs.iter().any(|o| o.token.as_ref().is_some_and(|t| t.mint_authority)));
+
+        // A plain IMN payment from the same coins never touches the token coins
+        let paid = build_payment(&keys.private_key_hex, true, &other.address, 1_000, 0, &listed, None, None).unwrap();
+        assert_eq!(paid.transaction.inputs.len(), 1);
+        assert_eq!(paid.transaction.inputs[0].previous_outpoint.index, 2);
+        assert!(paid.transaction.outputs.iter().all(|o| o.token.is_none()));
     }
 
     #[test]
