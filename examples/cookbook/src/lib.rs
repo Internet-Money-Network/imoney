@@ -87,7 +87,7 @@ impl Node {
             .filter(|coin| coin.spendable)
             .map(|coin| {
                 let transaction_id = Hash::from_hex(&coin.transaction_id).map_err(|e| e.to_string())?;
-                let output = TxOutput { value_atoms: coin.value_atoms, script_public_key: ScriptPublicKey::pay_to_address(address) };
+                let output = TxOutput { value_atoms: coin.value_atoms, script_public_key: ScriptPublicKey::pay_to_address(address), token: None };
                 Ok((Outpoint { transaction_id, index: coin.index }, output))
             })
             .collect()

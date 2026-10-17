@@ -253,9 +253,11 @@ mod tests {
             outputs: vec![TxOutput {
                 value_atoms: 1,
                 script_public_key: ScriptPublicKey { version: 0, script: vec![spends; 32] },
+                token: None,
             }],
             payload: vec![0u8; payload_len],
             service: None,
+            issue: None,
         }
     }
 

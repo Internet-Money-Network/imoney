@@ -215,6 +215,21 @@ pub struct AcceptedTx {
     pub tx_index: u32,
     /// The invoice the transaction settles, if it names one.
     pub invoice_id: Option<String>,
+    /// The token the transaction issues, if it issues one.
+    pub issued_token: Option<Hash>,
+}
+
+/// The index key under which a token's issuing transaction is found. Invoice IDs cannot
+/// contain a colon, so these never collide with an invoice.
+pub fn token_index_key(id: &Hash) -> String {
+    format!("token:{}", id.to_hex())
+}
+
+impl AcceptedTx {
+    /// Every key this transaction is listed under in the invoice and token index.
+    pub fn index_keys(&self) -> Vec<String> {
+        self.invoice_id.iter().cloned().chain(self.issued_token.as_ref().map(token_index_key)).collect()
+    }
 }
 
 impl Encode for AcceptedTx {
@@ -223,6 +238,13 @@ impl Encode for AcceptedTx {
         self.block_hash.encode(out);
         out.extend_from_slice(&self.tx_index.to_be_bytes());
         put_bytes(out, self.invoice_id.as_deref().unwrap_or("").as_bytes());
+        match &self.issued_token {
+            None => out.push(0),
+            Some(id) => {
+                out.push(1);
+                id.encode(out);
+            }
+        }
     }
 }
 
@@ -236,6 +258,11 @@ impl Decode for AcceptedTx {
                 let bytes = reader.bytes(64)?;
                 let id = String::from_utf8(bytes).map_err(|_| DecodeError::Invalid("invoice id"))?;
                 (!id.is_empty()).then_some(id)
+            },
+            issued_token: match reader.u8()? {
+                0 => None,
+                1 => Some(reader.hash()?),
+                _ => return Err(DecodeError::Invalid("issued token flag")),
             },
         })
     }

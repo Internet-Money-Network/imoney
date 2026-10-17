@@ -6,6 +6,13 @@ Notable changes to Internet Money. Nothing has been released yet: everything bel
 ## Unreleased
 
 ### Added
+- **Native tokens.** Anyone can issue a token on the chain: a name, a ticker, a supply, and
+  optionally the right to mint more, held as a coin that can be passed on, shared in a
+  multisig, or given up to fix the supply. Tokens are conserved exactly in every transfer,
+  fees are paid in IMN, and tokens work with invoices and hash locks, so a token can be
+  traded for IMN or another token with no exchange. New: `GET /api/v1/token/{id}` and
+  `GET /api/v1/address/{address}/tokens`. This changes the block format: the test network
+  will be reset when it is deployed.
 - **Hash locks**, the building block of atomic swaps: coins that the recipient can claim with
   a secret, or the sender can take back after a deadline. With the same lock on another chain,
   two people can trade IMN for another asset with no exchange and no custodian. A consensus

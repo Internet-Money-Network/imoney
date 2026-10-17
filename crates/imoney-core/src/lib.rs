@@ -7,6 +7,7 @@ pub mod header;
 pub mod merkle;
 pub mod multisig;
 pub mod serialize;
+pub mod token;
 pub mod transaction;
 
 pub use address::{Address, AddressError, AddressType, Network};
@@ -17,4 +18,5 @@ pub use header::{BlockHeader, HeaderError};
 pub use hashlock::{secret_hash, HashLockScript, HashLockSpend};
 pub use multisig::{MultisigScript, PartialSignature};
 pub use serialize::{Decode, DecodeError, Encode};
+pub use token::{token_id_for, TokenAmount, TokenInfo};
 pub use transaction::{Outpoint, ScriptPublicKey, Transaction, TxInput, TxOutput};

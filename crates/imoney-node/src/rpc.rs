@@ -73,6 +73,53 @@ pub struct UtxoItemResponse {
     pub spendable: bool,
     /// 1 once accepted into the ledger, then one more per blue block added on top.
     pub confirmations: u64,
+    /// The token the coin carries besides its IMN, if any.
+    pub token: Option<TokenView>,
+}
+
+/// A token amount, or a mint authority, carried by an output.
+#[derive(Serialize)]
+pub struct TokenView {
+    pub token_id: String,
+    pub amount: u64,
+    pub mint_authority: bool,
+}
+
+impl From<&imoney_core::TokenAmount> for TokenView {
+    fn from(token: &imoney_core::TokenAmount) -> Self {
+        Self { token_id: token.id.to_hex(), amount: token.amount, mint_authority: token.mint_authority }
+    }
+}
+
+/// What an address holds of one token.
+#[derive(Serialize)]
+pub struct TokenBalanceResponse {
+    pub token_id: String,
+    /// In the token's smallest unit; divide by 10^decimals to show it.
+    pub amount: u64,
+    /// True when the address holds the right to mint more.
+    pub mint_authority: bool,
+    pub name: Option<String>,
+    pub ticker: Option<String>,
+    pub decimals: Option<u8>,
+}
+
+/// A token's terms, as set when it was issued.
+#[derive(Serialize)]
+pub struct TokenResponse {
+    pub token_id: String,
+    pub name: String,
+    pub ticker: String,
+    pub decimals: u8,
+    pub url: String,
+    /// The transaction that issued it.
+    pub issued_in: String,
+    /// The address that paid for the issuance.
+    pub issuer: Option<String>,
+    /// Units created when it was issued.
+    pub initial_supply: u64,
+    /// Whether more could be minted at issuance. An authority can later be given up.
+    pub mintable_at_issue: bool,
 }
 
 #[derive(Deserialize)]
@@ -167,6 +214,8 @@ pub struct TxStatusResponse {
     pub invoice_id: Option<String>,
     /// The node address that receives half of the fee, if the payment names one.
     pub service_address: Option<String>,
+    /// The token this transaction issued, if it issued one.
+    pub issued_token: Option<String>,
     pub size_bytes: usize,
 }
 
@@ -175,6 +224,7 @@ pub struct TxOutputView {
     pub address: Option<String>,
     pub amount_atoms: u64,
     pub amount_imn: f64,
+    pub token: Option<TokenView>,
 }
 
 /// Network statistics plus the figures that change between blocks.
@@ -269,6 +319,8 @@ pub fn create_router(
         .route("/api/v1/address/:addr/utxos", get(utxos_handler))
         .route("/api/v1/address/:addr/history", get(history_handler))
         .route("/api/v1/invoice/:id", get(invoice_handler))
+        .route("/api/v1/token/:id", get(token_handler))
+        .route("/api/v1/address/:addr/tokens", get(token_balances_handler))
         .route("/api/v1/ws/address/:addr", get(ws_address_handler))
         .layer(cors);
 
@@ -554,10 +606,61 @@ async fn utxos_handler(
             value_imn: (output.value_atoms as f64) / (imoney_core::constants::ATOMS_PER_IMN as f64),
             spendable,
             confirmations,
+            token: output.token.as_ref().map(TokenView::from),
         })
         .collect();
 
     Ok(Json(response))
+}
+
+/// A token's name and terms.
+async fn token_handler(State(state): State<Arc<AppState>>, Path(id_hex): Path<String>) -> Result<Json<TokenResponse>, StatusCode> {
+    let id = Hash::from_hex(&id_hex).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let ledger = state.ledger.read().await;
+    let (token, info) = ledger.token_info(&id).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.ok_or(StatusCode::NOT_FOUND)?;
+    let created = |want_authority: bool| info.tx.outputs.iter().filter_map(|o| o.token.as_ref()).filter(move |t| t.id == id && t.mint_authority == want_authority);
+    Ok(Json(TokenResponse {
+        token_id: id.to_hex(),
+        name: token.name,
+        ticker: token.ticker,
+        decimals: token.decimals,
+        url: token.url,
+        issued_in: info.tx.id().to_hex(),
+        issuer: info.tx.input_address(ledger.network, 0).map(|a| a.to_string()),
+        initial_supply: created(false).fold(0u64, |sum, t| sum.saturating_add(t.amount)),
+        mintable_at_issue: created(true).next().is_some(),
+    }))
+}
+
+/// The tokens an address holds, summed over its coins. Coins still waiting to mature are
+/// included; they hold no tokens anyway.
+async fn token_balances_handler(
+    State(state): State<Arc<AppState>>,
+    Path(addr_str): Path<String>,
+) -> Result<Json<Vec<TokenBalanceResponse>>, StatusCode> {
+    let address = Address::decode(&addr_str).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let ledger = state.ledger.read().await;
+    let mut held: std::collections::BTreeMap<Hash, (u64, bool)> = std::collections::BTreeMap::new();
+    for (_, output) in ledger.get_utxos(&address).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)? {
+        if let Some(token) = output.token {
+            let entry = held.entry(token.id).or_default();
+            entry.0 = entry.0.saturating_add(token.amount);
+            entry.1 |= token.mint_authority;
+        }
+    }
+    let mut balances = Vec::new();
+    for (id, (amount, mint_authority)) in held {
+        let info = ledger.token_info(&id).ok().flatten().map(|(info, _)| info);
+        balances.push(TokenBalanceResponse {
+            token_id: id.to_hex(),
+            amount,
+            mint_authority,
+            name: info.as_ref().map(|i| i.name.clone()),
+            ticker: info.as_ref().map(|i| i.ticker.clone()),
+            decimals: info.as_ref().map(|i| i.decimals),
+        });
+    }
+    Ok(Json(balances))
 }
 
 /// What an address received and sent, newest first. Only transactions accepted into the
@@ -722,6 +825,7 @@ async fn tx_status_handler(
                         address: script_address(ledger.network, &output.script_public_key),
                         amount_atoms: output.value_atoms,
                         amount_imn: (output.value_atoms as f64) / (imoney_core::constants::ATOMS_PER_IMN as f64),
+                        token: output.token.as_ref().map(TokenView::from),
                     })
                     .collect(),
                 senders: {
@@ -735,6 +839,7 @@ async fn tx_status_handler(
                 revealed_secrets: (0..info.tx.inputs.len()).filter_map(|index| info.tx.revealed_secret(index)).map(hex::encode).collect(),
                 invoice_id: info.tx.invoice_id().map(str::to_string),
                 service_address: info.tx.service.as_ref().and_then(|script| script_address(ledger.network, script)),
+                issued_token: info.tx.issued_token().map(|id| id.to_hex()),
                 size_bytes: imoney_core::Encode::to_bytes(&info.tx).len(),
             }))
         }
@@ -754,6 +859,7 @@ async fn tx_status_handler(
             revealed_secrets: Vec::new(),
             invoice_id: None,
             service_address: None,
+            issued_token: None,
             size_bytes: 0,
         })),
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),

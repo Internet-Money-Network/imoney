@@ -9,7 +9,7 @@
 //! A key is 64 hex characters or a file holding them.
 
 use imoney_cookbook::{address_of, load_key, node_url, Node, FEE_ATOMS, NETWORK};
-use imoney_core::{Hash, HashLockScript, Outpoint, Transaction};
+use imoney_core::{Hash, HashLockScript, Outpoint, ScriptPublicKey, Transaction, TxOutput};
 use serde_json::json;
 
 fn bytes32(hex_text: &str) -> Result<[u8; 32], String> {
@@ -45,7 +45,8 @@ fn main() -> Result<(), String> {
         command @ ("claim" | "refund") => {
             let key = load_key(&arg(1)?)?;
             let script = HashLockScript::from_bytes(&hex::decode(arg(2)?).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
-            let coin = (Outpoint { transaction_id: Hash::from_hex(&arg(3)?).map_err(|e| e.to_string())?, index: 0 }, atoms(4)?);
+            let locked = TxOutput::new(atoms(4)?, ScriptPublicKey::pay_to_address(&script.address(NETWORK)));
+            let coin = (Outpoint { transaction_id: Hash::from_hex(&arg(3)?).map_err(|e| e.to_string())?, index: 0 }, locked);
             let secret = if command == "claim" { Some(bytes32(&arg(5)?)?) } else { None };
             let tx = Transaction::spend_hashlock(&script, NETWORK, coin, &address_of(&key), FEE_ATOMS, &key, secret)?;
             json!({ "tx_id": node.broadcast(&tx)?, "paid_to": address_of(&key).to_string() })

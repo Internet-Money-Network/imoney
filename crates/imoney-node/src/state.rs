@@ -11,8 +11,8 @@ use imoney_core::constants::{
 };
 use imoney_core::serialize::tagged_hash;
 use imoney_core::{
-    Address, Block, BlockError, BlockHeader, Decode, Encode, Hash, Network, Outpoint, ScriptPublicKey, Transaction,
-    TxOutput,
+    Address, Block, BlockError, BlockHeader, Decode, Encode, Hash, Network, Outpoint, ScriptPublicKey, TokenInfo,
+    Transaction, TxOutput,
 };
 use imoney_emission::{block_subsidy_atoms, block_subsidy_imn};
 use imoney_pow::{compact_to_u256, is_valid_pow, HallmarkPow};
@@ -299,14 +299,14 @@ impl LedgerView {
     }
 
     fn put_invoice(&mut self, accepted: &AcceptedTx) {
-        if let Some(invoice_id) = &accepted.invoice_id {
-            self.batch.invoice_puts.insert((invoice_id.clone(), accepted.tx_id));
+        for key in accepted.index_keys() {
+            self.batch.invoice_puts.insert((key, accepted.tx_id));
         }
     }
 
     fn delete_invoice(&mut self, accepted: &AcceptedTx) {
-        if let Some(invoice_id) = &accepted.invoice_id {
-            let entry = (invoice_id.clone(), accepted.tx_id);
+        for key in accepted.index_keys() {
+            let entry = (key, accepted.tx_id);
             self.batch.invoice_puts.remove(&entry);
             self.batch.invoice_deletes.insert(entry);
         }
@@ -590,6 +590,7 @@ impl DagLedger {
 
         let mut total_input_atoms: u64 = 0;
         let mut spent_outpoints = HashSet::new();
+        let mut spent_outputs: Vec<TxOutput> = Vec::with_capacity(tx.inputs.len());
 
         for (i, input) in tx.inputs.iter().enumerate() {
             if !spent_outpoints.insert(&input.previous_outpoint) {
@@ -613,7 +614,12 @@ impl DagLedger {
             total_input_atoms = total_input_atoms
                 .checked_add(utxo.output.value_atoms)
                 .ok_or_else(|| StateError::Transaction("Input total overflows".to_string()))?;
+            spent_outputs.push(utxo.output);
         }
+
+        // Tokens are conserved unless the transaction issues one or spends a mint authority
+        tx.check_tokens(&spent_outputs.iter().collect::<Vec<_>>())
+            .map_err(|e| StateError::Transaction(e.to_string()))?;
 
         let total_output_atoms = tx
             .outputs
@@ -711,7 +717,7 @@ impl DagLedger {
                     record(script, service_share, 0);
                     let outpoint = tx.service_outpoint();
                     let entry = UtxoEntry {
-                        output: TxOutput { value_atoms: service_share, script_public_key: script.clone() },
+                        output: TxOutput { value_atoms: service_share, script_public_key: script.clone(), token: None },
                         blue_score,
                         is_coinbase: false,
                     };
@@ -729,6 +735,7 @@ impl DagLedger {
                     block_hash,
                     tx_index: index as u32,
                     invoice_id: tx.invoice_id().map(str::to_string),
+                    issued_token: tx.issued_token(),
                 };
                 view.put_invoice(&accepted);
                 acceptance.accepted.push(accepted);
@@ -745,6 +752,7 @@ impl DagLedger {
                         output: TxOutput {
                             value_atoms: payout.value_atoms.saturating_add(fees),
                             script_public_key: payout.script_public_key.clone(),
+                            token: None,
                         },
                         blue_score,
                         is_coinbase: true,
@@ -1048,6 +1056,9 @@ impl DagLedger {
         if coinbase.outputs.len() > 1 {
             return Err(StateError::Coinbase("more than one output".to_string()));
         }
+        if coinbase.issue.is_some() || coinbase.outputs.iter().any(|o| o.token.is_some()) {
+            return Err(StateError::Coinbase("a block reward cannot create tokens".to_string()));
+        }
         let subsidy = block_subsidy_atoms(header.daa_score);
         if coinbase.outputs.iter().any(|o| o.value_atoms > subsidy) {
             return Err(StateError::Coinbase(format!("pays more than the {}-atom subsidy", subsidy)));
@@ -1178,8 +1189,8 @@ impl DagLedger {
                 if let Some(acceptance) = self.storage.get_acceptance(hash)? {
                     for accepted in &acceptance.accepted {
                         batch.record_deletes.insert(accepted.tx_id);
-                        if let Some(invoice_id) = &accepted.invoice_id {
-                            batch.invoice_deletes.insert((invoice_id.clone(), accepted.tx_id));
+                        for key in accepted.index_keys() {
+                            batch.invoice_deletes.insert((key, accepted.tx_id));
                         }
                     }
                     for item in &acceptance.history {
@@ -1229,6 +1240,7 @@ impl DagLedger {
             .map(|address| TxOutput {
                 value_atoms: block_subsidy_atoms(daa_score),
                 script_public_key: ScriptPublicKey::pay_to_address(address),
+                token: None,
             })
             .into_iter()
             .collect();
@@ -1280,6 +1292,19 @@ impl DagLedger {
     }
 
     /// Queries list of UTXOs for an address.
+    /// A token's name and terms, and the accepted transaction that issued it. Pruned nodes
+    /// forget tokens issued before their pruning point.
+    pub fn token_info(&self, id: &Hash) -> Result<Option<(TokenInfo, TxInfo)>, StorageError> {
+        for tx_id in self.storage.get_invoice_tx_ids(&crate::storage::token_index_key(id))? {
+            if let Some(info) = self.get_transaction(&tx_id)? {
+                if let Some(token) = info.tx.issue.clone().filter(|_| info.tx.issued_token() == Some(*id)) {
+                    return Ok(Some((token, info)));
+                }
+            }
+        }
+        Ok(None)
+    }
+
     pub fn get_utxos(&self, address: &Address) -> Result<Vec<(Outpoint, TxOutput)>, StorageError> {
         Ok(self
             .storage

@@ -169,17 +169,23 @@ impl Transaction {
     /// Spends one hash-lock coin to `to`, less the fee: a claim when `secret` is given, a
     /// refund otherwise. `key` is the recipient's key for a claim and the refunder's for a
     /// refund. A refund built before the deadline is valid but will be refused until then.
+    ///
+    /// A token the coin carries moves with it; the fee comes from the coin's IMN, so a lock
+    /// that holds a token must also hold at least the fee in IMN.
     pub fn spend_hashlock(
         script: &HashLockScript,
         network: Network,
-        coin: (Outpoint, u64),
+        coin: (Outpoint, TxOutput),
         to: &Address,
         fee_atoms: u64,
         key: &SigningKey,
         secret: Option<[u8; 32]>,
     ) -> Result<Self, String> {
-        let (outpoint, value_atoms) = coin;
-        let amount = value_atoms.checked_sub(fee_atoms).filter(|amount| *amount > 0).ok_or("The fee exceeds the locked amount")?;
+        let (outpoint, locked) = coin;
+        let amount = locked.value_atoms.checked_sub(fee_atoms).ok_or("The fee exceeds the IMN in the lock")?;
+        if amount == 0 && locked.token.is_none() {
+            return Err("The fee takes everything in the lock".to_string());
+        }
         let expected = if secret.is_some() { script.recipient } else { script.refunder };
         if key.verifying_key().to_bytes() != expected {
             return Err("That key is not the one this branch of the lock names".to_string());
@@ -190,9 +196,10 @@ impl Transaction {
         let mut tx = Transaction {
             version: 1,
             inputs: vec![TxInput { previous_outpoint: outpoint, signature_script: Vec::new() }],
-            outputs: vec![TxOutput { value_atoms: amount, script_public_key: ScriptPublicKey::pay_to_address(to) }],
+            outputs: vec![TxOutput { value_atoms: amount, script_public_key: ScriptPublicKey::pay_to_address(to), token: locked.token }],
             payload: Vec::new(),
             service: None,
+            issue: None,
         };
         let signature = key.sign(tx.sig_hash(network, 0).as_bytes());
         let mut signature_script = script.to_bytes();
@@ -222,8 +229,8 @@ mod tests {
         (recipient, refunder, secret, script, to)
     }
 
-    fn coin() -> (Outpoint, u64) {
-        (Outpoint { transaction_id: Hash([3u8; 32]), index: 0 }, 1_000_000)
+    fn coin() -> (Outpoint, TxOutput) {
+        (Outpoint { transaction_id: Hash([3u8; 32]), index: 0 }, TxOutput::new(1_000_000, ScriptPublicKey::burn()))
     }
 
     fn locked(script: &HashLockScript) -> ScriptPublicKey {

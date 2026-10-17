@@ -202,7 +202,7 @@ fn spendable_utxos(utxos_json: &str, owner: &Address) -> Result<Vec<(Outpoint, T
                 Hash::from_hex(&item.transaction_id).map_err(|_| "Invalid transaction ID in UTXO list".to_string())?;
             Ok((
                 Outpoint { transaction_id, index: item.index },
-                TxOutput { value_atoms: item.value_atoms, script_public_key: script.clone() },
+                TxOutput { value_atoms: item.value_atoms, script_public_key: script.clone(), token: None },
             ))
         })
         .collect()

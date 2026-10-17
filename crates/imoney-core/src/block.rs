@@ -114,6 +114,7 @@ mod tests {
         let utxo = TxOutput {
             value_atoms: 10_000,
             script_public_key: ScriptPublicKey::pay_to_address(&recipient),
+            token: None,
         };
         let outpoint = Outpoint { transaction_id: Hash([seed; 32]), index: 0 };
         Transaction::build_payment(&key, Network::Testnet, &recipient, 5_000, 100, vec![(outpoint, utxo)], None).unwrap()

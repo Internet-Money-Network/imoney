@@ -120,6 +120,7 @@ fn spend(inputs: Vec<Outpoint>, outputs: Vec<TxOutput>, key: &SigningKey) -> Tra
         outputs,
         payload: Vec::new(),
         service: None,
+        issue: None,
     };
     for i in 0..tx.inputs.len() {
         tx.sign_input(NETWORK, i, key).expect("input exists");
@@ -207,10 +208,10 @@ fn main() {
         let keys: Vec<SigningKey> = (first..first + count).map(|i| key_for(&format!("wallet {}", i))).collect();
         let mut outputs: Vec<TxOutput> = keys
             .iter()
-            .map(|key| TxOutput { value_atoms: WALLET_FUNDS, script_public_key: ScriptPublicKey::pay_to_address(&address_of(key)) })
+            .map(|key| TxOutput { value_atoms: WALLET_FUNDS, script_public_key: ScriptPublicKey::pay_to_address(&address_of(key)), token: None })
             .collect();
         let change = coin.value_atoms - count as u64 * WALLET_FUNDS - FAN_OUT_FEE;
-        outputs.push(TxOutput { value_atoms: change, script_public_key: funding_script.clone() });
+        outputs.push(TxOutput { value_atoms: change, script_public_key: funding_script.clone(), token: None });
 
         let source = Outpoint { transaction_id: Hash::from_hex(&coin.transaction_id).expect("hex id"), index: coin.index };
         let tx = spend(vec![source], outputs, &funding_key);
@@ -276,7 +277,7 @@ fn main() {
             let Some(mut wallet) = queue.lock().unwrap().pop_front() else {
                 continue;
             };
-            let output = TxOutput { value_atoms: wallet.value - PAYMENT_FEE, script_public_key: wallet.script.clone() };
+            let output = TxOutput { value_atoms: wallet.value - PAYMENT_FEE, script_public_key: wallet.script.clone(), token: None };
             let tx = spend(vec![wallet.coin.clone()], vec![output], &wallet.key);
             let started = Instant::now();
             match broadcast(&agent, &node, &tx) {

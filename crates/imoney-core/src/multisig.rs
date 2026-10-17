@@ -237,6 +237,7 @@ impl Transaction {
 
         let mut gathered: u64 = 0;
         let mut inputs = Vec::new();
+        let available_utxos: Vec<_> = available_utxos.into_iter().filter(|(_, o)| o.token.is_none()).collect();
         for (outpoint, output) in available_utxos {
             gathered = gathered.checked_add(output.value_atoms).ok_or_else(|| "Selected inputs overflow".to_string())?;
             inputs.push(TxInput { previous_outpoint: outpoint, signature_script: Vec::new() });
@@ -248,11 +249,12 @@ impl Transaction {
             return Err(format!("Insufficient funds: have {} atoms, require {} atoms", gathered, required));
         }
 
-        let mut outputs = vec![TxOutput { value_atoms: amount_atoms, script_public_key: ScriptPublicKey::pay_to_address(recipient) }];
+        let mut outputs = vec![TxOutput { value_atoms: amount_atoms, script_public_key: ScriptPublicKey::pay_to_address(recipient), token: None }];
         if gathered > required {
             outputs.push(TxOutput {
                 value_atoms: gathered - required,
                 script_public_key: ScriptPublicKey::pay_to_address(&script.address(network)),
+                token: None,
             });
         }
         Ok(Transaction {
@@ -261,6 +263,7 @@ impl Transaction {
             outputs,
             payload,
             service: service.map(ScriptPublicKey::pay_to_address),
+            issue: None,
         })
     }
 }
@@ -282,7 +285,7 @@ mod tests {
         let script = MultisigScript::new(2, &[public(1), public(2), public(3)]).unwrap();
         let coin = (
             Outpoint { transaction_id: Hash([7u8; 32]), index: 0 },
-            TxOutput { value_atoms: 100_000, script_public_key: ScriptPublicKey::pay_to_address(&script.address(Network::Testnet)) },
+            TxOutput { value_atoms: 100_000, script_public_key: ScriptPublicKey::pay_to_address(&script.address(Network::Testnet)), token: None },
         );
         let recipient = Address::from_public_key(Network::Testnet, AddressType::PubKeyHash, &public(9));
         let tx = Transaction::build_multisig_payment(&script, Network::Testnet, &recipient, 60_000, 1_000, vec![coin], Some("INV-7"), None)

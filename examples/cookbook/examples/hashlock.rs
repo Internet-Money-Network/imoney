@@ -7,7 +7,7 @@
 //! chain and on another. Claiming one side reveals the secret that claims the other.
 
 use imoney_cookbook::{address_of, imn, load_key, new_key, node_url, Node, FEE_ATOMS, NETWORK};
-use imoney_core::{secret_hash, HashLockScript, Outpoint, Transaction};
+use imoney_core::{secret_hash, HashLockScript, Outpoint, ScriptPublicKey, Transaction, TxOutput};
 use std::time::Duration;
 
 const AMOUNT_ATOMS: u64 = 50_000_000;
@@ -43,7 +43,7 @@ fn main() -> Result<(), String> {
     // 1. A lock Bob claims. He must know the secret; in a real swap he learns it when Alice
     //    claims his coins on the other chain.
     let (script, outpoint) = lock(blue_score()? + 720)?;
-    let claim = Transaction::spend_hashlock(&script, NETWORK, (outpoint, AMOUNT_ATOMS), &address_of(&bob), FEE_ATOMS, &bob, Some(secret))?;
+    let claim = Transaction::spend_hashlock(&script, NETWORK, (outpoint, TxOutput::new(AMOUNT_ATOMS, ScriptPublicKey::pay_to_address(&script.address(NETWORK)))), &address_of(&bob), FEE_ATOMS, &bob, Some(secret))?;
     let claim_id = node.broadcast(&claim)?;
     println!("Bob claimed it in {}", claim_id);
     // Anyone can now read the secret from the claim
@@ -53,7 +53,7 @@ fn main() -> Result<(), String> {
     // 2. A lock nobody claims. Alice takes it back once the deadline has passed.
     let deadline = blue_score()? + 4;
     let (script, outpoint) = lock(deadline)?;
-    let refund = Transaction::spend_hashlock(&script, NETWORK, (outpoint, AMOUNT_ATOMS), &address_of(&alice), FEE_ATOMS, &alice, None)?;
+    let refund = Transaction::spend_hashlock(&script, NETWORK, (outpoint, TxOutput::new(AMOUNT_ATOMS, ScriptPublicKey::pay_to_address(&script.address(NETWORK)))), &address_of(&alice), FEE_ATOMS, &alice, None)?;
     if let Err(reason) = node.broadcast(&refund) {
         println!("Too early to refund, as it should be: {}", reason);
     }

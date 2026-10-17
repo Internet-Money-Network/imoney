@@ -240,7 +240,7 @@ impl PoolRuntime {
         let mut outputs = Vec::new();
         for (address, atoms) in payees {
             let payee = Address::decode(address).map_err(|e| format!("{}: {}", address, e))?;
-            outputs.push(TxOutput { value_atoms: *atoms, script_public_key: ScriptPublicKey::pay_to_address(&payee) });
+            outputs.push(TxOutput { value_atoms: *atoms, script_public_key: ScriptPublicKey::pay_to_address(&payee), token: None });
         }
         let total: u64 = payees.iter().map(|(_, atoms)| atoms).sum();
         let mut spendable: Vec<&Coin> = coins.iter().filter(|coin| coin.settled()).collect();
@@ -270,9 +270,9 @@ impl PoolRuntime {
             }
             let mut tx_outputs = outputs.clone();
             if gathered > total + fee {
-                tx_outputs.push(TxOutput { value_atoms: gathered - total - fee, script_public_key: pool_script.clone() });
+                tx_outputs.push(TxOutput { value_atoms: gathered - total - fee, script_public_key: pool_script.clone(), token: None });
             }
-            let mut tx = Transaction { version: 1, inputs, outputs: tx_outputs, payload: b"pool payout".to_vec(), service: None };
+            let mut tx = Transaction { version: 1, inputs, outputs: tx_outputs, payload: b"pool payout".to_vec(), service: None, issue: None };
             for index in 0..tx.inputs.len() {
                 tx.sign_input(self.network, index, &self.key).map_err(|e| e.to_string())?;
             }

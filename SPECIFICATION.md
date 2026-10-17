@@ -123,10 +123,20 @@ The coinbase transaction names the miner's payout script in at most one output w
 
 A transaction may name a *service script*: the node that served the payment, chosen by the wallet and covered by the signature. When such a transaction is accepted, half of its fee (rounded down) is paid to that script as an extra output at index `outputs.len()`, spendable immediately, and the miner's share is the remainder. A transaction without a service script pays its whole fee to the miner. Because anyone may name their own address, this works as a fee discount for those who run a node rather than as an income guaranteed by the protocol. A reward may be spent once it is buried by the coinbase maturity depth (20 blue-score on testnet).
 
-### 6.4 Chain reorganisation
+### 6.4 Native tokens
+Any output may carry, besides its IMN, an amount of one token or that token's *mint authority*. Fees are always paid in IMN. On the wire an output ends with a flag byte: 0 for no token, or 1 followed by the 32-byte token ID, an 8-byte amount and a byte that is 1 for a mint authority and 0 otherwise. A transaction ends with a flag byte: 0, or 1 followed by the issued token's name, ticker (each length-prefixed), one byte of decimals and a length-prefixed URL.
+
+- **Issue.** A transaction with an `issue` record creates a token whose ID is `Blake3-derive-key("IMN 2026 token id", transaction id ++ index)` of the outpoint its first input spends. It must create at least one output carrying that ID. Name: 1 to 32 bytes of UTF-8 without control characters. Ticker: 1 to 8 of `A-Z 0-9`. Decimals: 0 to 12. URL: up to 120 printable ASCII bytes. Names and tickers are labels and need not be unique.
+- **Conservation.** For every token a transaction neither issues nor holds a mint authority for, the amounts it spends and creates are equal. A transaction that drops a token is refused, not treated as burning it. Tokens are destroyed by sending them to the burn script (version 0xff, empty), which no key can spend.
+- **Minting.** A transaction that spends a mint authority for a token, or issues it, may create any amount of it and any number of new authorities for it. An authority output carries amount 0; any other token output carries a positive amount. A token whose authorities are all spent without being recreated can never be minted again.
+- **Coinbase.** A coinbase may not issue or carry tokens.
+
+Token outputs are locked like any other: an ordinary address, a multi-signature address or a hash lock (§8.4). A hash lock that holds tokens moves them with its single output, paying the fee from the IMN the lock holds.
+
+### 6.5 Chain reorganisation
 The selected chain ends in the eligible tip with the most blue work. Each selected-chain block's exact ledger change is stored, so when a heavier chain appears the node undoes the old chain's changes back to the common block and applies the new chain's.
 
-### 6.5 Finality
+### 6.6 Finality
 The *finality point* is the selected-chain block 8,640 blue score (12 hours) below the current tip. A tip is eligible only if its selected chain passes through the finality point, so a chain that forks off deeper than that is never adopted, whatever its work. This stops rented hashpower from rewriting old history. The cost is that two parts of the network separated for longer than the finality depth will not rejoin by themselves. A node that sees a heavier chain it must refuse reports `finality_conflict` in its status. A node also records the depth and time of any reorganisation of 3 or more blocks, so that software accepting payments can pause while one is recent.
 
 ---

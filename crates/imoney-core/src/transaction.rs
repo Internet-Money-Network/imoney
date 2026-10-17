@@ -42,6 +42,8 @@ pub enum TransactionError {
     PublicKeyAddressMismatch,
     #[error("Unsupported script version: {0}")]
     UnsupportedScriptVersion(u8),
+    #[error("Invalid token transaction: {0}")]
+    InvalidToken(String),
     #[error("Invalid hash-lock spend: {0}")]
     InvalidHashLock(String),
     #[error("Invalid multi-signature spend: {0}")]
@@ -86,6 +88,9 @@ impl ScriptPublicKey {
 pub struct TxOutput {
     pub value_atoms: u64,
     pub script_public_key: ScriptPublicKey,
+    /// A token amount, or a token's mint authority, carried besides the IMN. See `token`.
+    #[serde(default)]
+    pub token: Option<crate::token::TokenAmount>,
 }
 
 /// UTXO-based Internet Money transaction. A transaction without inputs is a coinbase.
@@ -101,6 +106,9 @@ pub struct Transaction {
     /// Optional script of the node that served this payment. When set, the ledger pays it half
     /// of the transaction fee; the rest goes to the miner. Covered by the signature.
     pub service: Option<ScriptPublicKey>,
+    /// Set when the transaction issues a new token. See `token`.
+    #[serde(default)]
+    pub issue: Option<crate::token::TokenInfo>,
 }
 
 impl Transaction {
@@ -114,6 +122,7 @@ impl Transaction {
             outputs,
             payload,
             service: None,
+            issue: None,
         }
     }
 
@@ -147,6 +156,13 @@ impl Transaction {
                 out.push(1);
                 out.push(script.version);
                 put_bytes(out, &script.script);
+            }
+        }
+        match &self.issue {
+            None => out.push(0),
+            Some(info) => {
+                out.push(1);
+                info.encode(out);
             }
         }
     }
@@ -304,9 +320,10 @@ impl Transaction {
                 .into_iter()
                 .map(|(outpoint, _)| TxInput { previous_outpoint: outpoint, signature_script: Vec::new() })
                 .collect(),
-            outputs: vec![TxOutput { value_atoms: total - fee_atoms, script_public_key: ScriptPublicKey::pay_to_address(&owner) }],
+            outputs: vec![TxOutput { value_atoms: total - fee_atoms, script_public_key: ScriptPublicKey::pay_to_address(&owner), token: None }],
             payload: Vec::new(),
             service: service.map(ScriptPublicKey::pay_to_address),
+            issue: None,
         };
         for i in 0..tx.inputs.len() {
             tx.sign_input(network, i, signing_key)
@@ -354,6 +371,8 @@ impl Transaction {
         let mut accumulated: u64 = 0;
         let mut selected_utxos = Vec::new();
 
+        // Coins that carry a token are moved by the token builders, never spent as plain IMN
+        let available_utxos: Vec<_> = available_utxos.into_iter().filter(|(_, o)| o.token.is_none()).collect();
         for (outpoint, output) in available_utxos {
             accumulated = accumulated
                 .checked_add(output.value_atoms)
@@ -384,12 +403,14 @@ impl Transaction {
         let mut outputs = vec![TxOutput {
             value_atoms: amount_atoms,
             script_public_key: ScriptPublicKey::pay_to_address(recipient_addr),
+            token: None,
         }];
 
         if change_atoms > 0 {
             outputs.push(TxOutput {
                 value_atoms: change_atoms,
                 script_public_key: ScriptPublicKey::pay_to_address(&sender_addr),
+                token: None,
             });
         }
 
@@ -399,6 +420,7 @@ impl Transaction {
             outputs,
             payload,
             service: service.map(ScriptPublicKey::pay_to_address),
+            issue: None,
         };
 
         for i in 0..tx.inputs.len() {
@@ -447,6 +469,13 @@ impl Encode for TxOutput {
         out.extend_from_slice(&self.value_atoms.to_be_bytes());
         out.push(self.script_public_key.version);
         put_bytes(out, &self.script_public_key.script);
+        match &self.token {
+            None => out.push(0),
+            Some(token) => {
+                out.push(1);
+                token.encode(out);
+            }
+        }
     }
 }
 
@@ -457,6 +486,11 @@ impl Decode for TxOutput {
             script_public_key: ScriptPublicKey {
                 version: reader.u8()?,
                 script: reader.bytes(MAX_TX_BYTES)?,
+            },
+            token: match reader.u8()? {
+                0 => None,
+                1 => Some(crate::token::TokenAmount::decode(reader)?),
+                _ => return Err(DecodeError::Invalid("token flag")),
             },
         })
     }
@@ -479,6 +513,11 @@ impl Decode for Transaction {
                 0 => None,
                 1 => Some(ScriptPublicKey { version: reader.u8()?, script: reader.bytes(MAX_TX_BYTES)? }),
                 _ => return Err(DecodeError::Invalid("service flag")),
+            },
+            issue: match reader.u8()? {
+                0 => None,
+                1 => Some(crate::token::TokenInfo::decode(reader)?),
+                _ => return Err(DecodeError::Invalid("issue flag")),
             },
         })
     }
@@ -521,6 +560,7 @@ mod tests {
         let utxo = TxOutput {
             value_atoms: 10_000_000,
             script_public_key: ScriptPublicKey::pay_to_address(&sender_addr),
+            token: None,
         };
 
         let recipient_key = SigningKey::generate(&mut csprng);
@@ -611,9 +651,11 @@ mod tests {
             outputs: vec![TxOutput {
                 value_atoms: 0x0102,
                 script_public_key: ScriptPublicKey { version: 0, script: vec![0xcc; 2] },
+                token: Some(crate::TokenAmount { id: Hash([0x11; 32]), amount: 5, mint_authority: false }),
             }],
             payload: vec![0xdd],
             service: Some(ScriptPublicKey { version: 0, script: vec![0xee; 2] }),
+            issue: Some(crate::TokenInfo { name: "Abc".into(), ticker: "AB".into(), decimals: 2, url: String::new() }),
         };
         let expected = [
             "0001",                 // version
@@ -625,10 +667,19 @@ mod tests {
             "0000000000000102",     // value
             "00",                   // script version
             "00000002cccc",         // script
+            "01",                   // carries a token
+            &"11".repeat(32),       // token id
+            "0000000000000005",     // token amount
+            "00",                   // not a mint authority
             "00000001dd",           // payload
             "01",                   // service script present
             "00",                   // service script version
             "00000002eeee",         // service script
+            "01",                   // issues a token
+            "00000003416263",       // name "Abc"
+            "000000024142",         // ticker "AB"
+            "02",                   // decimals
+            "00000000",             // no URL
         ]
         .concat();
         assert_eq!(hex::encode(tx.to_bytes()), expected);
@@ -642,7 +693,7 @@ mod tests {
         let key = SigningKey::from_bytes(&[5u8; 32]);
         let me = Address::from_public_key(Network::Testnet, AddressType::PubKeyHash, key.verifying_key().as_bytes());
         let node = Address::from_public_key(Network::Testnet, AddressType::PubKeyHash, &[9u8; 32]);
-        let utxo = TxOutput { value_atoms: 50_000, script_public_key: ScriptPublicKey::pay_to_address(&me) };
+        let utxo = TxOutput { value_atoms: 50_000, script_public_key: ScriptPublicKey::pay_to_address(&me), token: None };
         let outpoint = Outpoint { transaction_id: Hash([7u8; 32]), index: 0 };
         let mut with_service =
             Transaction::build_payment(&key, Network::Testnet, &sender_addr, 10_000, 1_001, vec![(outpoint, utxo)], Some(&node))
@@ -669,7 +720,7 @@ mod tests {
                 .map(|i| {
                     (
                         Outpoint { transaction_id: Hash([1u8; 32]), index: i as u32 },
-                        TxOutput { value_atoms: 1_000, script_public_key: script.clone() },
+                        TxOutput { value_atoms: 1_000, script_public_key: script.clone(), token: None },
                     )
                 })
                 .collect()
@@ -696,7 +747,7 @@ mod tests {
         let utxo = || {
             vec![(
                 Outpoint { transaction_id: Hash([7u8; 32]), index: 0 },
-                TxOutput { value_atoms: 50_000, script_public_key: script.clone() },
+                TxOutput { value_atoms: 50_000, script_public_key: script.clone(), token: None },
             )]
         };
         let build = |invoice: Option<&str>| {
