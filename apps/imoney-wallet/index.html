@@ -112,6 +112,16 @@
       color: var(--ink); font-family: var(--mono); font-size: 14px;
     }
     input[type="checkbox"] { width: auto; padding: 0; }
+    details.more { margin: 0 0 14px; }
+    details.more summary { cursor: pointer; font-size: 13px; color: var(--ink-soft); padding: 4px 0; }
+    details.more summary:hover { color: var(--ink); }
+    .trade-price { display: flex; align-items: center; gap: 10px; font-family: var(--serif, Georgia, serif); font-size: 22px; margin: 4px 0 16px; }
+    .seg { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--ink); margin: 0 0 16px; }
+    .seg-btn { background: none; border: 0; padding: 10px; font-family: var(--mono); font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink); cursor: pointer; }
+    .seg-btn.active { background: var(--ink); color: var(--paper); }
+    .trade-quote { font-size: 15px; min-height: 22px; margin: 0 0 14px; }
+    .trade-quote.loss, .loss { color: var(--negative); }
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; }
     .section-label {
       margin: 0 0 12px; font-family: var(--mono); font-size: 11px; font-weight: 500; letter-spacing: 0.16em;
       text-transform: uppercase; color: var(--ink-soft); border-top: 1px solid var(--rule); padding-top: 14px;
@@ -299,7 +309,7 @@
 
         <!-- Tab: Tokens -->
         <div id="tab-tokens" class="tab-content">
-          <div id="token-list"><p class="small soft">No tokens yet.</p></div>
+          <div id="token-list"><p class="small soft">You don't have any tokens yet.</p></div>
 
           <h3 class="section-label" style="margin-top: 22px;">Send a token</h3>
           <div class="form-group">
@@ -307,107 +317,108 @@
             <select id="token-send-select"></select>
           </div>
           <div class="form-group">
-            <label for="token-send-recipient">Recipient address</label>
+            <label for="token-send-recipient">To</label>
             <input type="text" id="token-send-recipient" placeholder="imntest:q..." autocomplete="off" spellcheck="false" />
           </div>
-          <div class="form-group pair">
-            <div>
-              <label for="token-send-amount">Amount</label>
-              <input type="text" inputmode="decimal" id="token-send-amount" placeholder="0" />
-            </div>
-            <div>
-              <label for="token-send-invoice">Invoice number (optional)</label>
-              <input type="text" id="token-send-invoice" placeholder="optional" maxlength="64" />
-            </div>
+          <div class="form-group">
+            <label for="token-send-amount">Amount</label>
+            <input type="text" inputmode="decimal" id="token-send-amount" placeholder="0" />
           </div>
-          <p class="small soft" style="margin: 0 0 14px;">The network fee is paid in IMN, usually about 0.00006 IMN.</p>
-          <button class="btn" id="token-send-btn">Sign &amp; send</button>
+          <details class="more">
+            <summary>More options</summary>
+            <div class="form-group" style="margin-top: 12px;">
+              <label for="token-send-invoice">Invoice number, if the shop gave one</label>
+              <input type="text" id="token-send-invoice" maxlength="64" />
+            </div>
+          </details>
+          <button class="btn" id="token-send-btn">Send</button>
           <div id="token-send-status" class="status-msg"></div>
 
-          <h3 class="section-label" style="margin-top: 26px;">Issue a new token</h3>
-          <p class="small soft" style="margin: 0 0 14px;">
-            Anyone can issue a token. Its name and ticker are labels anyone else may reuse: a token
-            is identified by its ID, which is set when it is created and cannot be copied.
-          </p>
+          <h3 class="section-label" style="margin-top: 26px;">Create your own token</h3>
           <div class="form-group pair">
             <div>
               <label for="token-issue-name">Name</label>
               <input type="text" id="token-issue-name" placeholder="Coffee points" maxlength="32" />
             </div>
             <div>
-              <label for="token-issue-ticker">Ticker</label>
+              <label for="token-issue-ticker">Short name</label>
               <input type="text" id="token-issue-ticker" placeholder="BEAN" maxlength="8" style="text-transform: uppercase;" />
             </div>
           </div>
-          <div class="form-group pair">
-            <div>
-              <label for="token-issue-supply">Supply</label>
-              <input type="text" inputmode="decimal" id="token-issue-supply" placeholder="1000000" />
-            </div>
-            <div>
-              <label for="token-issue-decimals">Decimals (0 to 12)</label>
-              <input type="number" id="token-issue-decimals" value="0" min="0" max="12" />
-            </div>
-          </div>
           <div class="form-group">
-            <label for="token-issue-url">Link (optional)</label>
-            <input type="text" id="token-issue-url" placeholder="https://..." maxlength="120" />
+            <label for="token-issue-supply">How many</label>
+            <input type="text" inputmode="decimal" id="token-issue-supply" placeholder="1000000" />
           </div>
-          <label class="small" style="display: flex; gap: 8px; align-items: center; margin: 0 0 14px;">
-            <input type="checkbox" id="token-issue-mintable" /> Keep the right to mint more later
-          </label>
-          <button class="btn" id="token-issue-btn">Issue token</button>
+          <details class="more">
+            <summary>More options</summary>
+            <div class="form-group" style="margin-top: 12px;">
+              <label for="token-issue-decimals">Decimal places</label>
+              <input type="number" id="token-issue-decimals" value="2" min="0" max="12" />
+              <p class="small soft" style="margin: 6px 0 0;">2 allows amounts like 12.50. 0 allows whole numbers only.</p>
+            </div>
+            <div class="form-group">
+              <label for="token-issue-url">Website (optional)</label>
+              <input type="text" id="token-issue-url" placeholder="https://..." maxlength="120" />
+            </div>
+            <label class="small" style="display: flex; gap: 8px; align-items: center; margin: 0 0 14px;">
+              <input type="checkbox" id="token-issue-mintable" /> Let me create more of it later
+            </label>
+          </details>
+          <button class="btn" id="token-issue-btn">Create token</button>
           <div id="token-issue-status" class="status-msg"></div>
         </div>
 
         <!-- Tab: Trade -->
         <div id="tab-trade" class="tab-content">
-          <p class="small soft" style="margin: 0 0 14px;">
-            Offers are held by the chain itself: whoever takes one pays the maker in the same
-            transaction, or nothing happens. No exchange holds anyone's coins.
-          </p>
           <div class="form-group">
-            <label for="trade-token">Token to trade against IMN (token ID)</label>
-            <input type="text" id="trade-token" list="trade-token-list" placeholder="token ID" autocomplete="off" spellcheck="false" />
-            <datalist id="trade-token-list"></datalist>
+            <label for="trade-pick">Token</label>
+            <select id="trade-pick"></select>
           </div>
-          <div id="trade-market" class="small" style="margin: 0 0 14px;"></div>
+          <div id="trade-price" class="trade-price">Choose a token</div>
 
-          <h3 class="section-label">Selling (cheapest first)</h3>
-          <div id="trade-asks"><p class="small soft">Choose a token to see its offers.</p></div>
-          <h3 class="section-label" style="margin-top: 18px;">Buying (best price first)</h3>
-          <div id="trade-bids"></div>
-
-          <div id="trade-take-box" style="display: none; margin-top: 18px;">
-            <h3 class="section-label">Take an offer</h3>
-            <p id="trade-take-summary" class="small" style="margin: 0 0 10px;"></p>
-            <div class="form-group">
-              <label for="trade-take-amount" id="trade-take-label">Amount</label>
-              <input type="text" inputmode="decimal" id="trade-take-amount" placeholder="0" />
-            </div>
-            <button class="btn" id="trade-take-btn">Take</button>
-          </div>
-          <div id="trade-take-status" class="status-msg"></div>
-
-          <h3 class="section-label" style="margin-top: 22px;">Place an offer</h3>
-          <div class="form-group pair">
-            <div>
-              <label for="trade-side">I want to</label>
-              <select id="trade-side"><option value="sell">Sell the token for IMN</option><option value="buy">Buy the token with IMN</option></select>
-            </div>
-            <div>
-              <label for="trade-amount">Amount of the token</label>
-              <input type="text" inputmode="decimal" id="trade-amount" placeholder="0" />
-            </div>
+          <div class="seg" role="tablist">
+            <button class="seg-btn active" data-side="buy" role="tab">Buy</button>
+            <button class="seg-btn" data-side="sell" role="tab">Sell</button>
           </div>
           <div class="form-group">
-            <label for="trade-price">Price (IMN per token)</label>
-            <input type="text" inputmode="decimal" id="trade-price" placeholder="0.01" />
+            <label for="trade-amount" id="trade-amount-label">How many?</label>
+            <input type="text" inputmode="decimal" id="trade-amount" placeholder="0" />
           </div>
-          <button class="btn" id="trade-offer-btn">Place offer</button>
-          <div id="trade-offer-status" class="status-msg"></div>
+          <p id="trade-quote" class="trade-quote"></p>
+          <button class="btn" id="trade-go">Buy</button>
+          <div id="trade-status" class="status-msg"></div>
 
-          <h3 class="section-label" style="margin-top: 22px;">My offers</h3>
+          <details class="more" style="margin-top: 20px;">
+            <summary>Set your own price</summary>
+            <p class="small soft" style="margin: 12px 0;">Your order waits until someone accepts it. You can cancel it any time.</p>
+            <div class="form-group pair">
+              <div>
+                <label for="trade-order-amount" id="trade-order-amount-label">How many</label>
+                <input type="text" inputmode="decimal" id="trade-order-amount" placeholder="0" />
+              </div>
+              <div>
+                <label for="trade-order-price">Price each (IMN)</label>
+                <input type="text" inputmode="decimal" id="trade-order-price" placeholder="0.01" />
+              </div>
+            </div>
+            <button class="btn quiet" id="trade-order-btn">Place order</button>
+            <div id="trade-order-status" class="status-msg"></div>
+          </details>
+
+          <details class="more">
+            <summary>Other token, by ID</summary>
+            <input type="text" id="trade-token" placeholder="token ID" autocomplete="off" spellcheck="false" style="margin-top: 12px;" />
+          </details>
+
+          <details class="more">
+            <summary>All orders for this token</summary>
+            <div class="small soft" style="margin: 12px 0 4px;">For sale</div>
+            <div id="trade-asks"></div>
+            <div class="small soft" style="margin: 14px 0 4px;">Wanted</div>
+            <div id="trade-bids"></div>
+          </details>
+
+          <h3 class="section-label" style="margin-top: 22px;">Your orders</h3>
           <div id="trade-mine"><p class="small soft">None.</p></div>
         </div>
 
@@ -631,7 +642,7 @@
         $('tab-' + btn.dataset.tab).classList.add('active');
         if (btn.dataset.tab === 'history') refreshHistory();
         if (btn.dataset.tab === 'tokens') refreshTokens();
-        if (btn.dataset.tab === 'trade') refreshTokens().then(loadTrade);
+        if (btn.dataset.tab === 'trade') refreshTokens().then(loadTradeTokens);
         if (btn.dataset.tab === 'shared') openShared();
       });
     });
@@ -828,19 +839,23 @@
 
     // Amounts are whole numbers of the token's smallest unit; `decimals` places the point.
     function toUnits(text, decimals) {
-      const clean = String(text).trim();
+      const clean = String(text).trim().replace(/,/g, '');
       if (!/^\d+(\.\d+)?$/.test(clean)) throw new Error('Enter an amount like 12 or 12.5');
       const [whole, fraction = ''] = clean.split('.');
-      if (fraction.length > decimals) throw new Error(`This token has ${decimals} decimal place${decimals === 1 ? '' : 's'}.`);
+      if (fraction.length > decimals) {
+        throw new Error(decimals === 0 ? 'This token only comes in whole numbers.' : `This token allows ${decimals} decimal place${decimals === 1 ? '' : 's'}.`);
+      }
       return BigInt(whole + fraction.padEnd(decimals, '0'));
     }
     function formatUnits(units, decimals) {
       const text = BigInt(units).toString().padStart(decimals + 1, '0');
-      if (decimals === 0) return text;
-      const fraction = text.slice(-decimals).replace(/0+$/, '');
-      return text.slice(0, -decimals) + (fraction ? '.' + fraction : '');
+      const whole = BigInt(decimals ? text.slice(0, -decimals) : text).toLocaleString('en-US');
+      const fraction = decimals ? text.slice(-decimals).replace(/0+$/, '') : '';
+      return whole + (fraction ? '.' + fraction : '');
     }
-    const tokenLabel = (t) => (t.ticker ? `${t.ticker} · ${t.name}` : `Unknown token ${t.token_id.slice(0, 12)}…`);
+    const atomsText = (atoms) => formatUnits(atoms, 8);
+    const tokenLabel = (t) => (t.ticker ? `${t.ticker} · ${t.name}` : `Unknown token ${t.token_id.slice(0, 8)}`);
+    const iconHtml = (id, size) => (sdk ? sdk.tokenIconSvg(id, size) : ''); // drawn from the ID; nothing issuer-supplied
 
     async function refreshTokens() {
       if (!wallet) return;
@@ -857,7 +872,7 @@
       if (!tokens.length) {
         const empty = document.createElement('p');
         empty.className = 'small soft';
-        empty.innerText = 'No tokens yet.';
+        empty.innerText = "You don't have any tokens yet.";
         list.append(empty);
       }
       const select = $('token-send-select');
@@ -865,27 +880,27 @@
       for (const t of tokens) {
         const decimals = t.decimals ?? 0;
         const row = document.createElement('div');
-        row.style.cssText = 'display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--rule-soft); font-size: 14px;';
+        row.style.cssText = 'display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--rule-soft);';
         const icon = document.createElement('span');
-        icon.innerHTML = sdk ? sdk.tokenIconSvg(t.token_id, 32) : ''; // drawn from the ID; nothing issuer-supplied
+        icon.innerHTML = iconHtml(t.token_id, 32);
         const what = document.createElement('div');
         what.style.flex = '1';
         const title = document.createElement('div');
-        title.innerText = tokenLabel(t); // names are chosen by whoever issued the token: text only
-        const id = document.createElement('div');
-        id.className = 'small soft';
-        id.style.fontFamily = 'var(--mono)';
-        id.innerText = t.token_id.slice(0, 24) + '…' + (t.mint_authority ? ' · you can mint more' : '');
-        what.append(title, id);
+        title.innerText = t.name || 'Unknown token'; // names are chosen by whoever made the token: text only
+        const ticker = document.createElement('div');
+        ticker.className = 'small soft';
+        ticker.innerText = t.ticker || t.token_id.slice(0, 8);
+        ticker.title = 'Token ID ' + t.token_id;
+        what.append(title, ticker);
         const amount = document.createElement('div');
-        amount.style.cssText = 'font-family: var(--mono); white-space: nowrap;';
+        amount.style.cssText = 'font-family: var(--mono); font-size: 16px; white-space: nowrap;';
         amount.innerText = formatUnits(t.amount, decimals);
         row.append(icon, what, amount);
         if (t.mint_authority) {
           const mint = document.createElement('button');
           mint.className = 'btn quiet';
           mint.style.cssText = 'width: auto; padding: 6px 12px;';
-          mint.innerText = 'Mint';
+          mint.innerText = 'Create more';
           mint.addEventListener('click', () => mintToken(t));
           row.append(mint);
         }
@@ -893,9 +908,16 @@
         if (t.amount > 0) {
           const option = document.createElement('option');
           option.value = t.token_id;
-          option.innerText = `${tokenLabel(t)} (${formatUnits(t.amount, decimals)})`;
+          option.innerText = `${tokenLabel(t)} (you have ${formatUnits(t.amount, decimals)})`;
           select.append(option);
         }
+      }
+      if (tokens.length) {
+        const hint = document.createElement('p');
+        hint.className = 'small soft';
+        hint.style.margin = '10px 0 0';
+        hint.innerText = 'Each token has its own pattern. A copy with the same name has a different one.';
+        list.append(hint);
       }
     }
 
@@ -905,18 +927,18 @@
         const token = tokens.find((t) => t.token_id === $('token-send-select').value);
         if (!token) throw new Error('Choose a token to send.');
         const recipient = $('token-send-recipient').value.trim();
-        if (!wasm.is_valid_address(recipient, TESTNET)) throw new Error('That is not a valid testnet address.');
+        if (!wasm.is_valid_address(recipient, TESTNET)) throw new Error("That address doesn't look right. Check it and try again.");
         const units = toUnits($('token-send-amount').value, token.decimals ?? 0);
-        if (units <= 0n) throw new Error('Enter an amount greater than zero.');
+        if (units <= 0n) throw new Error('Enter an amount.');
         await refreshBalance();
         const invoice = $('token-send-invoice').value.trim();
-        const signed = await broadcast(
+        await broadcast(
           wasm.token_transfer(wallet.private_key_hex, TESTNET, recipient, token.token_id, units, 0n, JSON.stringify(spendable), invoice || undefined)
         );
-        show(statusEl, `Sent. Transaction ${signed.tx_id.slice(0, 16)}… should be in a block in about 5 seconds.`, true);
+        show(statusEl, `Sent ${formatUnits(units, token.decimals ?? 0)} ${token.ticker || ''}. It arrives in about 5 seconds.`, true);
         $('token-send-amount').value = '';
         $('token-send-invoice').value = '';
-        setTimeout(() => { refreshBalance(); refreshTokens(); }, 1500);
+        setTimeout(() => { refreshBalance(); refreshTokens(); }, 6000);
       } catch (err) {
         show(statusEl, err.message || String(err), false);
       }
@@ -925,28 +947,21 @@
     $('token-issue-btn').addEventListener('click', async () => {
       const statusEl = $('token-issue-status');
       try {
+        const name = $('token-issue-name').value.trim();
+        const ticker = $('token-issue-ticker').value.trim().toUpperCase();
+        if (!name) throw new Error('Give your token a name.');
+        if (!/^[A-Z0-9]{1,8}$/.test(ticker)) throw new Error('The short name can use letters and numbers, up to 8.');
         const decimals = Number($('token-issue-decimals').value);
-        if (!Number.isInteger(decimals) || decimals < 0 || decimals > 12) throw new Error('Decimals must be a whole number from 0 to 12.');
+        if (!Number.isInteger(decimals) || decimals < 0 || decimals > 12) throw new Error('Decimal places must be a whole number from 0 to 12.');
         const mintable = $('token-issue-mintable').checked;
         const supplyText = $('token-issue-supply').value.trim();
         const supply = supplyText ? toUnits(supplyText, decimals) : 0n;
-        if (supply === 0n && !mintable) throw new Error('Give the token a supply, or keep the right to mint it.');
+        if (supply === 0n && !mintable) throw new Error('Say how many to create.');
         await refreshBalance();
-        const signed = await broadcast(
-          wasm.token_issue(
-            wallet.private_key_hex,
-            TESTNET,
-            $('token-issue-name').value,
-            $('token-issue-ticker').value,
-            decimals,
-            $('token-issue-url').value,
-            supply,
-            mintable,
-            0n,
-            JSON.stringify(spendable)
-          )
+        await broadcast(
+          wasm.token_issue(wallet.private_key_hex, TESTNET, name, ticker, decimals, $('token-issue-url').value, supply, mintable, 0n, JSON.stringify(spendable))
         );
-        show(statusEl, `Issued. The token's ID is ${signed.token_id}. It appears above once it is in a block.`, true);
+        show(statusEl, `${ticker} is being created. It shows up above in a few seconds.`, true);
         setTimeout(() => { refreshBalance(); refreshTokens(); }, 6000);
       } catch (err) {
         show(statusEl, err.message || String(err), false);
@@ -956,12 +971,12 @@
     async function mintToken(token) {
       const statusEl = $('token-issue-status');
       try {
-        const text = prompt(`How much more ${token.ticker || 'of this token'} to mint?`);
+        const text = prompt(`How many more ${token.ticker || 'tokens'} do you want to create?`);
         if (!text) return;
         const units = toUnits(text, token.decimals ?? 0);
         await refreshBalance();
-        const signed = await broadcast(wasm.token_mint(wallet.private_key_hex, TESTNET, token.token_id, units, false, 0n, JSON.stringify(spendable)));
-        show(statusEl, `Minted. Transaction ${signed.tx_id.slice(0, 16)}…`, true);
+        await broadcast(wasm.token_mint(wallet.private_key_hex, TESTNET, token.token_id, units, false, 0n, JSON.stringify(spendable)));
+        show(statusEl, `Creating ${formatUnits(units, token.decimals ?? 0)} more ${token.ticker || ''}.`, true);
         setTimeout(() => { refreshBalance(); refreshTokens(); }, 6000);
       } catch (err) {
         show(statusEl, err.message || String(err), false);
@@ -969,90 +984,135 @@
     }
 
     // ---------------------------------------------------------------- trade
-    // An offer gives one asset for another at price_num / price_den units of `want` per unit
-    // of `give`. Against IMN, the wallet shows every price as IMN per whole token.
-    let tradeInfo = null; // { token_id, decimals, ticker, name }
+    // An order gives one asset for another at price_num / price_den units of `want` per unit of
+    // `give`. The wallet shows only "IMN each" and takes the best order for the person.
+    const tokenCache = new Map(); // token ID -> { token_id, name, ticker, decimals }
+    let tradeToken = null;
+    let tradeSide = 'buy';
     let tradeBook = { asks: [], bids: [] };
-    let takeTarget = null;
 
-    const tenPow = (n) => 10n ** BigInt(n);
-    function imnPerToken(offer, decimals) {
-      // asks give the token and want IMN: atoms per smallest token unit = num / den
-      // bids give IMN and want the token: smallest token units per atom = num / den
-      const atomsPerUnit = offer.give === 'imn' ? offer.price_den / offer.price_num : offer.price_num / offer.price_den;
+    async function tokenInfo(id) {
+      if (!tokenCache.has(id)) {
+        const info = await fetch(`${nodeUrl()}/api/v1/token/${id}`).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+        tokenCache.set(id, info && info.token_id ? info : { token_id: id, name: 'Unknown token', ticker: id.slice(0, 6), decimals: 0 });
+      }
+      return tokenCache.get(id);
+    }
+
+    // IMN per whole token, as a number, for display and sorting only
+    function imnEach(order, decimals) {
+      const atomsPerUnit = order.give === 'imn' ? order.price_den / order.price_num : order.price_num / order.price_den;
       return (atomsPerUnit * 10 ** decimals) / 1e8;
     }
-    const priceText = (value) => (value >= 1 ? value.toFixed(4) : value.toPrecision(4)).replace(/\.?0+$/, '');
+    const priceText = (value) => (value >= 1 ? value.toFixed(4) : value.toPrecision(3)).replace(/\.?0+$/, '');
+
+    async function loadTradeTokens() {
+      // Tokens the wallet holds, and every token someone has an order for
+      const ids = new Set(tokens.map((t) => t.token_id));
+      try {
+        for (const order of await fetch(`${nodeUrl()}/api/v1/offers`).then((r) => r.json())) {
+          if (order.give !== 'imn') ids.add(order.give);
+          if (order.want !== 'imn') ids.add(order.want);
+        }
+      } catch {
+        // The node may be unreachable; show what the wallet holds
+      }
+      const pick = $('trade-pick');
+      const chosen = pick.value;
+      pick.replaceChildren();
+      const infos = await Promise.all([...ids].map(tokenInfo));
+      infos.sort((a, b) => (a.ticker || '').localeCompare(b.ticker || ''));
+      if (!infos.length) {
+        const none = document.createElement('option');
+        none.value = '';
+        none.innerText = 'No tokens to trade yet';
+        pick.append(none);
+      }
+      for (const info of infos) {
+        const option = document.createElement('option');
+        option.value = info.token_id;
+        option.innerText = tokenLabel(info);
+        pick.append(option);
+      }
+      if (chosen && ids.has(chosen)) pick.value = chosen;
+      await loadTrade();
+    }
 
     async function loadTrade() {
-      if (!wallet) return;
-      // Suggest the tokens the wallet holds
-      const list = $('trade-token-list');
-      list.replaceChildren();
-      for (const t of tokens) {
-        const option = document.createElement('option');
-        option.value = t.token_id;
-        option.innerText = tokenLabel(t);
-        list.append(option);
+      const id = ($('trade-token').value.trim() || $('trade-pick').value).toLowerCase();
+      if (!/^[0-9a-f]{64}$/.test(id)) {
+        tradeToken = null;
+        renderTrade();
+        return;
       }
-      const id = $('trade-token').value.trim().toLowerCase();
-      if (!/^[0-9a-f]{64}$/.test(id)) return;
+      tradeToken = await tokenInfo(id);
       try {
-        const info = await (await fetch(`${nodeUrl()}/api/v1/token/${id}`)).json();
-        tradeInfo = info && info.token_id ? info : { token_id: id, decimals: 0, ticker: id.slice(0, 6), name: 'Unknown token' };
         const [asks, bids] = await Promise.all([
           fetch(`${nodeUrl()}/api/v1/offers?give=${id}&want=imn`).then((r) => r.json()),
           fetch(`${nodeUrl()}/api/v1/offers?give=imn&want=${id}`).then((r) => r.json()),
         ]);
-        // Bids: the best for a seller pays the most IMN per token
-        bids.sort((a, b) => imnPerToken(b, tradeInfo.decimals) - imnPerToken(a, tradeInfo.decimals));
-        tradeBook = { asks, bids };
+        // Others' orders only, best first: the cheapest to buy from, the highest to sell to
+        const others = (o) => o.maker !== wallet.address;
+        tradeBook = {
+          asks: asks,
+          bids: bids.sort((a, b) => imnEach(b, tradeToken.decimals) - imnEach(a, tradeToken.decimals)),
+          bestAsk: asks.filter(others)[0] || null,
+          bestBid: bids.filter(others)[0] || null,
+        };
       } catch (err) {
-        show($('trade-take-status'), 'Could not load the order book: ' + (err.message || err), false);
+        show($('trade-status'), "Couldn't reach the node. Try again in a moment.", false);
         return;
       }
       renderTrade();
     }
 
-    function offerRow(offer, side) {
-      const d = tradeInfo.decimals;
+    function orderRow(order, d, ticker) {
       const row = document.createElement('div');
-      row.style.cssText = 'display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--rule-soft); font-size: 14px; cursor: pointer;';
-      const price = document.createElement('div');
-      price.style.fontFamily = 'var(--mono)';
-      price.innerText = priceText(imnPerToken(offer, d)) + ' IMN';
-      const amount = document.createElement('div');
-      amount.style.fontFamily = 'var(--mono)';
-      amount.innerText = side === 'ask'
-        ? formatUnits(offer.give_amount, d) + ' ' + tradeInfo.ticker
-        : formatImn(offer.give_amount) + ' IMN';
-      const who = document.createElement('div');
-      who.className = 'small soft';
-      who.innerText = offer.maker === wallet.address ? 'yours' : offer.maker.slice(0, 14) + '…';
-      row.append(price, amount, who);
-      row.addEventListener('click', () => chooseOffer(offer, side));
+      row.style.cssText = 'display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--rule-soft); font-size: 13px; font-family: var(--mono);';
+      const price = document.createElement('span');
+      price.innerText = priceText(imnEach(order, d)) + ' IMN each';
+      const amount = document.createElement('span');
+      amount.innerText = order.give === 'imn'
+        ? `wants ${formatUnits(BigInt(Math.floor(order.give_amount / (imnEach(order, d) * 1e8) * 10 ** d) || 0), d)} ${ticker}`
+        : `${formatUnits(order.give_amount, d)} ${ticker}`;
+      row.append(price, amount);
       return row;
     }
 
     function renderTrade() {
-      const d = tradeInfo.decimals;
-      const label = tradeInfo.ticker || 'token';
-      for (const [side, el, offers] of [['ask', $('trade-asks'), tradeBook.asks], ['bid', $('trade-bids'), tradeBook.bids]]) {
+      const go = $('trade-go');
+      go.innerText = tradeSide === 'buy' ? 'Buy' : 'Sell';
+      if (!tradeToken) {
+        $('trade-price').innerText = 'Choose a token';
+        $('trade-quote').innerText = '';
+        go.disabled = true;
+        return;
+      }
+      const d = tradeToken.decimals;
+      const ticker = tradeToken.ticker || 'tokens';
+      $('trade-amount-label').innerText = tradeSide === 'buy' ? `How many ${ticker} do you want?` : `How many ${ticker} do you want to sell?`;
+      $('trade-order-amount-label').innerText = `How many ${ticker}`;
+      const best = tradeSide === 'buy' ? tradeBook.bestAsk : tradeBook.bestBid;
+      $('trade-price').innerHTML = '';
+      const icon = document.createElement('span');
+      icon.innerHTML = iconHtml(tradeToken.token_id, 28);
+      const text = document.createElement('span');
+      text.innerText = best
+        ? `1 ${ticker} = ${priceText(imnEach(best, d))} IMN`
+        : tradeSide === 'buy' ? `Nobody is selling ${ticker} right now` : `Nobody is buying ${ticker} right now`;
+      $('trade-price').append(icon, text);
+      updateQuote();
+
+      for (const [el, orders] of [[$('trade-asks'), tradeBook.asks], [$('trade-bids'), tradeBook.bids]]) {
         el.replaceChildren();
-        if (!offers.length) {
-          const none = document.createElement('p');
+        if (!orders.length) {
+          const none = document.createElement('div');
           none.className = 'small soft';
-          none.innerText = 'No offers.';
+          none.innerText = 'None';
           el.append(none);
         }
-        for (const offer of offers) el.append(offerRow(offer, side));
+        for (const order of orders) el.append(orderRow(order, d, ticker));
       }
-      // The market price comes from the chain's own offers: no outside price feed
-      const ask = tradeBook.asks[0] ? imnPerToken(tradeBook.asks[0], d) : null;
-      const bid = tradeBook.bids[0] ? imnPerToken(tradeBook.bids[0], d) : null;
-      $('trade-market').innerText = ask || bid
-        ? `${label}: best offer to sell ${ask ? priceText(ask) + ' IMN' : '—'} · best offer to buy ${bid ? priceText(bid) + ' IMN' : '—'}`
-        : `No offers for ${label} yet.`;
 
       const mine = $('trade-mine');
       mine.replaceChildren();
@@ -1063,93 +1123,137 @@
         none.innerText = 'None.';
         mine.append(none);
       }
-      for (const offer of own) {
+      for (const order of own) {
         const row = document.createElement('div');
         row.style.cssText = 'display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--rule-soft); font-size: 14px;';
         const what = document.createElement('div');
-        what.innerText = offer.give === 'imn'
-          ? `Buying ${label} with ${formatImn(offer.give_amount)} IMN at ${priceText(imnPerToken(offer, d))}`
-          : `Selling ${formatUnits(offer.give_amount, d)} ${label} at ${priceText(imnPerToken(offer, d))} IMN`;
+        what.innerText = order.give === 'imn'
+          ? `Buying ${ticker} at ${priceText(imnEach(order, d))} IMN each`
+          : `Selling ${formatUnits(order.give_amount, d)} ${ticker} at ${priceText(imnEach(order, d))} IMN each`;
         const cancel = document.createElement('button');
         cancel.className = 'btn quiet';
         cancel.style.cssText = 'width: auto; padding: 6px 12px;';
         cancel.innerText = 'Cancel';
-        cancel.addEventListener('click', () => cancelOffer(offer));
+        cancel.addEventListener('click', () => cancelOrder(order));
         row.append(what, cancel);
         mine.append(row);
       }
     }
 
-    function chooseOffer(offer, side) {
-      takeTarget = { offer, side };
-      const d = tradeInfo.decimals;
-      $('trade-take-box').style.display = 'block';
-      $('trade-take-summary').innerText = side === 'ask'
-        ? `Buy up to ${formatUnits(offer.give_amount, d)} ${tradeInfo.ticker} at ${priceText(imnPerToken(offer, d))} IMN each.`
-        : `Sell ${tradeInfo.ticker} for up to ${formatImn(offer.give_amount)} IMN at ${priceText(imnPerToken(offer, d))} IMN each.`;
-      $('trade-take-label').innerText = side === 'ask' ? `How much ${tradeInfo.ticker} to buy` : `How much ${tradeInfo.ticker} to sell`;
-      $('trade-take-amount').value = '';
-    }
-
-    $('trade-take-btn').addEventListener('click', async () => {
-      const statusEl = $('trade-take-status');
+    // What taking the best order for this amount means: { take, imnAtoms, units, error }
+    function quote() {
+      if (!tradeToken) return { error: '' };
+      const d = tradeToken.decimals;
+      const ticker = tradeToken.ticker || 'tokens';
+      const text = $('trade-amount').value.trim();
+      if (!text) return { error: '' };
+      let units;
       try {
-        if (!takeTarget) throw new Error('Choose an offer above.');
-        const { offer, side } = takeTarget;
-        const units = toUnits($('trade-take-amount').value, tradeInfo.decimals);
-        // An ask gives tokens: take that many. A bid gives IMN: take the IMN those tokens buy.
-        const take = side === 'ask' ? units : (units * BigInt(offer.price_den)) / BigInt(offer.price_num);
-        if (take <= 0n) throw new Error('Enter a larger amount.');
-        if (take > BigInt(offer.give_amount)) throw new Error('That is more than the offer holds.');
-        await refreshBalance();
-        const signed = await broadcast(wasm.offer_take(wallet.private_key_hex, TESTNET, JSON.stringify(offer), take, 0n, JSON.stringify(spendable)));
-        show(statusEl, `Traded. Transaction ${signed.tx_id.slice(0, 16)}… settles in about 5 seconds.`, true);
-        $('trade-take-box').style.display = 'none';
-        takeTarget = null;
-        setTimeout(() => { refreshBalance(); refreshTokens(); loadTrade(); }, 6000);
+        units = toUnits(text, d);
       } catch (err) {
-        show(statusEl, err.message || String(err), false);
+        return { error: err.message };
       }
-    });
-
-    $('trade-offer-btn').addEventListener('click', async () => {
-      const statusEl = $('trade-offer-status');
-      try {
-        if (!tradeInfo) throw new Error('Choose a token first.');
-        const d = tradeInfo.decimals;
-        const units = toUnits($('trade-amount').value, d);
-        const atomsPerToken = toUnits($('trade-price').value, 8); // IMN per whole token, in atoms
-        if (units <= 0n || atomsPerToken <= 0n) throw new Error('Enter an amount and a price.');
-        await refreshBalance();
-        let signed;
-        if ($('trade-side').value === 'sell') {
-          // Give token units; want atoms at atomsPerToken per 10^decimals units
-          signed = wasm.offer_create(wallet.private_key_hex, TESTNET, tradeInfo.token_id, units, 'imn', atomsPerToken, tenPow(d), 0n, JSON.stringify(spendable));
-        } else {
-          // Give the IMN those tokens cost; want 10^decimals units per atomsPerToken atoms
-          const atoms = (units * atomsPerToken + tenPow(d) - 1n) / tenPow(d);
-          signed = wasm.offer_create(wallet.private_key_hex, TESTNET, 'imn', atoms, tradeInfo.token_id, tenPow(d), atomsPerToken, 0n, JSON.stringify(spendable));
+      if (units <= 0n) return { error: '' };
+      const best = tradeSide === 'buy' ? tradeBook.bestAsk : tradeBook.bestBid;
+      if (!best) return { error: 'Set your own price below, and your order will wait for someone to accept it.' };
+      const num = BigInt(best.price_num);
+      const den = BigInt(best.price_den);
+      if (tradeSide === 'buy') {
+        // The order gives tokens: take `units`, pay ceil(units * num / den) atoms
+        if (units > BigInt(best.give_amount)) {
+          return { error: `Only ${formatUnits(best.give_amount, d)} ${ticker} are for sale at this price.` };
         }
-        signed = await broadcast(signed);
-        show(statusEl, `Offer placed. It appears in the book once it is in a block.`, true);
+        return { take: units, units, imnAtoms: (units * num + den - 1n) / den };
+      }
+      // The order gives IMN for tokens: take the atoms these tokens buy
+      const take = (units * den) / num;
+      if (take <= 0n) return { error: 'That is too small to sell.' };
+      if (take > BigInt(best.give_amount)) {
+        const most = (BigInt(best.give_amount) * num + den - 1n) / den;
+        return { error: `This buyer only wants up to ${formatUnits(most, d)} ${ticker}.` };
+      }
+      return { take, units: (take * num + den - 1n) / den, imnAtoms: take };
+    }
+
+    function updateQuote() {
+      const q = quote();
+      const go = $('trade-go');
+      const ticker = tradeToken ? tradeToken.ticker || 'tokens' : '';
+      if (q.error !== undefined) {
+        $('trade-quote').innerText = q.error;
+        $('trade-quote').classList.toggle('loss', !!q.error && q.error.startsWith('Only'));
+        go.disabled = true;
+        return;
+      }
+      const d = tradeToken.decimals;
+      $('trade-quote').classList.remove('loss');
+      $('trade-quote').innerText = tradeSide === 'buy'
+        ? `You pay ${atomsText(q.imnAtoms)} IMN and get ${formatUnits(q.units, d)} ${ticker}.`
+        : `You sell ${formatUnits(q.units, d)} ${ticker} and get ${atomsText(q.imnAtoms)} IMN.`;
+      go.disabled = false;
+    }
+
+    $('trade-go').addEventListener('click', async () => {
+      const statusEl = $('trade-status');
+      try {
+        const q = quote();
+        if (q.error !== undefined) throw new Error(q.error || 'Enter an amount.');
+        const best = tradeSide === 'buy' ? tradeBook.bestAsk : tradeBook.bestBid;
+        await refreshBalance();
+        await broadcast(wasm.offer_take(wallet.private_key_hex, TESTNET, JSON.stringify(best), q.take, 0n, JSON.stringify(spendable)));
+        show(statusEl, 'Done. Your balance updates in about 5 seconds.', true);
+        $('trade-amount').value = '';
         setTimeout(() => { refreshBalance(); refreshTokens(); loadTrade(); }, 6000);
       } catch (err) {
         show(statusEl, err.message || String(err), false);
       }
     });
 
-    async function cancelOffer(offer) {
-      const statusEl = $('trade-offer-status');
+    $('trade-order-btn').addEventListener('click', async () => {
+      const statusEl = $('trade-order-status');
+      try {
+        if (!tradeToken) throw new Error('Choose a token first.');
+        const d = tradeToken.decimals;
+        const units = toUnits($('trade-order-amount').value, d);
+        const atomsEach = toUnits($('trade-order-price').value, 8); // IMN per whole token, in atoms
+        if (units <= 0n || atomsEach <= 0n) throw new Error('Enter how many and the price.');
+        const scale = 10n ** BigInt(d);
+        await refreshBalance();
+        if (tradeSide === 'sell') {
+          await broadcast(wasm.offer_create(wallet.private_key_hex, TESTNET, tradeToken.token_id, units, 'imn', atomsEach, scale, 0n, JSON.stringify(spendable)));
+        } else {
+          const atoms = (units * atomsEach + scale - 1n) / scale;
+          await broadcast(wasm.offer_create(wallet.private_key_hex, TESTNET, 'imn', atoms, tradeToken.token_id, scale, atomsEach, 0n, JSON.stringify(spendable)));
+        }
+        show(statusEl, 'Your order is placed. It shows under "Your orders" in a few seconds.', true);
+        setTimeout(() => { refreshBalance(); refreshTokens(); loadTrade(); }, 6000);
+      } catch (err) {
+        show(statusEl, err.message || String(err), false);
+      }
+    });
+
+    async function cancelOrder(order) {
+      const statusEl = $('trade-order-status');
       try {
         await refreshBalance();
-        const signed = await broadcast(wasm.offer_cancel(wallet.private_key_hex, TESTNET, JSON.stringify(offer), 0n, JSON.stringify(spendable)));
-        show(statusEl, `Cancelled. Transaction ${signed.tx_id.slice(0, 16)}…`, true);
+        await broadcast(wasm.offer_cancel(wallet.private_key_hex, TESTNET, JSON.stringify(order), 0n, JSON.stringify(spendable)));
+        show(statusEl, 'Order cancelled. What it held comes back in a few seconds.', true);
         setTimeout(() => { refreshBalance(); refreshTokens(); loadTrade(); }, 6000);
       } catch (err) {
         show(statusEl, err.message || String(err), false);
       }
     }
+
+    document.querySelectorAll('.seg-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.seg-btn').forEach((b) => b.classList.toggle('active', b === btn));
+        tradeSide = btn.dataset.side;
+        renderTrade();
+      });
+    });
+    $('trade-pick').addEventListener('change', () => { $('trade-token').value = ''; loadTrade(); });
     $('trade-token').addEventListener('change', loadTrade);
+    $('trade-amount').addEventListener('input', updateQuote);
 
     // ---------------------------------------------------------------- shared wallet
     let shared = null; // { address, threshold, public_keys, script_hex }
