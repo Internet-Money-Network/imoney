@@ -1,14 +1,21 @@
 """Assembles the public website: the landing page, the explorer and the wallet, plus a small
 function that passes /api requests to a public node.
 
-    python scripts/build-site.py
+    python scripts/build-site.py --apps-from v0.1.4
     cd dist-site && npx wrangler pages deploy public --project-name internetmoneynetwork
+
+The explorer, wallet and pool pages must match what the public nodes run: a wallet built for a
+newer transaction format signs payments those nodes refuse. `--apps-from <git tag>` takes those
+pages from the release the nodes run, while the landing page always comes from the working
+tree. Without it, everything comes from the working tree.
 
 The explorer and wallet are the same files a node serves; on the website they talk to the
 node behind /api instead of the visitor's own.
 """
+import argparse
 import os
 import shutil
+import subprocess
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "dist-site")
@@ -64,21 +71,31 @@ export async function onRequest({ request }) {
 """ % UPSTREAM
 
 
-def copy(source, target):
-    os.makedirs(os.path.dirname(os.path.join(PUBLIC, target)), exist_ok=True)
-    shutil.copyfile(os.path.join(ROOT, source), os.path.join(PUBLIC, target))
+def copy(source, target, ref=None):
+    """Copies a file from the working tree, or from git revision `ref` when given."""
+    destination = os.path.join(PUBLIC, target)
+    os.makedirs(os.path.dirname(destination), exist_ok=True)
+    if ref is None:
+        shutil.copyfile(os.path.join(ROOT, source), destination)
+    else:
+        content = subprocess.run(["git", "show", f"{ref}:{source.replace(os.sep, '/')}"], cwd=ROOT, check=True, capture_output=True).stdout
+        with open(destination, "wb") as f:
+            f.write(content)
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--apps-from", metavar="REF", help="take the explorer, wallet and pool pages from this git tag")
+    ref = parser.parse_args().apps_from
     shutil.rmtree(OUT, ignore_errors=True)
     for name in ("index.html", "icon.svg", "banner.png"):
         copy(os.path.join("apps", "imoney-website", name), name)
-    copy(os.path.join("apps", "imoney-explorer", "index.html"), os.path.join("explorer", "index.html"))
-    copy(os.path.join("apps", "imoney-wallet", "index.html"), os.path.join("wallet", "index.html"))
+    copy(os.path.join("apps", "imoney-explorer", "index.html"), os.path.join("explorer", "index.html"), ref)
+    copy(os.path.join("apps", "imoney-wallet", "index.html"), os.path.join("wallet", "index.html"), ref)
     for name in ("imoney_wasm.js", "imoney_wasm_bg.wasm"):
-        copy(os.path.join("apps", "imoney-wallet", "pkg", name), os.path.join("wallet", "pkg", name))
-    copy(os.path.join("packages", "imoney-sdk", "dist", "imoney.js"), os.path.join("wallet", "sdk.js"))
-    copy(os.path.join("apps", "imoney-pool", "index.html"), os.path.join("pool", "index.html"))
+        copy(os.path.join("apps", "imoney-wallet", "pkg", name), os.path.join("wallet", "pkg", name), ref)
+    copy(os.path.join("packages", "imoney-sdk", "dist", "imoney.js"), os.path.join("wallet", "sdk.js"), ref)
+    copy(os.path.join("apps", "imoney-pool", "index.html"), os.path.join("pool", "index.html"), ref)
 
     functions = os.path.join(OUT, "functions", "api")
     os.makedirs(functions, exist_ok=True)
