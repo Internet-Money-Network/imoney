@@ -220,5 +220,14 @@ An input spending such a coin carries the script, a role byte and a 64-byte sign
 - **Collect** (role 0, signed by the merchant, followed by a 2-byte output index or `0xffff`): valid only when the accepting block's blue score is at least `next_due`. If an output is named, it must be locked to the same script with `next_due` increased by one period, carry no token, and hold at least the coin's value less the amount per period less 1,000,000 atoms; no output may be named by two collections. If none is named, the coin may hold at most the amount per period plus 1,000,000 atoms.
 - **Cancel** (role 1, signed by the customer): valid at any time, with no other condition.
 
-### 8.8 Keys
+### 8.8 Vaults
+An address of type `Vault` (type byte 7) locks coins to `Blake3-derive-key("IMN 2026 vault script", script)` of a 72-byte script: an everyday Ed25519 key (32), a different backup key (32) and a positive delay in blue score (8). A *pending withdrawal* (type byte 8) locks coins to `Blake3-derive-key("IMN 2026 vault withdrawal", terms)` of 73 bytes: the destination's script version (1) and hash (32), the blue score from which it may complete (8), and the backup key (32).
+
+- **Start** (vault coin; script, `[0]`, the everyday key's signature, the pending terms, a 2-byte output index): valid only if the terms name the vault's backup key and complete no earlier than the accepting block's blue score plus the delay, and the named output is locked to those terms, carries the coin's token unchanged and holds at least the coin's value less 1,000,000 atoms.
+- **Complete** (pending coin; terms, `[0]`, a 2-byte output index; no signature): valid only from the terms' blue score on, and only if the named output is locked to the destination, carries the token unchanged and holds at least the coin's value less 1,000,000 atoms.
+- **Recover** (either coin; script or terms, `[1]`, the backup key's signature): valid at any time, with no other condition.
+
+No output may be named by two withdrawals in one transaction.
+
+### 8.9 Keys
 Nodes do not create, store or receive private keys. Wallets sign locally; the reference wallet uses a WebAssembly build of the same transaction code the node runs. A wallet's key is derived from a 12-word BIP-39 recovery phrase as `Blake3-derive-key("IMN 2026 wallet key 0", BIP-39 seed)`.

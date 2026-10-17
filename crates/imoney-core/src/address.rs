@@ -32,6 +32,10 @@ pub enum AddressType {
     Escrow = 0x04,
     /// Money a merchant may collect from, a set amount once per period
     Subscription = 0x06,
+    /// Savings that leave only after a delay, which a backup key can stop
+    Vault = 0x07,
+    /// A withdrawal waiting to leave a vault
+    VaultPending = 0x08,
 }
 
 impl AddressType {
@@ -43,6 +47,8 @@ impl AddressType {
             0x03 => Some(AddressType::HashLock),
             0x04 => Some(AddressType::Escrow),
             0x06 => Some(AddressType::Subscription),
+            0x07 => Some(AddressType::Vault),
+            0x08 => Some(AddressType::VaultPending),
             _ => None,
         }
     }

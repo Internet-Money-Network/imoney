@@ -1670,3 +1670,54 @@ fn a_subscription_pays_the_merchant_once_per_period_until_cancelled() {
     assert_eq!(balance(&ledger, &address_of(&merchant)), 999_000);
     assert_supply_total_is_exact(&ledger);
 }
+
+#[test]
+fn a_vault_withdrawal_waits_and_a_stolen_key_is_stopped_by_the_backup() {
+    use imoney_core::VaultScript;
+    let everyday = key(37);
+    let backup = key(38);
+    let thief = address_of(&key(39));
+    let (mut ledger, pow) = funded_ledger("vault", &everyday);
+    let miner = address_of(&key(40));
+    let vault = VaultScript::new(everyday.verifying_key().to_bytes(), backup.verifying_key().to_bytes(), 6).unwrap();
+    let coins = ledger.get_spendable_utxos(&address_of(&everyday)).unwrap();
+    let fund = Transaction::build_payment(&everyday, Network::Testnet, &vault.address(Network::Testnet), 3_000_000, 1_000, coins, None).unwrap();
+    let coin = (Outpoint { transaction_id: fund.id(), index: 0 }, fund.outputs[0].clone());
+    ledger.broadcast_transaction(fund).unwrap();
+    mine_tip(&mut ledger, &pow, &miner);
+
+    // Someone with the everyday key starts a withdrawal to themselves
+    let (start, pending) =
+        Transaction::start_vault_withdrawal(&vault, Network::Testnet, coin, &everyday, &thief, ledger.virtual_blue_score, 1_000).unwrap();
+    let pending_coin = (Outpoint { transaction_id: start.id(), index: 0 }, start.outputs[0].clone());
+    ledger.broadcast_transaction(start).unwrap();
+    mine_tip(&mut ledger, &pow, &miner);
+    // It cannot complete yet
+    let complete = Transaction::complete_vault_withdrawal(&pending, pending_coin.clone(), 1_000).unwrap();
+    assert!(ledger.broadcast_transaction(complete).is_err());
+    // The owner sees it and pulls the money back with the backup key
+    let stop = Transaction::recover_vault(&vault, Some(&pending), Network::Testnet, pending_coin, &backup, &address_of(&backup), 1_000).unwrap();
+    ledger.broadcast_transaction(stop).unwrap();
+    mine_tip(&mut ledger, &pow, &miner);
+    assert_eq!(balance(&ledger, &thief), 0);
+    assert_eq!(balance(&ledger, &address_of(&backup)), 2_998_000);
+
+    // A genuine withdrawal completes after the wait
+    let coins = ledger.get_spendable_utxos(&address_of(&everyday)).unwrap();
+    let fund = Transaction::build_payment(&everyday, Network::Testnet, &vault.address(Network::Testnet), 2_000_000, 1_000, coins, None).unwrap();
+    let coin = (Outpoint { transaction_id: fund.id(), index: 0 }, fund.outputs[0].clone());
+    ledger.broadcast_transaction(fund).unwrap();
+    mine_tip(&mut ledger, &pow, &miner);
+    let shop = address_of(&key(41));
+    let (start, pending) =
+        Transaction::start_vault_withdrawal(&vault, Network::Testnet, coin, &everyday, &shop, ledger.virtual_blue_score, 1_000).unwrap();
+    let pending_coin = (Outpoint { transaction_id: start.id(), index: 0 }, start.outputs[0].clone());
+    ledger.broadcast_transaction(start).unwrap();
+    while ledger.virtual_blue_score < pending.unlock_at {
+        mine_tip(&mut ledger, &pow, &miner);
+    }
+    ledger.broadcast_transaction(Transaction::complete_vault_withdrawal(&pending, pending_coin, 1_000).unwrap()).unwrap();
+    mine_tip(&mut ledger, &pow, &miner);
+    assert_eq!(balance(&ledger, &shop), 1_998_000);
+    assert_supply_total_is_exact(&ledger);
+}

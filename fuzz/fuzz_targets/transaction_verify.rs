@@ -6,6 +6,7 @@ use imoney_core::escrow::SCRIPT_VERSION_ESCROW;
 use imoney_core::hashlock::SCRIPT_VERSION_HASHLOCK;
 use imoney_core::multisig::SCRIPT_VERSION_MULTISIG;
 use imoney_core::subscription::SCRIPT_VERSION_SUBSCRIPTION;
+use imoney_core::vault::SCRIPT_VERSION_VAULT;
 use imoney_core::{Decode, Encode, Network, ScriptPublicKey, Transaction};
 use libfuzzer_sys::fuzz_target;
 
@@ -15,7 +16,7 @@ fuzz_target!(|data: &[u8]| {
         assert_eq!(tx.to_bytes(), rest);
         let _ = tx.id();
         let _ = tx.invoice_id();
-        for version in [0, SCRIPT_VERSION_MULTISIG, SCRIPT_VERSION_HASHLOCK, SCRIPT_VERSION_ESCROW, SCRIPT_VERSION_SUBSCRIPTION] {
+        for version in [0, SCRIPT_VERSION_MULTISIG, SCRIPT_VERSION_HASHLOCK, SCRIPT_VERSION_ESCROW, SCRIPT_VERSION_SUBSCRIPTION, SCRIPT_VERSION_VAULT] {
             // An offer take needs no signature by design; its rules are checked against the outputs
             let locked = ScriptPublicKey { version, script: script_hash.to_vec() };
             for index in 0..tx.inputs.len().min(4) {

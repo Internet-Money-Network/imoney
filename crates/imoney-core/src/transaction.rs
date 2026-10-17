@@ -42,6 +42,8 @@ pub enum TransactionError {
     PublicKeyAddressMismatch,
     #[error("Unsupported script version: {0}")]
     UnsupportedScriptVersion(u8),
+    #[error("Invalid vault spend: {0}")]
+    InvalidVault(String),
     #[error("Invalid subscription: {0}")]
     InvalidSubscription(String),
     #[error("Invalid offer: {0}")]
@@ -256,6 +258,9 @@ impl Transaction {
         spent_script: &ScriptPublicKey,
         spending_blue_score: u64,
     ) -> Result<(), TransactionError> {
+        if spent_script.version == crate::vault::SCRIPT_VERSION_VAULT || spent_script.version == crate::vault::SCRIPT_VERSION_VAULT_PENDING {
+            return self.verify_vault_input(network, input_index, spent_script, spending_blue_score);
+        }
         if spent_script.version == crate::subscription::SCRIPT_VERSION_SUBSCRIPTION {
             return self.verify_subscription_input(network, input_index, &spent_script.script, spending_blue_score);
         }

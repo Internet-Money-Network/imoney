@@ -12,6 +12,7 @@ pub mod serialize;
 pub mod subscription;
 pub mod token;
 pub mod transaction;
+pub mod vault;
 
 pub use address::{Address, AddressError, AddressType, Network};
 pub use block::{Block, BlockError};
@@ -25,4 +26,5 @@ pub use multisig::{MultisigScript, PartialSignature};
 pub use serialize::{Decode, DecodeError, Encode};
 pub use subscription::{SubscriptionScript, SubscriptionSpend};
 pub use token::{token_id_for, TokenAmount, TokenInfo};
+pub use vault::{PendingWithdrawal, VaultScript};
 pub use transaction::{Outpoint, ScriptPublicKey, Transaction, TxInput, TxOutput};

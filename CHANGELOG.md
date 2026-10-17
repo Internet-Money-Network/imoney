@@ -6,6 +6,10 @@ Notable changes to Internet Money. Nothing has been released yet: everything bel
 ## Unreleased
 
 ### Added
+- **Vaults.** Savings that leave only after a waiting period, to the address named when the
+  withdrawal started. A backup key, kept offline, can stop a withdrawal during the wait or
+  move the savings at any time, so a stolen everyday key gains a thief nothing quickly. A
+  consensus rule.
 - **Subscriptions.** A customer sets money aside that a merchant may collect from at most a set
   amount once per period; whatever is left stays locked until the next period, and the
   customer can cancel at any time and take it back. A consensus rule.
