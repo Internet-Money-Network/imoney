@@ -203,6 +203,12 @@ export declare function parsePaymentUri(uri: string): {
 };
 /** Renders text as a QR code, returned as an SVG string. Generated locally; nothing is sent anywhere. */
 export declare function qrSvg(text: string, cellSize?: number, margin?: number): string;
+/**
+ * A token's icon, drawn from its ID: a symmetric 5 by 5 pattern in two colours taken from the
+ * ID's bytes. The issuer cannot choose it, so a copy of a well-known token's name and ticker
+ * still looks different from the real one. Returned as an SVG string; nothing is fetched.
+ */
+export declare function tokenIconSvg(tokenId: string, size?: number): string;
 export declare class IMoneyClient {
     readonly nodeUrl: string;
     readonly network: 'mainnet' | 'testnet';

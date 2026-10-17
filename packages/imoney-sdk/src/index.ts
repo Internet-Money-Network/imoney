@@ -261,6 +261,33 @@ export function qrSvg(text: string, cellSize = 4, margin = 2): string {
   return qr.createSvgTag({ cellSize, margin, scalable: true });
 }
 
+/**
+ * A token's icon, drawn from its ID: a symmetric 5 by 5 pattern in two colours taken from the
+ * ID's bytes. The issuer cannot choose it, so a copy of a well-known token's name and ticker
+ * still looks different from the real one. Returned as an SVG string; nothing is fetched.
+ */
+export function tokenIconSvg(tokenId: string, size = 32): string {
+  const hex = /^[0-9a-fA-F]{64}$/.test(tokenId) ? tokenId.toLowerCase() : '0'.repeat(64);
+  const bytes = hex.match(/../g)!.map((pair) => parseInt(pair, 16));
+  const hue = (bytes[0] * 256 + bytes[1]) % 360;
+  const ground = (hue + 150 + (bytes[7] % 60)) % 360;
+  let cells = '';
+  for (let y = 0; y < 5; y++) {
+    for (let x = 0; x < 3; x++) {
+      if ((bytes[2 + y] >> x) & 1) {
+        cells += `<rect x="${x + 1}" y="${y + 1}" width="1" height="1"/>`;
+        if (x < 2) cells += `<rect x="${5 - x}" y="${y + 1}" width="1" height="1"/>`;
+      }
+    }
+  }
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 7 7" width="${size}" height="${size}" shape-rendering="crispEdges" role="img" aria-label="Token icon">` +
+    `<rect width="7" height="7" fill="hsl(${ground} 40% 90%)"/>` +
+    `<g fill="hsl(${hue} 60% 32%)">${cells}</g>` +
+    `<rect x="0.15" y="0.15" width="6.7" height="6.7" fill="none" stroke="hsl(${hue} 60% 32%)" stroke-width="0.3"/></svg>`
+  );
+}
+
 function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string);
 }

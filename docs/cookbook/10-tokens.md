@@ -98,6 +98,18 @@ Ethereum-style chains, with nobody holding anything in between. The one rule: a 
 holds tokens must also hold enough IMN for the fee of whoever claims it, which
 `build_token_transfer_with_atoms` attaches.
 
+## Icons
+
+Every token gets an icon drawn from its ID: a symmetric pattern in two colours. The issuer
+can't choose it, so a copy of a well-known token's name and ticker still looks different
+from the original. It is generated where it is shown, so nothing is fetched from the issuer.
+
+```js
+element.innerHTML = IMoney.tokenIconSvg(tokenId, 32);
+```
+
+An icon helps people notice a copy; it doesn't prove anything. Only the token ID does.
+
 ## In the wallet and the explorer
 
 - **Wallet:** the **Tokens** tab lists what you hold, sends tokens, issues new ones, and mints

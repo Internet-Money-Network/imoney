@@ -813,7 +813,10 @@
         const decimals = t.decimals ?? 0;
         const row = document.createElement('div');
         row.style.cssText = 'display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--rule-soft); font-size: 14px;';
+        const icon = document.createElement('span');
+        icon.innerHTML = sdk ? sdk.tokenIconSvg(t.token_id, 32) : ''; // drawn from the ID; nothing issuer-supplied
         const what = document.createElement('div');
+        what.style.flex = '1';
         const title = document.createElement('div');
         title.innerText = tokenLabel(t); // names are chosen by whoever issued the token: text only
         const id = document.createElement('div');
@@ -824,7 +827,7 @@
         const amount = document.createElement('div');
         amount.style.cssText = 'font-family: var(--mono); white-space: nowrap;';
         amount.innerText = formatUnits(t.amount, decimals);
-        row.append(what, amount);
+        row.append(icon, what, amount);
         if (t.mint_authority) {
           const mint = document.createElement('button');
           mint.className = 'btn quiet';

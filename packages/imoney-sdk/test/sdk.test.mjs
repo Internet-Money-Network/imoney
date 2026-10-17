@@ -145,3 +145,14 @@ test('a refund is a payment request back to the customer under the order\'s refu
   assert.equal(refund.amountAtoms, 50_000_000);
   assert.equal(refund.uri, `${ADDRESS}?amount=0.5&invoice=order-1001.refund`);
 });
+
+test('a token icon is drawn from its ID alone, and differs between tokens', () => {
+  const a = 'c085e349b671bc152279cb9487037a966ad0620d8714a3540b6bf5cf068fa341';
+  const b = 'b7bb197dee64d7a4482ba984fcee4b9631718ef49f8ad03ad80a410a5152fd93';
+  assert.equal(sdk.tokenIconSvg(a), sdk.tokenIconSvg(a));
+  assert.notEqual(sdk.tokenIconSvg(a), sdk.tokenIconSvg(b));
+  assert.match(sdk.tokenIconSvg(a, 48), /^<svg [^>]*width="48"/);
+  // Anything that is not an ID draws a neutral placeholder rather than failing
+  assert.match(sdk.tokenIconSvg('<script>'), /^<svg /);
+  assert.doesNotMatch(sdk.tokenIconSvg('<script>'), /script/);
+});
