@@ -1556,3 +1556,74 @@ fn escrow_pays_only_where_each_party_may_send_it() {
     assert_eq!(balance(&ledger, &script.address(Network::Testnet)), 0);
     assert_supply_total_is_exact(&ledger);
 }
+
+#[test]
+fn offers_are_listed_taken_in_parts_and_cancelled_on_the_chain() {
+    use imoney_core::{OfferTerms, TokenInfo};
+    let maker = key(30);
+    let taker = key(31);
+    let rival = key(32);
+    let (mut ledger, pow) = funded_ledger("offers", &maker);
+    let miner = address_of(&key(33));
+    let tokens_of = |ledger: &DagLedger, owner: &Address, id: Hash| -> u64 {
+        ledger.get_utxos(owner).unwrap().iter().filter_map(|(_, o)| o.token.as_ref()).filter(|t| t.id == id).map(|t| t.amount).sum()
+    };
+    // The taker and a rival get some IMN; the maker issues 1,000 BEAN
+    for who in [&taker, &rival] {
+        let coins = ledger.get_spendable_utxos(&address_of(&maker)).unwrap();
+        let fund = Transaction::build_payment(&maker, Network::Testnet, &address_of(who), 1_000_000, 1_000, coins, None).unwrap();
+        ledger.broadcast_transaction(fund).unwrap();
+        mine_tip(&mut ledger, &pow, &miner);
+    }
+    let coins = ledger.get_spendable_utxos(&address_of(&maker)).unwrap();
+    let info = TokenInfo { name: "Coffee points".into(), ticker: "BEAN".into(), decimals: 0, url: String::new() };
+    let issue = Transaction::build_token_issue(&maker, Network::Testnet, info, 1_000, false, 10_000, coins).unwrap();
+    let bean = issue.issued_token().unwrap();
+    ledger.broadcast_transaction(issue).unwrap();
+    mine_tip(&mut ledger, &pow, &miner);
+
+    // Offer 600 BEAN at 500 atoms each
+    let coins = ledger.get_utxos(&address_of(&maker)).unwrap();
+    let offer = Transaction::build_offer(&maker, Network::Testnet, Some(bean), 600, None, 500, 1, 10_000, coins).unwrap();
+    let offer_coin = (Outpoint { transaction_id: offer.id(), index: 0 }, offer.outputs[0].clone());
+    ledger.broadcast_transaction(offer).unwrap();
+    mine_tip(&mut ledger, &pow, &miner);
+    let book = ledger.storage.get_offers().unwrap();
+    assert_eq!(book.len(), 1);
+    assert_eq!(OfferTerms::of(&book[0].1.output).unwrap().give, Some(bean));
+
+    // The taker buys 200; a rival trying to take the same offer at the same time loses the race
+    let take = Transaction::take_offer(&taker, Network::Testnet, offer_coin.clone(), 200, 10_000, ledger.get_spendable_utxos(&address_of(&taker)).unwrap()).unwrap();
+    let race = Transaction::take_offer(&rival, Network::Testnet, offer_coin, 100, 10_000, ledger.get_spendable_utxos(&address_of(&rival)).unwrap()).unwrap();
+    let rest_coin = (Outpoint { transaction_id: take.id(), index: 1 }, take.outputs[1].clone());
+    ledger.broadcast_transaction(take).unwrap();
+    assert!(ledger.broadcast_transaction(race).is_err());
+    mine_tip(&mut ledger, &pow, &miner);
+    assert_eq!(tokens_of(&ledger, &address_of(&taker), bean), 200);
+    let maker_imn_after_first = balance(&ledger, &address_of(&maker));
+
+    // The rest is still on the book, and the rival takes it all
+    let book = ledger.storage.get_offers().unwrap();
+    assert_eq!(book.len(), 1);
+    assert_eq!(book[0].1.output.token.as_ref().unwrap().amount, 400);
+    let take_rest = Transaction::take_offer(&rival, Network::Testnet, rest_coin, 400, 10_000, ledger.get_spendable_utxos(&address_of(&rival)).unwrap()).unwrap();
+    ledger.broadcast_transaction(take_rest).unwrap();
+    mine_tip(&mut ledger, &pow, &miner);
+    assert_eq!(tokens_of(&ledger, &address_of(&rival), bean), 400);
+    assert_eq!(balance(&ledger, &address_of(&maker)), maker_imn_after_first + 200_000);
+    assert!(ledger.storage.get_offers().unwrap().is_empty());
+
+    // A second offer, cancelled by the maker: the tokens come back
+    let coins = ledger.get_utxos(&address_of(&maker)).unwrap();
+    let offer = Transaction::build_offer(&maker, Network::Testnet, Some(bean), 400, None, 900, 1, 10_000, coins).unwrap();
+    let offer_coin = (Outpoint { transaction_id: offer.id(), index: 0 }, offer.outputs[0].clone());
+    ledger.broadcast_transaction(offer).unwrap();
+    mine_tip(&mut ledger, &pow, &miner);
+    assert_eq!(tokens_of(&ledger, &address_of(&maker), bean), 0);
+    let cancel = Transaction::cancel_offer(&maker, Network::Testnet, offer_coin, 10_000, ledger.get_spendable_utxos(&address_of(&maker)).unwrap()).unwrap();
+    ledger.broadcast_transaction(cancel).unwrap();
+    mine_tip(&mut ledger, &pow, &miner);
+    assert_eq!(tokens_of(&ledger, &address_of(&maker), bean), 400);
+    assert!(ledger.storage.get_offers().unwrap().is_empty());
+    assert_supply_total_is_exact(&ledger);
+}

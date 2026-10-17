@@ -165,6 +165,116 @@ export function new_mnemonic() {
 }
 
 /**
+ * Cancels one of the wallet's own offers.
+ * @param {string} private_key_hex
+ * @param {boolean} testnet
+ * @param {string} offer_json
+ * @param {bigint} fee_atoms
+ * @param {string} utxos_json
+ * @returns {string}
+ */
+export function offer_cancel(private_key_hex, testnet, offer_json, fee_atoms, utxos_json) {
+    let deferred5_0;
+    let deferred5_1;
+    try {
+        const ptr0 = passStringToWasm0(private_key_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(offer_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passStringToWasm0(utxos_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ret = wasm.offer_cancel(ptr0, len0, testnet, ptr1, len1, fee_atoms, ptr2, len2);
+        var ptr4 = ret[0];
+        var len4 = ret[1];
+        if (ret[3]) {
+            ptr4 = 0; len4 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred5_0 = ptr4;
+        deferred5_1 = len4;
+        return getStringFromWasm0(ptr4, len4);
+    } finally {
+        wasm.__wbindgen_free(deferred5_0, deferred5_1, 1);
+    }
+}
+
+/**
+ * Places an offer. An asset is `imn` or a token ID; the price is `price_num / price_den`
+ * units of `want` per unit of `give`. A fee of 0 sets the fee from the transaction's size.
+ * @param {string} private_key_hex
+ * @param {boolean} testnet
+ * @param {string} give
+ * @param {bigint} give_amount
+ * @param {string} want
+ * @param {bigint} price_num
+ * @param {bigint} price_den
+ * @param {bigint} fee_atoms
+ * @param {string} utxos_json
+ * @returns {string}
+ */
+export function offer_create(private_key_hex, testnet, give, give_amount, want, price_num, price_den, fee_atoms, utxos_json) {
+    let deferred6_0;
+    let deferred6_1;
+    try {
+        const ptr0 = passStringToWasm0(private_key_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(give, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passStringToWasm0(want, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ptr3 = passStringToWasm0(utxos_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len3 = WASM_VECTOR_LEN;
+        const ret = wasm.offer_create(ptr0, len0, testnet, ptr1, len1, give_amount, ptr2, len2, price_num, price_den, fee_atoms, ptr3, len3);
+        var ptr5 = ret[0];
+        var len5 = ret[1];
+        if (ret[3]) {
+            ptr5 = 0; len5 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred6_0 = ptr5;
+        deferred6_1 = len5;
+        return getStringFromWasm0(ptr5, len5);
+    } finally {
+        wasm.__wbindgen_free(deferred6_0, deferred6_1, 1);
+    }
+}
+
+/**
+ * Takes part or all of an offer, given as one entry of the node's `/api/v1/offers`.
+ * @param {string} private_key_hex
+ * @param {boolean} testnet
+ * @param {string} offer_json
+ * @param {bigint} take_amount
+ * @param {bigint} fee_atoms
+ * @param {string} utxos_json
+ * @returns {string}
+ */
+export function offer_take(private_key_hex, testnet, offer_json, take_amount, fee_atoms, utxos_json) {
+    let deferred5_0;
+    let deferred5_1;
+    try {
+        const ptr0 = passStringToWasm0(private_key_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(offer_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passStringToWasm0(utxos_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ret = wasm.offer_take(ptr0, len0, testnet, ptr1, len1, take_amount, fee_atoms, ptr2, len2);
+        var ptr4 = ret[0];
+        var len4 = ret[1];
+        if (ret[3]) {
+            ptr4 = 0; len4 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred5_0 = ptr4;
+        deferred5_1 = len4;
+        return getStringFromWasm0(ptr4, len4);
+    } finally {
+        wasm.__wbindgen_free(deferred5_0, deferred5_1, 1);
+    }
+}
+
+/**
  * Turns a proposal with enough signatures into `{ tx_id, transaction, inputs_used, fee_atoms }`.
  * @param {string} proposal_json
  * @param {string} utxos_json

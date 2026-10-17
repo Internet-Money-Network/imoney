@@ -202,5 +202,15 @@ An input spending such a coin carries the script, one role byte and a 64-byte si
 
 The transaction is valid only if (a) the outputs to the parties the role may pay hold at least the escrowed amount less 1,000,000 atoms (0.01 IMN), (b) the outputs to anyone else hold no more than the transaction's other inputs, so escrowed coins reach the allowed parties or the fee and nowhere else, (c) any token the escrow holds goes to those parties in full, and (d) the transaction spends no other escrow coin.
 
-### 8.6 Keys
+### 8.6 Offers
+An output with script version 5 is an *offer*. Its script is not a hash but the terms themselves, 114 bytes: the maker's Ed25519 public key (32), the asset given and the asset wanted (33 each: a zero byte and 32 zero bytes for IMN, or 1 and a token ID), and a price as two 8-byte big-endian numbers `price_num` and `price_den`, both positive. The two assets differ. Taking `n` units of the given asset costs `ceil(n * price_num / price_den)` units of the wanted one.
+
+An input spending an offer carries one of:
+
+- **Take:** `[0]`, then two 2-byte indices: the output that pays the maker, and the output holding the rest of the offer (`0xffff` for none). No signature is needed. The transaction is valid only if (a) the payment output is locked to the maker's ordinary address and carries at least the cost of what is taken, (b) a rest output, if named, has exactly the offer's script, holds less of the given asset than the offer did and more than none, and for a token offer holds at least the offer's IMN, and (c) no output is named by two offers in the same transaction. What is taken is the offer's amount less the rest.
+- **Cancel:** `[1]` and a 64-byte signature by the maker over the ordinary signing hash of that input. Nothing else is required.
+
+Because the terms are in the clear, nodes list every unspent offer as an order book (`/api/v1/offers`).
+
+### 8.7 Keys
 Nodes do not create, store or receive private keys. Wallets sign locally; the reference wallet uses a WebAssembly build of the same transaction code the node runs. A wallet's key is derived from a 12-word BIP-39 recovery phrase as `Blake3-derive-key("IMN 2026 wallet key 0", BIP-39 seed)`.

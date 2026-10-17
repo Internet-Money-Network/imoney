@@ -778,6 +778,29 @@ impl Storage {
             .fold(0u64, |total, (_, entry)| total.saturating_add(entry.output.value_atoms)))
     }
 
+    /// Every open offer, found through the script index: all offer scripts share a version and a
+    /// length, so they sit together in it.
+    pub fn get_offers(&self) -> Result<Vec<(Outpoint, UtxoEntry)>, StorageError> {
+        let read_tx = self.db.begin_read()?;
+        let script_table = read_tx.open_table(SCRIPT_UTXO_TABLE)?;
+        let utxo_table = read_tx.open_table(UTXO_TABLE)?;
+        let terms_len = imoney_core::offer::OFFER_TERMS_BYTES;
+        let mut prefix = vec![imoney_core::offer::SCRIPT_VERSION_OFFER];
+        prefix.extend_from_slice(&(terms_len as u16).to_be_bytes());
+        let mut end = prefix.clone();
+        end.extend_from_slice(&vec![0xff; terms_len + 36]);
+
+        let mut offers = Vec::new();
+        for item in script_table.range::<&[u8]>(prefix.as_slice()..=end.as_slice())? {
+            let (key, _) = item?;
+            let outpoint_bytes = &key.value()[prefix.len() + terms_len..];
+            if let Some(val) = utxo_table.get(outpoint_bytes)? {
+                offers.push((Outpoint::from_bytes(outpoint_bytes)?, UtxoEntry::from_bytes(val.value())?));
+            }
+        }
+        Ok(offers)
+    }
+
     /// Returns list of all UTXOs belonging to an address, found through the script index.
     pub fn get_utxos(&self, address: &Address) -> Result<Vec<(Outpoint, UtxoEntry)>, StorageError> {
         let read_tx = self.db.begin_read()?;

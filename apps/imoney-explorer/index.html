@@ -793,7 +793,7 @@
         const tx = await getJson('/api/v1/tx/' + encodeURIComponent(txId));
         if (tx.status === 'not_found') return false;
         const outputs = (await Promise.all(tx.outputs.map(async (o) =>
-          '<tr><td>' + (o.address ? addressLink(o.address) : '<span class="soft">' + (o.token ? 'destroyed' : 'unknown script') + '</span>') + '</td>'
+          '<tr><td>' + (o.address ? addressLink(o.address) : '<span class="soft">' + (o.offer ? 'placed on offer' : o.token ? 'destroyed' : 'unknown script') + '</span>') + '</td>'
           + '<td class="num mono">' + (o.token ? (await tokenAmount(o.token)) + (o.amount_atoms ? ' + ' + o.amount_imn + ' IMN' : '') : o.amount_imn + ' IMN') + '</td></tr>'))).join('');
         openModal('Transaction', [
           line('ID', code(tx.tx_id)),

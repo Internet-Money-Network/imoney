@@ -123,6 +123,40 @@ pub struct TokenResponse {
 }
 
 #[derive(Deserialize)]
+pub struct OffersQuery {
+    /// What the offers give: `imn` or a token ID. Omitted: any.
+    pub give: Option<String>,
+    /// What the offers want in return: `imn` or a token ID. Omitted: any.
+    pub want: Option<String>,
+}
+
+/// One open offer in the order book.
+#[derive(Serialize)]
+pub struct OfferResponse {
+    pub transaction_id: String,
+    pub index: u32,
+    /// Where the maker is paid, and who can cancel.
+    pub maker: String,
+    /// `imn` or a token ID.
+    pub give: String,
+    /// How much is on offer, in the smallest unit of `give`.
+    pub give_amount: u64,
+    pub want: String,
+    /// Taking `n` units costs `ceil(n * price_num / price_den)` units of `want`.
+    pub price_num: u64,
+    pub price_den: u64,
+    /// The same price as a decimal, for sorting and display only.
+    pub price: f64,
+    /// IMN the offer coin holds besides what it offers (for token offers).
+    pub imn_held: u64,
+    /// The offer coin exactly as it is on the chain, for a wallet to build a take from: its
+    /// terms (the script), its IMN and its token.
+    pub terms_hex: String,
+    pub value_atoms: u64,
+    pub token: Option<TokenView>,
+}
+
+#[derive(Deserialize)]
 pub struct HistoryQuery {
     /// Rows to return, newest first (default 50, at most 500).
     pub limit: Option<usize>,
@@ -225,6 +259,9 @@ pub struct TxOutputView {
     pub amount_atoms: u64,
     pub amount_imn: f64,
     pub token: Option<TokenView>,
+    /// True when the output is an open offer on the chain's order book.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub offer: bool,
 }
 
 /// Network statistics plus the figures that change between blocks.
@@ -320,6 +357,7 @@ pub fn create_router(
         .route("/api/v1/address/:addr/history", get(history_handler))
         .route("/api/v1/invoice/:id", get(invoice_handler))
         .route("/api/v1/token/:id", get(token_handler))
+        .route("/api/v1/offers", get(offers_handler))
         .route("/api/v1/address/:addr/tokens", get(token_balances_handler))
         .route("/api/v1/ws/address/:addr", get(ws_address_handler))
         .layer(cors);
@@ -613,6 +651,53 @@ async fn utxos_handler(
     Ok(Json(response))
 }
 
+fn asset_name(asset: &imoney_core::Asset) -> String {
+    asset.map_or_else(|| "imn".to_string(), |id| id.to_hex())
+}
+
+fn parse_asset(text: &str) -> Result<imoney_core::Asset, StatusCode> {
+    if text.eq_ignore_ascii_case("imn") {
+        Ok(None)
+    } else {
+        Hash::from_hex(text).map(Some).map_err(|_| StatusCode::BAD_REQUEST)
+    }
+}
+
+/// The open offers, cheapest first: the order book. Filter by what they give and want.
+async fn offers_handler(State(state): State<Arc<AppState>>, Query(query): Query<OffersQuery>) -> Result<Json<Vec<OfferResponse>>, StatusCode> {
+    let give = query.give.as_deref().map(parse_asset).transpose()?;
+    let want = query.want.as_deref().map(parse_asset).transpose()?;
+    let ledger = state.ledger.read().await;
+    let mut book = Vec::new();
+    for (outpoint, entry) in ledger.storage.get_offers().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)? {
+        let Some(terms) = imoney_core::OfferTerms::of(&entry.output) else { continue };
+        if give.is_some_and(|g| g != terms.give) || want.is_some_and(|w| w != terms.want) {
+            continue;
+        }
+        let give_amount = imoney_core::offer::amount_of(&entry.output, &terms.give);
+        if give_amount == 0 {
+            continue; // A malformed offer nobody can take; only its maker can cancel it
+        }
+        book.push(OfferResponse {
+            transaction_id: outpoint.transaction_id.to_hex(),
+            index: outpoint.index,
+            maker: Address::from_public_key(ledger.network, imoney_core::AddressType::PubKeyHash, &terms.maker).to_string(),
+            give: asset_name(&terms.give),
+            give_amount,
+            want: asset_name(&terms.want),
+            price_num: terms.price_num,
+            price_den: terms.price_den,
+            price: terms.price_num as f64 / terms.price_den as f64,
+            imn_held: if terms.give.is_some() { entry.output.value_atoms } else { 0 },
+            terms_hex: hex::encode(&entry.output.script_public_key.script),
+            value_atoms: entry.output.value_atoms,
+            token: entry.output.token.as_ref().map(TokenView::from),
+        });
+    }
+    book.sort_by(|a, b| a.price.total_cmp(&b.price));
+    Ok(Json(book))
+}
+
 /// A token's name and terms.
 async fn token_handler(State(state): State<Arc<AppState>>, Path(id_hex): Path<String>) -> Result<Json<TokenResponse>, StatusCode> {
     let id = Hash::from_hex(&id_hex).map_err(|_| StatusCode::BAD_REQUEST)?;
@@ -826,6 +911,7 @@ async fn tx_status_handler(
                         amount_atoms: output.value_atoms,
                         amount_imn: (output.value_atoms as f64) / (imoney_core::constants::ATOMS_PER_IMN as f64),
                         token: output.token.as_ref().map(TokenView::from),
+                        offer: output.script_public_key.version == imoney_core::offer::SCRIPT_VERSION_OFFER,
                     })
                     .collect(),
                 senders: {

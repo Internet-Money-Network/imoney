@@ -234,6 +234,40 @@ fn spendable_utxos(utxos_json: &str, owner: &Address) -> Result<Vec<(Outpoint, T
         .collect()
 }
 
+fn parse_asset(text: &str) -> Result<imoney_core::Asset, String> {
+    let text = text.trim();
+    if text.eq_ignore_ascii_case("imn") {
+        Ok(None)
+    } else {
+        Hash::from_hex(text).map(Some).map_err(|_| format!("'{}' is neither imn nor a token ID", text))
+    }
+}
+
+/// One entry of the node's `/api/v1/offers`: the offer coin exactly as it sits on the chain.
+/// A node that lied about it would only produce a take the network refuses.
+#[derive(Deserialize)]
+struct OfferItem {
+    transaction_id: String,
+    index: u32,
+    terms_hex: String,
+    value_atoms: u64,
+    #[serde(default)]
+    token: Option<TokenItem>,
+}
+
+fn parse_offer(offer_json: &str, _testnet: bool) -> Result<(Outpoint, TxOutput), String> {
+    let item: OfferItem = serde_json::from_str(offer_json).map_err(|e| format!("Invalid offer: {}", e))?;
+    let transaction_id = Hash::from_hex(&item.transaction_id).map_err(|_| "Invalid transaction ID in offer".to_string())?;
+    let terms = hex::decode(&item.terms_hex).map_err(|_| "Invalid offer terms".to_string())?;
+    imoney_core::OfferTerms::from_bytes(&terms).map_err(|e| e.to_string())?;
+    let output = TxOutput {
+        value_atoms: item.value_atoms,
+        script_public_key: ScriptPublicKey { version: imoney_core::offer::SCRIPT_VERSION_OFFER, script: terms },
+        token: item.token.as_ref().map(TokenItem::parse).transpose()?,
+    };
+    Ok((Outpoint { transaction_id, index: item.index }, output))
+}
+
 fn signed(tx: Transaction, fee_atoms: u64) -> SignedTransaction {
     let token_id = tx.issued_token().map(|id| id.to_hex());
     SignedTransaction { tx_id: tx.id().to_hex(), inputs_used: tx.inputs.len(), transaction: tx, fee_atoms, token_id }
@@ -388,6 +422,50 @@ pub mod wallet {
         let id = Hash::from_hex(token_id.trim()).map_err(|_| "Invalid token ID".to_string())?;
         let utxos = spendable_utxos(utxos_json, &address_of(&key, testnet))?;
         with_fee(fee_atoms, |fee| Transaction::build_token_mint(&key, network(testnet), id, amount, give_up_authority, fee, utxos.clone()))
+    }
+
+    /// Places an offer: `give_amount` of `give` for anyone to take at `price_num / price_den`
+    /// units of `want` per unit. An asset is `imn` or a token ID.
+    #[allow(clippy::too_many_arguments)]
+    pub fn offer_create(
+        private_key_hex: &str,
+        testnet: bool,
+        give: &str,
+        give_amount: u64,
+        want: &str,
+        price_num: u64,
+        price_den: u64,
+        fee_atoms: u64,
+        utxos_json: &str,
+    ) -> Result<SignedTransaction, String> {
+        let key = signing_key(private_key_hex)?;
+        let (give, want) = (parse_asset(give)?, parse_asset(want)?);
+        let utxos = spendable_utxos(utxos_json, &address_of(&key, testnet))?;
+        with_fee(fee_atoms, |fee| Transaction::build_offer(&key, network(testnet), give, give_amount, want, price_num, price_den, fee, utxos.clone()))
+    }
+
+    /// Takes `take_amount` of the offer at `offer_tx_id:offer_index`, whose output is given as
+    /// the node lists it (`offer_json`: one entry of `/api/v1/offers`).
+    pub fn offer_take(
+        private_key_hex: &str,
+        testnet: bool,
+        offer_json: &str,
+        take_amount: u64,
+        fee_atoms: u64,
+        utxos_json: &str,
+    ) -> Result<SignedTransaction, String> {
+        let key = signing_key(private_key_hex)?;
+        let offer = parse_offer(offer_json, testnet)?;
+        let utxos = spendable_utxos(utxos_json, &address_of(&key, testnet))?;
+        with_fee(fee_atoms, |fee| Transaction::take_offer(&key, network(testnet), offer.clone(), take_amount, fee, utxos.clone()))
+    }
+
+    /// Cancels one of the wallet's own offers and returns what it holds.
+    pub fn offer_cancel(private_key_hex: &str, testnet: bool, offer_json: &str, fee_atoms: u64, utxos_json: &str) -> Result<SignedTransaction, String> {
+        let key = signing_key(private_key_hex)?;
+        let offer = parse_offer(offer_json, testnet)?;
+        let utxos = spendable_utxos(utxos_json, &address_of(&key, testnet))?;
+        with_fee(fee_atoms, |fee| Transaction::cancel_offer(&key, network(testnet), offer.clone(), fee, utxos.clone()))
     }
 
     /// Sets up a shared wallet from its co-signers' public keys (hex, in any order).
@@ -673,6 +751,36 @@ pub fn token_mint(
     to_json(wallet::token_mint(private_key_hex, testnet, token_id, amount, give_up_authority, fee_atoms, utxos_json))
 }
 
+/// Places an offer. An asset is `imn` or a token ID; the price is `price_num / price_den`
+/// units of `want` per unit of `give`. A fee of 0 sets the fee from the transaction's size.
+#[wasm_bindgen]
+#[allow(clippy::too_many_arguments)]
+pub fn offer_create(
+    private_key_hex: &str,
+    testnet: bool,
+    give: &str,
+    give_amount: u64,
+    want: &str,
+    price_num: u64,
+    price_den: u64,
+    fee_atoms: u64,
+    utxos_json: &str,
+) -> Result<String, JsError> {
+    to_json(wallet::offer_create(private_key_hex, testnet, give, give_amount, want, price_num, price_den, fee_atoms, utxos_json))
+}
+
+/// Takes part or all of an offer, given as one entry of the node's `/api/v1/offers`.
+#[wasm_bindgen]
+pub fn offer_take(private_key_hex: &str, testnet: bool, offer_json: &str, take_amount: u64, fee_atoms: u64, utxos_json: &str) -> Result<String, JsError> {
+    to_json(wallet::offer_take(private_key_hex, testnet, offer_json, take_amount, fee_atoms, utxos_json))
+}
+
+/// Cancels one of the wallet's own offers.
+#[wasm_bindgen]
+pub fn offer_cancel(private_key_hex: &str, testnet: bool, offer_json: &str, fee_atoms: u64, utxos_json: &str) -> Result<String, JsError> {
+    to_json(wallet::offer_cancel(private_key_hex, testnet, offer_json, fee_atoms, utxos_json))
+}
+
 fn parse_proposal(proposal_json: &str) -> Result<Proposal, String> {
     serde_json::from_str(proposal_json.trim()).map_err(|_| "That is not a payment proposal".to_string())
 }
@@ -797,6 +905,37 @@ mod tests {
         assert_eq!(paid.transaction.inputs.len(), 1);
         assert_eq!(paid.transaction.inputs[0].previous_outpoint.index, 2);
         assert!(paid.transaction.outputs.iter().all(|o| o.token.is_none()));
+    }
+
+    #[test]
+    fn wallet_places_takes_and_cancels_offers_from_the_order_book_listing() {
+        let maker = keys_from_mnemonic(PHRASE, true).unwrap();
+        let taker = keys_from_mnemonic("legal winner thank year wave sausage worth useful legal winner thank yellow", true).unwrap();
+        let bean = "be".repeat(32);
+        let maker_coins = format!(
+            r#"[{{"transaction_id":"{}","index":0,"value_atoms":0,"value_imn":0,"spendable":true,"token":{{"token_id":"{}","amount":1000,"mint_authority":false}}}},{}]"#,
+            "aa".repeat(32),
+            bean,
+            utxos(&[500_000]).trim_start_matches('[').trim_end_matches(']')
+        );
+        let placed = offer_create(&maker.private_key_hex, true, &bean, 600, "imn", 500, 1, 0, &maker_coins).unwrap();
+        let offer = &placed.transaction.outputs[0];
+
+        // The listing the node would serve for that offer
+        let listing = format!(
+            r#"{{"transaction_id":"{}","index":0,"terms_hex":"{}","value_atoms":{},"token":{{"token_id":"{}","amount":600,"mint_authority":false}}}}"#,
+            placed.tx_id,
+            hex::encode(&offer.script_public_key.script),
+            offer.value_atoms,
+            bean
+        );
+        let taken = offer_take(&taker.private_key_hex, true, &listing, 250, 0, &utxos(&[2_000_000])).unwrap();
+        assert_eq!(taken.transaction.outputs[0].value_atoms, 125_000);
+        assert_eq!(taken.transaction.outputs[1].token.as_ref().unwrap().amount, 350);
+
+        let cancelled = offer_cancel(&maker.private_key_hex, true, &listing, 0, &utxos(&[300_000])).unwrap();
+        assert!(cancelled.transaction.outputs.iter().any(|o| o.token.as_ref().is_some_and(|t| t.amount == 600)));
+        assert!(offer_cancel(&taker.private_key_hex, true, &listing, 0, &utxos(&[300_000])).is_err());
     }
 
     #[test]

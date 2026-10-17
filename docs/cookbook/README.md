@@ -18,6 +18,7 @@ Read chapter 1 once. After that, jump to whatever you need.
 | 8 | [Mining](08-mining.md) | Get work from a node, submit a block, run through a pool |
 | 9 | [Reference](09-reference.md) | Look up units, limits, every endpoint and common errors |
 | 10 | [Tokens](10-tokens.md) | Issue a token, send it for an invoice, mint more, and trade it without an exchange |
+| 11 | [Trading on the chain](11-trading.md) | Place, take and cancel offers, and read the order book and market price |
 
 ## The examples
 

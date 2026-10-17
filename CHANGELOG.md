@@ -6,6 +6,12 @@ Notable changes to Internet Money. Nothing has been released yet: everything bel
 ## Unreleased
 
 ### Added
+- **A trading layer in the protocol.** A maker places an offer: coins held by the chain under
+  public terms (what is given, what is wanted, the price, who is paid). Anyone can take all or
+  part of it in one transaction that pays the maker, or nothing happens; the rest stays on
+  offer, and only the maker can cancel. Nodes list open offers as an order book
+  (`/api/v1/offers`), and the wallet's Trade tab shows the book, the market price read from it,
+  and forms to place, take and cancel offers. A consensus rule.
 - **Escrow.** An escrow address holds coins for a buyer and a seller with an arbiter for
   disputes. The buyer can only release to the seller, the seller can only refund the buyer,
   the arbiter can only pay one or both of them, and after a deadline one named side collects
