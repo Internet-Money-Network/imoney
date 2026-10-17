@@ -1627,3 +1627,46 @@ fn offers_are_listed_taken_in_parts_and_cancelled_on_the_chain() {
     assert!(ledger.storage.get_offers().unwrap().is_empty());
     assert_supply_total_is_exact(&ledger);
 }
+
+#[test]
+fn a_subscription_pays_the_merchant_once_per_period_until_cancelled() {
+    use imoney_core::SubscriptionScript;
+    let customer = key(34);
+    let merchant = key(35);
+    let (mut ledger, pow) = funded_ledger("subscription", &customer);
+    let miner = address_of(&key(36));
+    let due = ledger.virtual_blue_score + 3;
+    let script = SubscriptionScript::new(customer.verifying_key().to_bytes(), merchant.verifying_key().to_bytes(), 1_000_000, 4, due, [1u8; 32]).unwrap();
+    let coins = ledger.get_spendable_utxos(&address_of(&customer)).unwrap();
+    let fund = Transaction::build_payment(&customer, Network::Testnet, &script.address(Network::Testnet), 3_500_000, 1_000, coins, None).unwrap();
+    let coin = (Outpoint { transaction_id: fund.id(), index: 0 }, fund.outputs[0].clone());
+    ledger.broadcast_transaction(fund).unwrap();
+    mine_tip(&mut ledger, &pow, &miner);
+
+    // Too early, then due
+    let collect = Transaction::collect_subscription(&script, Network::Testnet, coin, &merchant, 1_000).unwrap();
+    if ledger.virtual_blue_score < due {
+        assert!(ledger.broadcast_transaction(collect.clone()).is_err());
+    }
+    while ledger.virtual_blue_score < due {
+        mine_tip(&mut ledger, &pow, &miner);
+    }
+    ledger.broadcast_transaction(collect.clone()).unwrap();
+    mine_tip(&mut ledger, &pow, &miner);
+    assert_eq!(balance(&ledger, &address_of(&merchant)), 999_000);
+
+    // The rest waits for the next period; collecting again at once is refused
+    let next = script.next().unwrap();
+    let rest = (Outpoint { transaction_id: collect.id(), index: 1 }, collect.outputs[1].clone());
+    let early = Transaction::collect_subscription(&next, Network::Testnet, rest.clone(), &merchant, 1_000).unwrap();
+    assert!(ledger.broadcast_transaction(early).is_err());
+
+    // The customer cancels and gets the rest back
+    let before = balance(&ledger, &address_of(&customer));
+    let cancel = Transaction::cancel_subscription(&next, Network::Testnet, rest, &customer, &address_of(&customer), 1_000).unwrap();
+    ledger.broadcast_transaction(cancel).unwrap();
+    mine_tip(&mut ledger, &pow, &miner);
+    assert_eq!(balance(&ledger, &address_of(&customer)), before + 2_499_000);
+    assert_eq!(balance(&ledger, &address_of(&merchant)), 999_000);
+    assert_supply_total_is_exact(&ledger);
+}

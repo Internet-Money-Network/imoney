@@ -6,6 +6,9 @@ Notable changes to Internet Money. Nothing has been released yet: everything bel
 ## Unreleased
 
 ### Added
+- **Subscriptions.** A customer sets money aside that a merchant may collect from at most a set
+  amount once per period; whatever is left stays locked until the next period, and the
+  customer can cancel at any time and take it back. A consensus rule.
 - **A trading layer in the protocol.** A maker places an offer: coins held by the chain under
   public terms (what is given, what is wanted, the price, who is paid). Anyone can take all or
   part of it in one transaction that pays the maker, or nothing happens; the rest stays on

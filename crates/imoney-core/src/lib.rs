@@ -9,6 +9,7 @@ pub mod merkle;
 pub mod multisig;
 pub mod offer;
 pub mod serialize;
+pub mod subscription;
 pub mod token;
 pub mod transaction;
 
@@ -22,5 +23,6 @@ pub use hashlock::{secret_hash, HashLockScript, HashLockSpend};
 pub use offer::{Asset, OfferSpend, OfferTerms};
 pub use multisig::{MultisigScript, PartialSignature};
 pub use serialize::{Decode, DecodeError, Encode};
+pub use subscription::{SubscriptionScript, SubscriptionSpend};
 pub use token::{token_id_for, TokenAmount, TokenInfo};
 pub use transaction::{Outpoint, ScriptPublicKey, Transaction, TxInput, TxOutput};

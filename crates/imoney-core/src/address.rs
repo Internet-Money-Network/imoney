@@ -30,6 +30,8 @@ pub enum AddressType {
     HashLock = 0x03,
     /// Escrow between a buyer and a seller, with an arbiter
     Escrow = 0x04,
+    /// Money a merchant may collect from, a set amount once per period
+    Subscription = 0x06,
 }
 
 impl AddressType {
@@ -40,6 +42,7 @@ impl AddressType {
             0x02 => Some(AddressType::ScriptHash),
             0x03 => Some(AddressType::HashLock),
             0x04 => Some(AddressType::Escrow),
+            0x06 => Some(AddressType::Subscription),
             _ => None,
         }
     }

@@ -164,6 +164,9 @@ impl Transaction {
         if signature_script.len() == 96 {
             return Some(Address::from_public_key(network, AddressType::PubKeyHash, &signature_script[..32]));
         }
+        if let Some((script, _)) = self.subscription_spend(input_index) {
+            return Some(script.address(network));
+        }
         if let Some((script, _)) = self.escrow_spend(input_index) {
             return Some(script.address(network));
         }

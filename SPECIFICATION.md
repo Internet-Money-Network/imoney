@@ -212,5 +212,13 @@ An input spending an offer carries one of:
 
 Because the terms are in the clear, nodes list every unspent offer as an order book (`/api/v1/offers`).
 
-### 8.7 Keys
+### 8.7 Subscriptions
+An address of type `Subscription` (type byte 6) locks IMN to the hash of a 120-byte script: the customer's and merchant's Ed25519 public keys (32 each, different), the amount per period in atoms (8), the period in blue score (8), the blue score from which the next collection is due (8), and a 32-byte reference chosen by the merchant. Amount and period are positive. The address hash is `Blake3-derive-key("IMN 2026 subscription script", script)`. A subscription coin carries no token.
+
+An input spending such a coin carries the script, a role byte and a 64-byte signature over the ordinary signing hash of that input:
+
+- **Collect** (role 0, signed by the merchant, followed by a 2-byte output index or `0xffff`): valid only when the accepting block's blue score is at least `next_due`. If an output is named, it must be locked to the same script with `next_due` increased by one period, carry no token, and hold at least the coin's value less the amount per period less 1,000,000 atoms; no output may be named by two collections. If none is named, the coin may hold at most the amount per period plus 1,000,000 atoms.
+- **Cancel** (role 1, signed by the customer): valid at any time, with no other condition.
+
+### 8.8 Keys
 Nodes do not create, store or receive private keys. Wallets sign locally; the reference wallet uses a WebAssembly build of the same transaction code the node runs. A wallet's key is derived from a 12-word BIP-39 recovery phrase as `Blake3-derive-key("IMN 2026 wallet key 0", BIP-39 seed)`.

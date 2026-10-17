@@ -623,6 +623,7 @@ impl DagLedger {
         tx.check_tokens(&spent_refs).map_err(|e| StateError::Transaction(e.to_string()))?;
         tx.check_escrow_destinations(self.network, &spent_refs).map_err(|e| StateError::Transaction(e.to_string()))?;
         tx.check_offer_takes(self.network, &spent_refs).map_err(|e| StateError::Transaction(e.to_string()))?;
+        tx.check_subscription_collections(&spent_refs).map_err(|e| StateError::Transaction(e.to_string()))?;
 
         let total_output_atoms = tx
             .outputs
