@@ -244,6 +244,7 @@
           <a href="/pool/">Pool</a>
           <a class="optional" href="#why">Why</a>
           <a class="optional" href="#merchants">Merchants</a>
+          <a class="optional" href="#programmable">Tokens</a>
           <a class="optional" href="#supply">Supply</a>
           <a href="#status">Status</a>
           <a href="https://github.com/Internet-Money-Network/imoney">GitHub</a>
@@ -402,8 +403,68 @@ client.openCheckoutModal({
         </div>
       </section>
 
+      <section class="block" id="programmable">
+        <div class="label"><span class="num">§4</span>Beyond payments</div>
+        <div class="body">
+          <h2>Money with rules built in, and no contract code to trust.</h2>
+          <p>
+            Each of these is a small, fixed rule that every node checks, not a program anyone can deploy.
+            That keeps them reviewable and keeps the worst kinds of contract bugs off the chain.
+          </p>
+          <ol class="arguments">
+            <li>
+              <div>
+                <h3>Tokens anyone can issue</h3>
+                <p>
+                  Loyalty points, a game currency, a community coin: one transaction creates a token with a
+                  name, a ticker and a supply. Fees are paid in IMN. Every node checks that no token is created or
+                  lost in a transfer, and a token's ID, and the icon drawn from it, cannot be copied by an imitation.
+                </p>
+              </div>
+            </li>
+            <li>
+              <div>
+                <h3>Escrow with an arbiter who cannot take the money</h3>
+                <p>
+                  A buyer pays into an escrow. The buyer can release it to the seller, the seller can refund the
+                  buyer, and an arbiter can settle a dispute by paying either or both, never themselves. After a
+                  deadline one side collects alone. The arbiter can be a person, a company or a program,
+                  including an AI agent, and even a compromised one can only pay the buyer or the seller.
+                </p>
+              </div>
+            </li>
+            <li>
+              <div>
+                <h3>Trading with no exchange in between</h3>
+                <p>
+                  Hash locks let two people swap coins directly: claiming one side reveals the secret that claims
+                  the other, and if either walks away both are refunded. They work for IMN and for any token on the
+                  chain, and use SHA-256, which Ethereum-style chains can check too. A swap of IMN for ether has run
+                  end to end on test networks.
+                </p>
+              </div>
+            </li>
+            <li>
+              <div>
+                <h3>Refunds linked to the order</h3>
+                <p>
+                  Nothing can reverse a payment, so there are no chargebacks. When a shop chooses to give money back,
+                  the node knows who paid, the refund carries the order's number, and the shop sends it from its own
+                  wallet. The WooCommerce plugin supports the ordinary Refund button.
+                </p>
+              </div>
+            </li>
+          </ol>
+          <p class="note" style="margin-top: 20px;">
+            Refunds work on the test network today. Tokens, escrow and swaps are finished in the code and arrive
+            with the next test network, which starts from a fresh chain. The Ethereum swap contract has not been
+            audited or deployed.
+          </p>
+        </div>
+      </section>
+
       <section class="block" id="supply">
-        <div class="label"><span class="num">§4</span>Supply</div>
+        <div class="label"><span class="num">§5</span>Supply</div>
         <div class="body">
           <h2>Every coin is mined. The schedule is fixed in the code.</h2>
           <p>
@@ -447,7 +508,7 @@ client.openCheckoutModal({
       </section>
 
       <section class="block" id="status">
-        <div class="label"><span class="num">§5</span>Where it stands</div>
+        <div class="label"><span class="num">§6</span>Where it stands</div>
         <div class="body">
           <h2>A test network is running. Here is exactly how far along it is.</h2>
           <p>The coins on the test network have no value and the chain can be restarted. There is no main network and no coin to buy. Anyone offering IMN for sale today is not us.</p>
@@ -465,22 +526,26 @@ client.openCheckoutModal({
                 <li>Shared wallets that need several people to approve a payment</li>
                 <li>Fees shared between the miner and the node that served the payment</li>
                 <li>12-hour finality: older payments cannot be rewritten</li>
-                <li>Pruning, so a shop's node stays small</li>
+                <li>Pruning, so a shop's node stays small, and memory that stays level as the chain grows</li>
+                <li>Refunds tied to the original order, from the shop's own wallet</li>
+                <li>A graphics-card miner at about 38 MH/s on a Radeon RX 7800 XT</li>
                 <li><a href="https://github.com/Internet-Money-Network/imoney/releases">Downloads</a> for Windows, Linux and macOS</li>
               </ul>
             </div>
             <div class="doing">
               <h3><i></i>Being built</h3>
               <ul>
+                <li>Ready for the next test network: tokens, escrow and atomic swaps</li>
+                <li>Subscriptions and vaults</li>
+                <li>A swap screen and a board for posting trade offers</li>
                 <li>A desktop app for the wallet and node</li>
-                <li>Keeping block headers out of memory</li>
-                <li>A faster graphics-card miner</li>
               </ul>
             </div>
             <div class="todo">
               <h3><i></i>Not started</h3>
               <ul>
                 <li>Independent security review</li>
+                <li>Swaps with Bitcoin and Lightning</li>
                 <li>Hardware-wallet support</li>
                 <li>Main network</li>
               </ul>
