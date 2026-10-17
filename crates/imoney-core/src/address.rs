@@ -28,6 +28,8 @@ pub enum AddressType {
     ScriptHash = 0x02,
     /// Hash-and-time lock, for atomic swaps
     HashLock = 0x03,
+    /// Escrow between a buyer and a seller, with an arbiter
+    Escrow = 0x04,
 }
 
 impl AddressType {
@@ -37,6 +39,7 @@ impl AddressType {
             0x01 => Some(AddressType::PostQuantumHash),
             0x02 => Some(AddressType::ScriptHash),
             0x03 => Some(AddressType::HashLock),
+            0x04 => Some(AddressType::Escrow),
             _ => None,
         }
     }

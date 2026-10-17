@@ -1490,3 +1490,69 @@ fn tokens_trade_for_imn_through_hash_locks_with_no_one_in_between() {
     assert_eq!(balance(&ledger, &imn_lock.address(Network::Testnet)), 0);
     assert_supply_total_is_exact(&ledger);
 }
+
+#[test]
+fn escrow_pays_only_where_each_party_may_send_it() {
+    use imoney_core::{EscrowRole, EscrowScript};
+    let buyer = key(250);
+    let seller = key(251);
+    let arbiter = key(252);
+    let (mut ledger, pow) = funded_ledger("escrow", &buyer);
+    let miner = address_of(&key(253));
+    let open = |ledger: &mut DagLedger, deadline: u64| {
+        let script = EscrowScript::new(
+            buyer.verifying_key().to_bytes(),
+            seller.verifying_key().to_bytes(),
+            arbiter.verifying_key().to_bytes(),
+            deadline,
+            true,
+        )
+        .unwrap();
+        let coins = ledger.get_spendable_utxos(&address_of(&buyer)).unwrap();
+        let fund = Transaction::build_payment(&buyer, Network::Testnet, &script.address(Network::Testnet), 600_000, 1_000, coins, None).unwrap();
+        let coin = (Outpoint { transaction_id: fund.id(), index: 0 }, fund.outputs[0].clone());
+        ledger.broadcast_transaction(fund).unwrap();
+        (script, coin)
+    };
+
+    // 1. The buyer is happy and releases the money to the seller
+    let (script, coin) = open(&mut ledger, 1_000_000);
+    mine_tip(&mut ledger, &pow, &miner);
+    let release = Transaction::spend_escrow(&script, Network::Testnet, coin, EscrowRole::Buyer, &buyer, 1_000, None).unwrap();
+    ledger.broadcast_transaction(release).unwrap();
+    mine_tip(&mut ledger, &pow, &miner);
+    assert_eq!(balance(&ledger, &address_of(&seller)), 599_000);
+
+    // 2. A dispute: the arbiter splits it, and cannot pay themselves
+    let (script, coin) = open(&mut ledger, 1_000_000);
+    mine_tip(&mut ledger, &pow, &miner);
+    let mut grab = Transaction::spend_escrow(&script, Network::Testnet, coin.clone(), EscrowRole::Arbiter, &arbiter, 1_000, None).unwrap();
+    grab.outputs[0].script_public_key = ScriptPublicKey::pay_to_address(&address_of(&arbiter));
+    let mut grab_script = script.to_bytes();
+    grab_script.push(EscrowRole::Arbiter as u8);
+    grab_script.extend_from_slice(&ed25519_dalek::Signer::sign(&arbiter, grab.sig_hash(Network::Testnet, 0).as_bytes()).to_bytes());
+    grab.inputs[0].signature_script = grab_script;
+    assert!(ledger.broadcast_transaction(grab).is_err());
+    let split = Transaction::spend_escrow(&script, Network::Testnet, coin, EscrowRole::Arbiter, &arbiter, 1_000, Some(200_000)).unwrap();
+    let buyer_before = balance(&ledger, &address_of(&buyer));
+    ledger.broadcast_transaction(split).unwrap();
+    mine_tip(&mut ledger, &pow, &miner);
+    assert_eq!(balance(&ledger, &address_of(&buyer)), buyer_before + 200_000);
+    assert_eq!(balance(&ledger, &address_of(&seller)), 599_000 + 399_000);
+    assert_eq!(balance(&ledger, &address_of(&arbiter)), 0);
+
+    // 3. Nobody acts: the seller collects alone, but only after the deadline
+    let deadline = ledger.virtual_blue_score + 5;
+    let (script, coin) = open(&mut ledger, deadline);
+    mine_tip(&mut ledger, &pow, &miner);
+    let collect = Transaction::spend_escrow(&script, Network::Testnet, coin, EscrowRole::Deadline, &seller, 1_000, None).unwrap();
+    assert!(ledger.broadcast_transaction(collect.clone()).is_err());
+    while ledger.virtual_blue_score < deadline {
+        mine_tip(&mut ledger, &pow, &miner);
+    }
+    ledger.broadcast_transaction(collect).unwrap();
+    mine_tip(&mut ledger, &pow, &miner);
+    assert_eq!(balance(&ledger, &address_of(&seller)), 599_000 + 399_000 + 599_000);
+    assert_eq!(balance(&ledger, &script.address(Network::Testnet)), 0);
+    assert_supply_total_is_exact(&ledger);
+}

@@ -2,6 +2,7 @@
 //! A transaction's signature scripts are attacker-controlled. Checking them against either
 //! kind of address must never panic.
 
+use imoney_core::escrow::SCRIPT_VERSION_ESCROW;
 use imoney_core::hashlock::SCRIPT_VERSION_HASHLOCK;
 use imoney_core::multisig::SCRIPT_VERSION_MULTISIG;
 use imoney_core::{Decode, Encode, Network, ScriptPublicKey, Transaction};
@@ -13,7 +14,7 @@ fuzz_target!(|data: &[u8]| {
         assert_eq!(tx.to_bytes(), rest);
         let _ = tx.id();
         let _ = tx.invoice_id();
-        for version in [0, SCRIPT_VERSION_MULTISIG, SCRIPT_VERSION_HASHLOCK] {
+        for version in [0, SCRIPT_VERSION_MULTISIG, SCRIPT_VERSION_HASHLOCK, SCRIPT_VERSION_ESCROW] {
             let locked = ScriptPublicKey { version, script: script_hash.to_vec() };
             for index in 0..tx.inputs.len().min(4) {
                 // Random bytes forging a signature would be a finding in itself

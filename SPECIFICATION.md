@@ -188,5 +188,19 @@ An input spending such a coin carries the script, one branch byte, a 64-byte sig
 
 Two parties who lock coins for each other under one hash, here and on another chain, can exchange them without a third party: claiming either side publishes the secret that claims the other, and an unclaimed lock returns to its owner after its deadline. The refund deadline on the chain where the secret is revealed second must be the later of the two, with enough margin for the other party to act.
 
-### 8.5 Keys
+### 8.5 Escrow
+An address of type `Escrow` (type byte 4) locks coins to the hash of a 105-byte script: the buyer's, seller's and arbiter's Ed25519 public keys (32 bytes each, all different), a blue score as an 8-byte big-endian number (the deadline), and one byte that is 1 if the seller collects after the deadline and 0 if the buyer does. The address hash is `Blake3-derive-key("IMN 2026 escrow script", script)`.
+
+An input spending such a coin carries the script, one role byte and a 64-byte signature over the ordinary signing hash of that input. Each role is signed by one key and may pay only certain parties, meaning outputs locked to that party's ordinary address:
+
+| Role | Signed by | May pay |
+| :--- | :--- | :--- |
+| 0 buyer | buyer | seller |
+| 1 seller | seller | buyer |
+| 2 arbiter | arbiter | buyer, seller, or both |
+| 3 deadline | seller (or buyer, per the flag) | that same party; valid only when the accepting block's blue score is at least the deadline |
+
+The transaction is valid only if (a) the outputs to the parties the role may pay hold at least the escrowed amount less 1,000,000 atoms (0.01 IMN), (b) the outputs to anyone else hold no more than the transaction's other inputs, so escrowed coins reach the allowed parties or the fee and nowhere else, (c) any token the escrow holds goes to those parties in full, and (d) the transaction spends no other escrow coin.
+
+### 8.6 Keys
 Nodes do not create, store or receive private keys. Wallets sign locally; the reference wallet uses a WebAssembly build of the same transaction code the node runs. A wallet's key is derived from a 12-word BIP-39 recovery phrase as `Blake3-derive-key("IMN 2026 wallet key 0", BIP-39 seed)`.

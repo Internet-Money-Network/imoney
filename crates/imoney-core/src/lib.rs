@@ -1,6 +1,7 @@
 pub mod address;
 pub mod block;
 pub mod constants;
+pub mod escrow;
 pub mod hash;
 pub mod hashlock;
 pub mod header;
@@ -15,6 +16,7 @@ pub use block::{Block, BlockError};
 pub use constants::*;
 pub use hash::Hash;
 pub use header::{BlockHeader, HeaderError};
+pub use escrow::{EscrowRole, EscrowScript};
 pub use hashlock::{secret_hash, HashLockScript, HashLockSpend};
 pub use multisig::{MultisigScript, PartialSignature};
 pub use serialize::{Decode, DecodeError, Encode};

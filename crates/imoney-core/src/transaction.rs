@@ -42,6 +42,8 @@ pub enum TransactionError {
     PublicKeyAddressMismatch,
     #[error("Unsupported script version: {0}")]
     UnsupportedScriptVersion(u8),
+    #[error("Invalid escrow spend: {0}")]
+    InvalidEscrow(String),
     #[error("Invalid token transaction: {0}")]
     InvalidToken(String),
     #[error("Invalid hash-lock spend: {0}")]
@@ -250,6 +252,9 @@ impl Transaction {
         spent_script: &ScriptPublicKey,
         spending_blue_score: u64,
     ) -> Result<(), TransactionError> {
+        if spent_script.version == crate::escrow::SCRIPT_VERSION_ESCROW {
+            return self.verify_escrow_input(network, input_index, &spent_script.script, spending_blue_score);
+        }
         if spent_script.version == crate::hashlock::SCRIPT_VERSION_HASHLOCK {
             return self.verify_hashlock_input(network, input_index, &spent_script.script, spending_blue_score);
         }

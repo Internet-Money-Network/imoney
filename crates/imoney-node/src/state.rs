@@ -617,9 +617,11 @@ impl DagLedger {
             spent_outputs.push(utxo.output);
         }
 
-        // Tokens are conserved unless the transaction issues one or spends a mint authority
-        tx.check_tokens(&spent_outputs.iter().collect::<Vec<_>>())
-            .map_err(|e| StateError::Transaction(e.to_string()))?;
+        // Tokens are conserved unless the transaction issues one or spends a mint authority, and
+        // escrowed coins go only where the signer's role allows
+        let spent_refs: Vec<&TxOutput> = spent_outputs.iter().collect();
+        tx.check_tokens(&spent_refs).map_err(|e| StateError::Transaction(e.to_string()))?;
+        tx.check_escrow_destinations(self.network, &spent_refs).map_err(|e| StateError::Transaction(e.to_string()))?;
 
         let total_output_atoms = tx
             .outputs

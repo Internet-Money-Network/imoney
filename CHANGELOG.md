@@ -6,6 +6,10 @@ Notable changes to Internet Money. Nothing has been released yet: everything bel
 ## Unreleased
 
 ### Added
+- **Escrow.** An escrow address holds coins for a buyer and a seller with an arbiter for
+  disputes. The buyer can only release to the seller, the seller can only refund the buyer,
+  the arbiter can only pay one or both of them, and after a deadline one named side collects
+  alone. Nodes check where the money goes, not just who signed. A consensus rule.
 - **Native tokens.** Anyone can issue a token on the chain: a name, a ticker, a supply, and
   optionally the right to mint more, held as a coin that can be passed on, shared in a
   multisig, or given up to fix the supply. Tokens are conserved exactly in every transfer,

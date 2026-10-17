@@ -43,6 +43,7 @@ export IMN_NODE=http://127.0.0.1:28556
 | `paid_api_client` | 6 | A program that gets a quote, pays it and collects |
 | `multisig` | 7 | Funds a 2-of-3 address and spends from it |
 | `token` | 10 | Issues a token, sends some for an invoice, mints more |
+| `escrow` | — | Pays into an escrow and releases it to the seller |
 | `hashlock` | — | The IMN half of an atomic swap: lock under a secret's hash, claim, refund |
 | `swap_cli` | — | The same steps as single commands, driven by [`contracts/e2e-swap.mjs`](../../contracts/e2e-swap.mjs) for a whole cross-chain swap |
 
