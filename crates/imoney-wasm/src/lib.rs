@@ -293,6 +293,8 @@ fn with_fee(fee_atoms: u64, build: impl Fn(u64) -> Result<Transaction, String>) 
 }
 
 /// The wallet logic, kept free of JavaScript types so it can be tested natively.
+mod programs;
+
 pub mod wallet {
     use super::*;
 

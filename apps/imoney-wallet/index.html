@@ -251,6 +251,7 @@
           <button class="tab-btn" data-tab="history">History</button>
           <button class="tab-btn" data-tab="tokens">Tokens</button>
           <button class="tab-btn" data-tab="trade">Trade</button>
+          <button class="tab-btn" data-tab="deals">Deals</button>
           <button class="tab-btn" data-tab="shared">Shared</button>
           <button class="tab-btn" data-tab="settings">Settings</button>
         </div>
@@ -420,6 +421,67 @@
 
           <h3 class="section-label" style="margin-top: 22px;">Your orders</h3>
           <div id="trade-mine"><p class="small soft">None.</p></div>
+        </div>
+
+        <!-- Tab: Deals (escrow, subscriptions, savings vault) -->
+        <div id="tab-deals" class="tab-content">
+          <div class="form-group">
+            <label>Your code</label>
+            <div style="display: flex; gap: 8px;">
+              <input type="text" id="deals-my-code" readonly style="font-size: 12px;" />
+              <button class="btn quiet" id="deals-copy-code" style="width: auto; padding: 0 14px;">Copy</button>
+            </div>
+            <p class="small soft" style="margin: 6px 0 0;">Give this to someone who wants to set up an escrow or a subscription with you.</p>
+          </div>
+
+          <h3 class="section-label" style="margin-top: 20px;">Your deals</h3>
+          <div id="deals-list"><p class="small soft">None yet.</p></div>
+          <div id="deals-status" class="status-msg"></div>
+
+          <details class="more" style="margin-top: 18px;">
+            <summary>Pay into escrow</summary>
+            <p class="small soft" style="margin: 12px 0;">The money waits until you release it to the seller. If you disagree, the referee decides, and can only pay you or the seller.</p>
+            <div class="form-group"><label for="escrow-seller">Seller's code</label><input type="text" id="escrow-seller" autocomplete="off" spellcheck="false" /></div>
+            <div class="form-group"><label for="escrow-referee">Referee's code</label><input type="text" id="escrow-referee" autocomplete="off" spellcheck="false" /></div>
+            <div class="form-group pair">
+              <div><label for="escrow-amount">Amount (IMN)</label><input type="text" inputmode="decimal" id="escrow-amount" placeholder="0" /></div>
+              <div><label for="escrow-days">If nobody acts within (days)</label><input type="number" id="escrow-days" value="7" min="1" /></div>
+            </div>
+            <div class="form-group">
+              <label for="escrow-after">then</label>
+              <select id="escrow-after"><option value="seller">the seller gets paid</option><option value="buyer">I get my money back</option></select>
+            </div>
+            <button class="btn" id="escrow-create">Pay into escrow</button>
+          </details>
+
+          <details class="more">
+            <summary>Subscribe to a shop</summary>
+            <p class="small soft" style="margin: 12px 0;">You put money aside. The shop can take the agreed amount once each period, never more, and you can cancel any time and take the rest back.</p>
+            <div class="form-group"><label for="sub-shop">Shop's code</label><input type="text" id="sub-shop" autocomplete="off" spellcheck="false" /></div>
+            <div class="form-group pair">
+              <div><label for="sub-amount">Amount each time (IMN)</label><input type="text" inputmode="decimal" id="sub-amount" placeholder="0" /></div>
+              <div><label for="sub-days">Every (days)</label><input type="number" id="sub-days" value="30" min="1" /></div>
+            </div>
+            <div class="form-group"><label for="sub-periods">Put aside for how many payments</label><input type="number" id="sub-periods" value="3" min="1" /></div>
+            <button class="btn" id="sub-create">Subscribe</button>
+          </details>
+
+          <details class="more">
+            <summary>Savings vault</summary>
+            <p class="small soft" style="margin: 12px 0;">Money in a vault takes a while to come out, and a backup wallet you keep somewhere safe can stop it. If someone steals this wallet, they can't empty the vault before you notice.</p>
+            <div class="form-group"><label for="vault-backup">Backup wallet's code</label><input type="text" id="vault-backup" autocomplete="off" spellcheck="false" /></div>
+            <div class="form-group pair">
+              <div><label for="vault-amount">Put in (IMN)</label><input type="text" inputmode="decimal" id="vault-amount" placeholder="0" /></div>
+              <div><label for="vault-hours">Withdrawals take (hours)</label><input type="number" id="vault-hours" value="24" min="1" /></div>
+            </div>
+            <button class="btn" id="vault-create">Create vault</button>
+          </details>
+
+          <details class="more">
+            <summary>Add a deal someone shared with you</summary>
+            <div class="form-group" style="margin-top: 12px;"><label for="deal-import">Deal code</label><textarea id="deal-import" spellcheck="false"></textarea></div>
+            <button class="btn quiet" id="deal-import-btn">Add</button>
+          </details>
         </div>
 
         <!-- Tab: Shared wallet (multi-signature) -->
@@ -643,6 +705,7 @@
         if (btn.dataset.tab === 'history') refreshHistory();
         if (btn.dataset.tab === 'tokens') refreshTokens();
         if (btn.dataset.tab === 'trade') refreshTokens().then(loadTradeTokens);
+        if (btn.dataset.tab === 'deals') renderDeals();
         if (btn.dataset.tab === 'shared') openShared();
       });
     });
@@ -1254,6 +1317,291 @@
     $('trade-pick').addEventListener('change', () => { $('trade-token').value = ''; loadTrade(); });
     $('trade-token').addEventListener('change', loadTrade);
     $('trade-amount').addEventListener('input', updateQuote);
+
+    // ---------------------------------------------------------------- deals
+    // Escrows, subscriptions and vaults this wallet is part of, kept in this browser as their
+    // terms. Their money is found by asking the node for the coins at their addresses.
+    const BLOCKS_PER_HOUR = 720; // one blue score is about five seconds
+    const loadDeals = () => {
+      try {
+        return JSON.parse(localStorage.getItem('imoney_deals') || '[]');
+      } catch {
+        return [];
+      }
+    };
+    const saveDeals = (deals) => localStorage.setItem('imoney_deals', JSON.stringify(deals));
+    const addDeal = (deal) => {
+      const deals = loadDeals().filter((d) => d.terms_hex !== deal.terms_hex);
+      deals.push(deal);
+      saveDeals(deals);
+    };
+    // A deal's code, to share: its kind and terms in one line
+    // (a vault's also carries its pending withdrawals, so the backup wallet can stop them)
+    const dealCode = (deal) => `${deal.kind}:${deal.terms_hex}${deal.pending?.length ? ':' + deal.pending.map((p) => p.hex).join(',') : ''}`;
+
+    async function blueScore() {
+      return (await fetch(`${nodeUrl()}/api/v1/info`).then((r) => r.json())).virtual_blue_score;
+    }
+    async function coinsAt(address) {
+      const res = await fetch(`${nodeUrl()}/api/v1/address/${encodeURIComponent(address)}/utxos`);
+      return res.ok ? res.json() : [];
+    }
+    function waitText(blocks) {
+      if (blocks <= 0) return 'now';
+      const hours = blocks / BLOCKS_PER_HOUR;
+      return hours < 1 ? `in about ${Math.max(1, Math.round(hours * 60))} minutes` : hours < 48 ? `in about ${Math.round(hours)} hour${Math.round(hours) === 1 ? '' : 's'}` : `in about ${Math.round(hours / 24)} days`;
+    }
+    async function act(label, signedJson) {
+      try {
+        await broadcast(signedJson);
+        show($('deals-status'), `${label}. It takes about 5 seconds.`, true);
+        setTimeout(() => { refreshBalance(); renderDeals(); }, 6000);
+      } catch (err) {
+        show($('deals-status'), err.message || String(err), false);
+      }
+    }
+    function button(label, onClick, quiet = true) {
+      const b = document.createElement('button');
+      b.className = quiet ? 'btn quiet' : 'btn';
+      b.style.cssText = 'width: auto; padding: 6px 12px; margin: 6px 6px 0 0;';
+      b.innerText = label;
+      b.addEventListener('click', onClick);
+      return b;
+    }
+
+    async function renderDeals() {
+      if (!wallet) return;
+      $('deals-my-code').value = wallet.public_key_hex;
+      const list = $('deals-list');
+      const deals = loadDeals();
+      list.replaceChildren();
+      if (!deals.length) {
+        const none = document.createElement('p');
+        none.className = 'small soft';
+        none.innerText = 'None yet.';
+        list.append(none);
+        return;
+      }
+      let now;
+      try {
+        now = await blueScore();
+      } catch {
+        show($('deals-status'), "Couldn't reach the node.", false);
+        return;
+      }
+      const me = wallet.public_key_hex;
+      for (const deal of deals) {
+        const card = document.createElement('div');
+        card.style.cssText = 'padding: 12px 0; border-bottom: 1px solid var(--rule-soft); font-size: 14px;';
+        const title = document.createElement('div');
+        title.style.fontWeight = '600';
+        const detail = document.createElement('div');
+        detail.className = 'small soft';
+        const actions = document.createElement('div');
+        card.append(title, detail, actions);
+        list.append(card);
+        try {
+          if (deal.kind === 'escrow') await renderEscrow(deal, now, me, title, detail, actions);
+          if (deal.kind === 'subscription') await renderSubscription(deal, now, me, title, detail, actions);
+          if (deal.kind === 'vault') await renderVault(deal, now, me, title, detail, actions);
+        } catch (err) {
+          detail.innerText = err.message || String(err);
+        }
+        actions.append(button('Share', () => {
+          navigator.clipboard.writeText(dealCode(deal));
+          show($('deals-status'), 'Deal code copied. Send it to the other people in the deal.', true);
+        }));
+        actions.append(button('Hide', () => {
+          saveDeals(loadDeals().filter((d) => d.terms_hex !== deal.terms_hex));
+          renderDeals();
+        }));
+      }
+    }
+
+    async function renderEscrow(deal, now, me, title, detail, actions) {
+      const info = JSON.parse(wasm.escrow_describe(deal.terms_hex, TESTNET));
+      const coins = await coinsAt(info.address);
+      const held = coins.reduce((sum, c) => sum + c.value_atoms, 0);
+      const role = me === info.buyer_code ? 'buyer' : me === info.seller_code ? 'seller' : me === info.referee_code ? 'referee' : 'viewer';
+      title.innerText = `Escrow · ${formatImn(held)} IMN held`;
+      const after = info.seller_collects_after_deadline ? 'the seller can collect' : 'the buyer can take it back';
+      detail.innerText = held === 0
+        ? 'Nothing is held: it has been paid out, or the payment has not arrived yet.'
+        : `You are the ${role}. If nobody acts, ${after} ${waitText(info.deadline - now)}.`;
+      for (const c of coins) {
+        const coinJson = JSON.stringify(c);
+        if (role === 'buyer') actions.append(button('Release to the seller', () => act('Released', wasm.escrow_act(wallet.private_key_hex, TESTNET, deal.terms_hex, coinJson, 'release', 0n)), false));
+        if (role === 'seller') actions.append(button('Refund the buyer', () => act('Refunded', wasm.escrow_act(wallet.private_key_hex, TESTNET, deal.terms_hex, coinJson, 'refund', 0n))));
+        if (role === 'referee') {
+          actions.append(button('Pay the buyer', () => act('Paid to the buyer', wasm.escrow_act(wallet.private_key_hex, TESTNET, deal.terms_hex, coinJson, 'decide', BigInt(c.value_atoms))), false));
+          actions.append(button('Pay the seller', () => act('Paid to the seller', wasm.escrow_act(wallet.private_key_hex, TESTNET, deal.terms_hex, coinJson, 'decide', 0n)), false));
+        }
+        const collector = info.seller_collects_after_deadline ? 'seller' : 'buyer';
+        if (role === collector && now >= info.deadline) {
+          actions.append(button('Collect', () => act('Collected', wasm.escrow_act(wallet.private_key_hex, TESTNET, deal.terms_hex, coinJson, 'collect', 0n)), false));
+        }
+      }
+    }
+
+    // A subscription's money moves to a new address after each collection; look along the way
+    async function findSubscription(deal) {
+      for (let k = 0; k < 400; k++) {
+        const at = JSON.parse(wasm.subscription_after(deal.terms_hex, k, TESTNET));
+        const coins = await coinsAt(at.address);
+        if (coins.length) return { at, coins };
+        if (k > 0 && at.next_due > (await blueScore()) + at.period) return { at, coins: [] };
+      }
+      return null;
+    }
+
+    async function renderSubscription(deal, now, me, title, detail, actions) {
+      const found = await findSubscription(deal);
+      const first = JSON.parse(wasm.subscription_after(deal.terms_hex, 0, TESTNET));
+      const role = wallet.address === first.customer ? 'customer' : wallet.address === first.merchant ? 'shop' : 'viewer';
+      title.innerText = `Subscription · ${formatImn(first.amount_per_period)} IMN every ${Math.round(first.period / (BLOCKS_PER_HOUR * 24))} days`;
+      if (!found || !found.coins.length) {
+        detail.innerText = 'No money left in it: it has been used up or cancelled.';
+        return;
+      }
+      const held = found.coins.reduce((sum, c) => sum + c.value_atoms, 0);
+      detail.innerText = `${formatImn(held)} IMN set aside. Next payment ${waitText(found.at.next_due - now)}. You are the ${role}.`;
+      for (const c of found.coins) {
+        const coinJson = JSON.stringify(c);
+        if (role === 'shop' && now >= found.at.next_due) {
+          actions.append(button('Collect payment', () => act('Collected', wasm.subscription_collect(wallet.private_key_hex, TESTNET, found.at.terms_hex, coinJson)), false));
+        }
+        if (role === 'customer') {
+          actions.append(button('Cancel and take it back', () => act('Cancelled', wasm.subscription_cancel(wallet.private_key_hex, TESTNET, found.at.terms_hex, coinJson))));
+        }
+      }
+    }
+
+    async function renderVault(deal, now, me, title, detail, actions) {
+      const info = JSON.parse(wasm.vault_describe(deal.terms_hex, TESTNET));
+      const coins = await coinsAt(info.address);
+      const held = coins.reduce((sum, c) => sum + c.value_atoms, 0);
+      const isBackup = wallet.address === info.backup;
+      title.innerText = `Savings vault · ${formatImn(held)} IMN`;
+      detail.innerText = `Withdrawals take ${waitText(info.delay).replace('in ', '')}. ${isBackup ? 'This is the backup wallet.' : ''}`;
+      if (!isBackup) {
+        actions.append(button('Put money in', () => {
+          $('vault-amount').focus();
+          $('send-recipient').value = info.address;
+          document.querySelector('[data-tab="send"]').click();
+        }));
+      }
+      for (const c of coins) {
+        const coinJson = JSON.stringify(c);
+        if (!isBackup) {
+          actions.append(button(`Withdraw ${formatImn(c.value_atoms)} IMN`, async () => {
+            try {
+              const started = JSON.parse(wasm.vault_start(wallet.private_key_hex, TESTNET, deal.terms_hex, coinJson, wallet.address, BigInt(await blueScore())));
+              deal.pending = [...(deal.pending || []), { hex: started.pending_hex, address: started.pending_address, unlock_at: started.unlock_at }];
+              addDeal(deal);
+              await act('Withdrawal started', JSON.stringify(started.signed));
+            } catch (err) {
+              show($('deals-status'), err.message || String(err), false);
+            }
+          }, false));
+        } else {
+          actions.append(button('Move it all to the backup wallet', () => act('Moved', wasm.vault_recover(wallet.private_key_hex, TESTNET, deal.terms_hex, '', coinJson))));
+        }
+      }
+      // Withdrawals on their way out
+      for (const p of deal.pending || []) {
+        for (const c of await coinsAt(p.address)) {
+          const line = document.createElement('div');
+          line.className = 'small';
+          line.style.marginTop = '8px';
+          line.innerText = `Withdrawal of ${formatImn(c.value_atoms)} IMN: ${now >= p.unlock_at ? 'ready' : 'arrives ' + waitText(p.unlock_at - now)}.`;
+          actions.append(line);
+          const coinJson = JSON.stringify(c);
+          if (now >= p.unlock_at) actions.append(button('Finish withdrawal', () => act('Withdrawn', wasm.vault_complete(p.hex, coinJson)), false));
+          if (isBackup) actions.append(button('Stop this withdrawal', () => act('Stopped', wasm.vault_recover(wallet.private_key_hex, TESTNET, deal.terms_hex, p.hex, coinJson)), false));
+        }
+      }
+    }
+
+    function needCode(id) {
+      const code = $(id).value.trim().toLowerCase();
+      if (!/^[0-9a-f]{64}$/.test(code)) throw new Error('That code is not right. A code is 64 letters and numbers.');
+      return code;
+    }
+
+    $('escrow-create').addEventListener('click', async () => {
+      try {
+        const amount = toAtoms($('escrow-amount').value);
+        if (!(amount > 0)) throw new Error('Enter an amount.');
+        const days = Math.max(1, Number($('escrow-days').value) || 7);
+        const now = await blueScore();
+        const program = JSON.parse(wasm.escrow_terms(wallet.public_key_hex, needCode('escrow-seller'), needCode('escrow-referee'), BigInt(now + days * 24 * BLOCKS_PER_HOUR), $('escrow-after').value === 'seller', TESTNET));
+        await refreshBalance();
+        await broadcast(wasm.build_payment(wallet.private_key_hex, TESTNET, program.address, BigInt(amount), 0n, JSON.stringify(spendable), undefined, undefined));
+        addDeal({ kind: 'escrow', terms_hex: program.terms_hex });
+        show($('deals-status'), 'Escrow started. Press Share on it and send the code to the seller and the referee.', true);
+        setTimeout(renderDeals, 6000);
+      } catch (err) {
+        show($('deals-status'), err.message || String(err), false);
+      }
+    });
+
+    $('sub-create').addEventListener('click', async () => {
+      try {
+        const amount = toAtoms($('sub-amount').value);
+        if (!(amount > 0)) throw new Error('Enter the amount each time.');
+        const days = Math.max(1, Number($('sub-days').value) || 30);
+        const periods = Math.max(1, Number($('sub-periods').value) || 1);
+        const now = await blueScore();
+        const program = JSON.parse(wasm.subscription_terms(wallet.public_key_hex, needCode('sub-shop'), BigInt(amount), BigInt(days * 24 * BLOCKS_PER_HOUR), BigInt(now), `${wallet.address}:${now}`, TESTNET));
+        await refreshBalance();
+        await broadcast(wasm.build_payment(wallet.private_key_hex, TESTNET, program.address, BigInt(amount * periods), 0n, JSON.stringify(spendable), undefined, undefined));
+        addDeal({ kind: 'subscription', terms_hex: program.terms_hex });
+        show($('deals-status'), 'Subscribed. Press Share on it and send the code to the shop.', true);
+        setTimeout(renderDeals, 6000);
+      } catch (err) {
+        show($('deals-status'), err.message || String(err), false);
+      }
+    });
+
+    $('vault-create').addEventListener('click', async () => {
+      try {
+        const hours = Math.max(1, Number($('vault-hours').value) || 24);
+        const program = JSON.parse(wasm.vault_terms(wallet.public_key_hex, needCode('vault-backup'), BigInt(hours * BLOCKS_PER_HOUR), TESTNET));
+        addDeal({ kind: 'vault', terms_hex: program.terms_hex, pending: [] });
+        const amount = $('vault-amount').value.trim() ? toAtoms($('vault-amount').value) : 0;
+        if (amount > 0) {
+          await refreshBalance();
+          await broadcast(wasm.build_payment(wallet.private_key_hex, TESTNET, program.address, BigInt(amount), 0n, JSON.stringify(spendable), undefined, undefined));
+        }
+        show($('deals-status'), 'Vault created. Press Share on it and add the code to your backup wallet too.', true);
+        setTimeout(renderDeals, amount > 0 ? 6000 : 200);
+      } catch (err) {
+        show($('deals-status'), err.message || String(err), false);
+      }
+    });
+
+    $('deal-import-btn').addEventListener('click', () => {
+      const text = $('deal-import').value.trim();
+      const match = /^(escrow|subscription|vault):([0-9a-f]+)(?::([0-9a-f,]+))?$/.exec(text);
+      try {
+        if (!match) throw new Error("That isn't a deal code.");
+        const [, kind, terms, pendingList] = match;
+        // Check the terms are well formed before keeping them
+        if (kind === 'escrow') wasm.escrow_describe(terms, TESTNET);
+        if (kind === 'subscription') wasm.subscription_after(terms, 0, TESTNET);
+        if (kind === 'vault') wasm.vault_describe(terms, TESTNET);
+        const pending = (pendingList || '').split(',').filter(Boolean).map((hex) => JSON.parse(wasm.vault_pending_describe(hex, TESTNET)));
+        addDeal({ kind, terms_hex: terms, pending });
+        $('deal-import').value = '';
+        renderDeals();
+      } catch (err) {
+        show($('deals-status'), err.message || String(err), false);
+      }
+    });
+    $('deals-copy-code').addEventListener('click', () => {
+      navigator.clipboard.writeText(wallet.public_key_hex);
+      show($('deals-status'), 'Your code is copied.', true);
+    });
 
     // ---------------------------------------------------------------- shared wallet
     let shared = null; // { address, threshold, public_keys, script_hex }

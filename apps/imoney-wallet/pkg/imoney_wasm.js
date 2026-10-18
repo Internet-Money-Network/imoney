@@ -76,6 +76,108 @@ export function build_payment(private_key_hex, testnet, recipient, amount_atoms,
 }
 
 /**
+ * Moves an escrow coin. `action` is `release` (buyer pays the seller), `refund` (seller pays
+ * the buyer back), `decide` (the referee pays `to_buyer_atoms` to the buyer and the rest to
+ * the seller) or `collect` (after the deadline, the party the terms name).
+ * @param {string} private_key_hex
+ * @param {boolean} testnet
+ * @param {string} terms_hex
+ * @param {string} coin_json
+ * @param {string} action
+ * @param {bigint} to_buyer_atoms
+ * @returns {string}
+ */
+export function escrow_act(private_key_hex, testnet, terms_hex, coin_json, action, to_buyer_atoms) {
+    let deferred6_0;
+    let deferred6_1;
+    try {
+        const ptr0 = passStringToWasm0(private_key_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(terms_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passStringToWasm0(coin_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ptr3 = passStringToWasm0(action, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len3 = WASM_VECTOR_LEN;
+        const ret = wasm.escrow_act(ptr0, len0, testnet, ptr1, len1, ptr2, len2, ptr3, len3, to_buyer_atoms);
+        var ptr5 = ret[0];
+        var len5 = ret[1];
+        if (ret[3]) {
+            ptr5 = 0; len5 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred6_0 = ptr5;
+        deferred6_1 = len5;
+        return getStringFromWasm0(ptr5, len5);
+    } finally {
+        wasm.__wbindgen_free(deferred6_0, deferred6_1, 1);
+    }
+}
+
+/**
+ * Describes escrow terms: the parties' addresses, the deadline and who collects after it.
+ * @param {string} terms_hex
+ * @param {boolean} testnet
+ * @returns {string}
+ */
+export function escrow_describe(terms_hex, testnet) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passStringToWasm0(terms_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.escrow_describe(ptr0, len0, testnet);
+        var ptr2 = ret[0];
+        var len2 = ret[1];
+        if (ret[3]) {
+            ptr2 = 0; len2 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred3_0 = ptr2;
+        deferred3_1 = len2;
+        return getStringFromWasm0(ptr2, len2);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
+ * Escrow terms from the three parties' wallet codes (public keys) and a deadline in blue score.
+ * After the deadline the seller collects when `seller_collects`, else the buyer gets it back.
+ * @param {string} buyer_code
+ * @param {string} seller_code
+ * @param {string} referee_code
+ * @param {bigint} deadline
+ * @param {boolean} seller_collects
+ * @param {boolean} testnet
+ * @returns {string}
+ */
+export function escrow_terms(buyer_code, seller_code, referee_code, deadline, seller_collects, testnet) {
+    let deferred5_0;
+    let deferred5_1;
+    try {
+        const ptr0 = passStringToWasm0(buyer_code, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(seller_code, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passStringToWasm0(referee_code, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ret = wasm.escrow_terms(ptr0, len0, ptr1, len1, ptr2, len2, deadline, seller_collects, testnet);
+        var ptr4 = ret[0];
+        var len4 = ret[1];
+        if (ret[3]) {
+            ptr4 = 0; len4 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred5_0 = ptr4;
+        deferred5_1 = len4;
+        return getStringFromWasm0(ptr4, len4);
+    } finally {
+        wasm.__wbindgen_free(deferred5_0, deferred5_1, 1);
+    }
+}
+
+/**
  * @param {string} address
  * @param {boolean} testnet
  * @returns {boolean}
@@ -462,6 +564,138 @@ export function shared_wallet_open(script_hex, testnet) {
 }
 
 /**
+ * The same subscription `periods` periods later: where its money sits after that many
+ * collections. A wallet looks for the money at each in turn.
+ * @param {string} terms_hex
+ * @param {number} periods
+ * @param {boolean} testnet
+ * @returns {string}
+ */
+export function subscription_after(terms_hex, periods, testnet) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passStringToWasm0(terms_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.subscription_after(ptr0, len0, periods, testnet);
+        var ptr2 = ret[0];
+        var len2 = ret[1];
+        if (ret[3]) {
+            ptr2 = 0; len2 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred3_0 = ptr2;
+        deferred3_1 = len2;
+        return getStringFromWasm0(ptr2, len2);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
+ * The customer cancels and takes the money back to their own address.
+ * @param {string} private_key_hex
+ * @param {boolean} testnet
+ * @param {string} terms_hex
+ * @param {string} coin_json
+ * @returns {string}
+ */
+export function subscription_cancel(private_key_hex, testnet, terms_hex, coin_json) {
+    let deferred5_0;
+    let deferred5_1;
+    try {
+        const ptr0 = passStringToWasm0(private_key_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(terms_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passStringToWasm0(coin_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ret = wasm.subscription_cancel(ptr0, len0, testnet, ptr1, len1, ptr2, len2);
+        var ptr4 = ret[0];
+        var len4 = ret[1];
+        if (ret[3]) {
+            ptr4 = 0; len4 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred5_0 = ptr4;
+        deferred5_1 = len4;
+        return getStringFromWasm0(ptr4, len4);
+    } finally {
+        wasm.__wbindgen_free(deferred5_0, deferred5_1, 1);
+    }
+}
+
+/**
+ * The shop collects one period's amount. `terms_hex` must be the terms the coin is at.
+ * @param {string} private_key_hex
+ * @param {boolean} testnet
+ * @param {string} terms_hex
+ * @param {string} coin_json
+ * @returns {string}
+ */
+export function subscription_collect(private_key_hex, testnet, terms_hex, coin_json) {
+    let deferred5_0;
+    let deferred5_1;
+    try {
+        const ptr0 = passStringToWasm0(private_key_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(terms_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passStringToWasm0(coin_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ret = wasm.subscription_collect(ptr0, len0, testnet, ptr1, len1, ptr2, len2);
+        var ptr4 = ret[0];
+        var len4 = ret[1];
+        if (ret[3]) {
+            ptr4 = 0; len4 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred5_0 = ptr4;
+        deferred5_1 = len4;
+        return getStringFromWasm0(ptr4, len4);
+    } finally {
+        wasm.__wbindgen_free(deferred5_0, deferred5_1, 1);
+    }
+}
+
+/**
+ * Subscription terms. `first_due` is the blue score of the first collection; a period is in
+ * blue score too (about 17,280 a day). `reference` is any text the merchant chooses.
+ * @param {string} customer_code
+ * @param {string} merchant_code
+ * @param {bigint} amount_per_period
+ * @param {bigint} period
+ * @param {bigint} first_due
+ * @param {string} reference
+ * @param {boolean} testnet
+ * @returns {string}
+ */
+export function subscription_terms(customer_code, merchant_code, amount_per_period, period, first_due, reference, testnet) {
+    let deferred5_0;
+    let deferred5_1;
+    try {
+        const ptr0 = passStringToWasm0(customer_code, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(merchant_code, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passStringToWasm0(reference, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ret = wasm.subscription_terms(ptr0, len0, ptr1, len1, amount_per_period, period, first_due, ptr2, len2, testnet);
+        var ptr4 = ret[0];
+        var len4 = ret[1];
+        if (ret[3]) {
+            ptr4 = 0; len4 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred5_0 = ptr4;
+        deferred5_1 = len4;
+        return getStringFromWasm0(ptr4, len4);
+    } finally {
+        wasm.__wbindgen_free(deferred5_0, deferred5_1, 1);
+    }
+}
+
+/**
  * Issues a token. Returns the signed transaction as JSON, with the new token's ID in
  * `token_id`. A fee of 0 sets the fee from the transaction's size.
  * @param {string} private_key_hex
@@ -579,6 +813,195 @@ export function token_transfer(private_key_hex, testnet, recipient, token_id, am
         return getStringFromWasm0(ptr6, len6);
     } finally {
         wasm.__wbindgen_free(deferred7_0, deferred7_1, 1);
+    }
+}
+
+/**
+ * Completes a withdrawal that has waited long enough. Needs no key.
+ * @param {string} pending_hex
+ * @param {string} coin_json
+ * @returns {string}
+ */
+export function vault_complete(pending_hex, coin_json) {
+    let deferred4_0;
+    let deferred4_1;
+    try {
+        const ptr0 = passStringToWasm0(pending_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(coin_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.vault_complete(ptr0, len0, ptr1, len1);
+        var ptr3 = ret[0];
+        var len3 = ret[1];
+        if (ret[3]) {
+            ptr3 = 0; len3 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred4_0 = ptr3;
+        deferred4_1 = len3;
+        return getStringFromWasm0(ptr3, len3);
+    } finally {
+        wasm.__wbindgen_free(deferred4_0, deferred4_1, 1);
+    }
+}
+
+/**
+ * The vault address for these terms, and the address a pending withdrawal sits at.
+ * @param {string} terms_hex
+ * @param {boolean} testnet
+ * @returns {string}
+ */
+export function vault_describe(terms_hex, testnet) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passStringToWasm0(terms_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.vault_describe(ptr0, len0, testnet);
+        var ptr2 = ret[0];
+        var len2 = ret[1];
+        if (ret[3]) {
+            ptr2 = 0; len2 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred3_0 = ptr2;
+        deferred3_1 = len2;
+        return getStringFromWasm0(ptr2, len2);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
+ * A pending withdrawal's address and unlock time, from its terms (as shared in a vault's deal code).
+ * @param {string} pending_hex
+ * @param {boolean} testnet
+ * @returns {string}
+ */
+export function vault_pending_describe(pending_hex, testnet) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passStringToWasm0(pending_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.vault_pending_describe(ptr0, len0, testnet);
+        var ptr2 = ret[0];
+        var len2 = ret[1];
+        if (ret[3]) {
+            ptr2 = 0; len2 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred3_0 = ptr2;
+        deferred3_1 = len2;
+        return getStringFromWasm0(ptr2, len2);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
+ * With the backup key: stops a pending withdrawal (give `pending_hex`) or moves vault coins
+ * (leave it empty), sending everything to the backup key's own address.
+ * @param {string} backup_private_key_hex
+ * @param {boolean} testnet
+ * @param {string} terms_hex
+ * @param {string} pending_hex
+ * @param {string} coin_json
+ * @returns {string}
+ */
+export function vault_recover(backup_private_key_hex, testnet, terms_hex, pending_hex, coin_json) {
+    let deferred6_0;
+    let deferred6_1;
+    try {
+        const ptr0 = passStringToWasm0(backup_private_key_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(terms_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passStringToWasm0(pending_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ptr3 = passStringToWasm0(coin_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len3 = WASM_VECTOR_LEN;
+        const ret = wasm.vault_recover(ptr0, len0, testnet, ptr1, len1, ptr2, len2, ptr3, len3);
+        var ptr5 = ret[0];
+        var len5 = ret[1];
+        if (ret[3]) {
+            ptr5 = 0; len5 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred6_0 = ptr5;
+        deferred6_1 = len5;
+        return getStringFromWasm0(ptr5, len5);
+    } finally {
+        wasm.__wbindgen_free(deferred6_0, deferred6_1, 1);
+    }
+}
+
+/**
+ * Starts a withdrawal from the vault to `to`, with the everyday key. Returns the signed
+ * transaction, plus the withdrawal's terms and address to keep for completing or stopping it.
+ * @param {string} private_key_hex
+ * @param {boolean} testnet
+ * @param {string} terms_hex
+ * @param {string} coin_json
+ * @param {string} to
+ * @param {bigint} now
+ * @returns {string}
+ */
+export function vault_start(private_key_hex, testnet, terms_hex, coin_json, to, now) {
+    let deferred6_0;
+    let deferred6_1;
+    try {
+        const ptr0 = passStringToWasm0(private_key_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(terms_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passStringToWasm0(coin_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ptr3 = passStringToWasm0(to, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len3 = WASM_VECTOR_LEN;
+        const ret = wasm.vault_start(ptr0, len0, testnet, ptr1, len1, ptr2, len2, ptr3, len3, now);
+        var ptr5 = ret[0];
+        var len5 = ret[1];
+        if (ret[3]) {
+            ptr5 = 0; len5 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred6_0 = ptr5;
+        deferred6_1 = len5;
+        return getStringFromWasm0(ptr5, len5);
+    } finally {
+        wasm.__wbindgen_free(deferred6_0, deferred6_1, 1);
+    }
+}
+
+/**
+ * Vault terms from the everyday wallet's code, a backup code and a delay in blue score.
+ * @param {string} everyday_code
+ * @param {string} backup_code
+ * @param {bigint} delay
+ * @param {boolean} testnet
+ * @returns {string}
+ */
+export function vault_terms(everyday_code, backup_code, delay, testnet) {
+    let deferred4_0;
+    let deferred4_1;
+    try {
+        const ptr0 = passStringToWasm0(everyday_code, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(backup_code, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.vault_terms(ptr0, len0, ptr1, len1, delay, testnet);
+        var ptr3 = ret[0];
+        var len3 = ret[1];
+        if (ret[3]) {
+            ptr3 = 0; len3 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred4_0 = ptr3;
+        deferred4_1 = len3;
+        return getStringFromWasm0(ptr3, len3);
+    } finally {
+        wasm.__wbindgen_free(deferred4_0, deferred4_1, 1);
     }
 }
 function __wbg_get_imports() {
