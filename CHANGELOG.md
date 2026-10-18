@@ -6,6 +6,10 @@ Notable changes to Internet Money. Nothing has been released yet: everything bel
 ## Unreleased
 
 ### Added
+- **Higher minimum fee: 1,000 atoms per byte** (was 10). An ordinary payment now costs about
+  0.0025 IMN, still well under a cent at any price likely for years, and filling every block
+  for a day costs about 17,000 IMN instead of 170. Node policy, not a consensus rule, so it can
+  be lowered by a release without a reset.
 - **Swap offers: IMN for stablecoins on other chains.** A seller lists IMN against a token on
   another chain (USDC on Base, say) in the order book, at a price and with a payment address.
   A buyer locks the payment in the `ImnSwap` contract with `lockForImn`; the seller's

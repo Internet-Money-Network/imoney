@@ -12,9 +12,9 @@ use serde_json::Value;
 /// The examples run on test networks. Change this one line for a main network.
 pub const NETWORK: Network = Network::Testnet;
 
-/// A fee that comfortably covers an ordinary payment (the minimum is 10 atoms per byte, and a
+/// A fee that comfortably covers an ordinary payment (the minimum is 1,000 atoms per byte, and a
 /// simple payment is about 240 bytes).
-pub const FEE_ATOMS: u64 = 10_000;
+pub const FEE_ATOMS: u64 = 500_000;
 
 /// Where the examples look for a node unless `IMN_NODE` says otherwise.
 pub fn node_url() -> String {

@@ -71,7 +71,7 @@ await until('Bob to hold the IMN', async () => BigInt(await balance(bob.address)
 console.log('5. Bob read the secret from Ethereum and claimed the IMN in', claim.tx_id);
 
 assert.equal(BigInt(await balance(lock.address)), 0n);
-assert.equal(BigInt(await balance(bob.address)), AMOUNT_ATOMS - 10_000n); // less the network fee
+assert.equal(BigInt(await balance(bob.address)), AMOUNT_ATOMS - 500_000n); // less the network fee
 assert.equal(await provider.getBalance(swap.target), 0n);
 // The IMN claim shows the same secret to anyone who looks
 assert.equal((await api(`tx/${claim.tx_id}`)).revealed_secrets[0], revealed);

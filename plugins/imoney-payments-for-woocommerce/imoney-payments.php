@@ -569,7 +569,7 @@ function imoney_render_refund_box($post_or_order) {
         echo '<p>' . esc_html__('Pay this request from the wallet that holds the shop\'s funds:', 'imoney-payments') . '</p>';
         echo '<div id="imoney-refund-qr" style="background: #fff; border: 1px solid #0f2e23; padding: 6px; width: 180px; height: 180px; box-sizing: border-box;"></div>';
         echo '<p><code style="word-break: break-all; font-size: 11px;">' . esc_html($uri) . '</code></p>';
-        echo '<p class="description">' . esc_html__('You pay the network fee, about 0.0001 IMN, on top. Reload this page afterwards to see it arrive.', 'imoney-payments') . '</p>';
+        echo '<p class="description">' . esc_html__('You pay the network fee, about 0.0025 IMN, on top. Reload this page afterwards to see it arrive.', 'imoney-payments') . '</p>';
         echo '<script src="' . esc_url(plugins_url('imoney.js', __FILE__)) . '"></script>';
         echo '<script>if (window.IMoney && IMoney.qrSvg) { document.getElementById("imoney-refund-qr").innerHTML = IMoney.qrSvg(' . wp_json_encode($uri) . '); }</script>';
     } elseif ($remaining === 0) {

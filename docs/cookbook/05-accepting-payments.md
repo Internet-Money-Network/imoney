@@ -152,7 +152,7 @@ console.log('refunded so far:', status.seen_atoms);
 ```
 
 **Who pays the fee.** Whoever sends a payment pays its network fee, so the shop pays about
-0.0001 IMN on a refund and the customer receives exactly the amount named. The fee the
+0.0025 IMN on a refund and the customer receives exactly the amount named. The fee the
 customer paid on the original payment went to the network and cannot be returned. A shop that
 wants the customer to bear the refund fee refunds that much less; at a hundredth of a cent it
 is rarely worth the argument.

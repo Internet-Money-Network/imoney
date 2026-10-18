@@ -47,5 +47,7 @@ pub const MAX_TX_BYTES: usize = 50_000;
 pub const MAX_BLOCK_BYTES: usize = 100_000;
 
 /// Lowest fee nodes relay by default, in atoms per byte of transaction. Node policy, not a
-/// consensus rule: it makes filling blocks with junk cost real money.
-pub const MIN_RELAY_FEE_PER_BYTE: u64 = 10;
+/// consensus rule: it makes filling blocks with junk cost real money. An ordinary payment is
+/// about 250 bytes, so 0.0025 IMN; filling every block for a day costs about 17,000 IMN.
+/// Can be lowered by a node release, without a reset, if IMN becomes expensive.
+pub const MIN_RELAY_FEE_PER_BYTE: u64 = 1_000;

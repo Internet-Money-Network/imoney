@@ -32,7 +32,7 @@ fn main() -> Result<(), String> {
     let mut fee = FEE_ATOMS;
     let mut tx = build(fee)?;
     while fee < 20 * tx.to_bytes().len() as u64 {
-        fee = 20 * tx.to_bytes().len() as u64;
+        fee = 2 * imoney_core::constants::MIN_RELAY_FEE_PER_BYTE * tx.to_bytes().len() as u64;
         tx = build(fee)?;
     }
     let tx_id = node.broadcast(&tx)?;

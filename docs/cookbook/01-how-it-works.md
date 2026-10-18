@@ -14,8 +14,8 @@ locked back to you (the *change*). Whatever is not given to an output is the **f
 ```
 spends:   coin of 5.0000 (yours)
 creates:  coin of 3.0000 (theirs)
-          coin of 1.9999 (yours, change)
-fee:      0.0001
+          coin of 1.9975 (yours, change)
+fee:      0.0025
 ```
 
 Three things follow, and they explain most surprises:

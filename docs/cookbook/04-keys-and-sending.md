@@ -83,8 +83,8 @@ A refusal comes back with the reason, for example:
 ## The fee
 
 The fee is whatever the inputs hold beyond what the outputs pay. A node relays a payment that
-offers at least **10 atoms per byte**. An ordinary payment is about 240 bytes, so 2,400 atoms
-is the floor and the examples pay 10,000 (0.0001 IMN) to stay well clear of it. A payment
+offers at least **1,000 atoms per byte**. An ordinary payment is about 240 bytes, so 240,000
+atoms (0.0024 IMN) is the floor and the examples pay 500,000 (0.005 IMN) to stay well clear of it. A payment
 that spends many coins is larger and needs more.
 
 When blocks are full, miners take the payments offering the most per byte first.

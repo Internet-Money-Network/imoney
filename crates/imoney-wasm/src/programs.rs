@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
 /// What a program step pays in fee: these transactions have one input and one or two outputs.
-const PROGRAM_FEE_ATOMS: u64 = 20_000;
+const PROGRAM_FEE_ATOMS: u64 = 600_000;
 
 #[derive(Serialize)]
 pub struct Program {

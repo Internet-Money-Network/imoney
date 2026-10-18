@@ -106,7 +106,7 @@ and settles in seconds, charging for single requests is practical, which it is n
 
 ## Things that catch people out
 
-- **The fee is extra.** The client pays the price plus about 0.0001 IMN to the network.
+- **The fee is extra.** The client pays the price plus about 0.0025 IMN to the network.
 - **Many small payments make many small coins** for the service. Merge them now and then
   (chapter 9).
 - **Quote expiry.** A real service should expire unpaid quotes and say so in the quote, so

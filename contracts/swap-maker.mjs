@@ -108,7 +108,7 @@ export class SwapMaker {
     for (const offer of offers) {
       // The most IMN the payment covers at this offer's price
       let atoms = (amount * BigInt(offer.price_den)) / BigInt(offer.price_num);
-      if (atoms > BigInt(offer.atoms) - 20_000n) continue; // more than this offer holds
+      if (atoms > BigInt(offer.atoms) - 600_000n) continue; // more than this offer holds
       if (atoms < BigInt(offer.min_atoms) || atoms === 0n) continue;
       const target = JSON.parse(imn.swap_lock(buyerKey, this.me.public_key_hex, lock.hash.slice(2), BigInt(refundAfter), this.testnet));
       const signed = imn.swap_offer_fill(this.imnKey, this.testnet, JSON.stringify(offer), atoms, buyerKey, lock.hash.slice(2), BigInt(refundAfter));

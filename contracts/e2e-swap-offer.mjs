@@ -106,9 +106,9 @@ console.log('4. The buyer claimed the IMN, publishing the secret');
 // 5. The maker reads the secret from the IMN chain and claims the payment
 await until('the maker to claim the payment', async () => (await maker.step()).some((d) => d.status === 'paid'));
 assert.equal(await token.balanceOf(sellerEvm.address), 3000n);
-assert.equal((await api(`address/${buyer.address}/balance`)).balance_atoms, 300_000_000 - 20_000);
+assert.equal((await api(`address/${buyer.address}/balance`)).balance_atoms, 300_000_000 - 600_000);
 const [rest] = await api(`swap-offers?chain_id=${chainId}`);
-assert.equal(rest.atoms, 1_000_000_000 - 300_000_000 - 20_000);
+assert.equal(rest.atoms, 1_000_000_000 - 300_000_000 - 600_000);
 console.log('5. The seller has the 3,000 units; 7 IMN are still on offer');
 console.log('Done: 3 IMN for 3,000 token units across two chains, with nobody holding either in between.');
 process.exit(0);

@@ -383,7 +383,7 @@ export class IMoneyClient {
    * `uri` in a wallet that holds the shop's funds: the server never needs a key.
    *
    * `toAddress` is where the money goes back: the `payer_address` of the original payment, or
-   * an address the customer gave you. The network fee, about 0.0001 IMN, is paid by whoever
+   * an address the customer gave you. The network fee, about 0.0025 IMN, is paid by whoever
    * sends, so the customer receives the full amount named here.
    */
   createRefund(options: { invoiceId: string; toAddress: string; amountImn: number | string }): Invoice {

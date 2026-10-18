@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
 /// Fee rate wallets pay when none is given: twice the default relay minimum, in atoms per byte.
-pub const DEFAULT_FEE_PER_BYTE: u64 = 2 * MIN_RELAY_FEE_PER_BYTE;
+pub const DEFAULT_FEE_PER_BYTE: u64 = MIN_RELAY_FEE_PER_BYTE;
 
 /// A wallet's keys, as handed to the page.
 #[derive(Debug, Serialize)]
@@ -918,7 +918,7 @@ mod tests {
             r#"[{{"transaction_id":"{}","index":0,"value_atoms":0,"value_imn":0,"spendable":true,"token":{{"token_id":"{}","amount":1000,"mint_authority":false}}}},{}]"#,
             "aa".repeat(32),
             bean,
-            utxos(&[500_000]).trim_start_matches('[').trim_end_matches(']')
+            utxos(&[50_000_000]).trim_start_matches('[').trim_end_matches(']')
         );
         let placed = offer_create(&maker.private_key_hex, true, &bean, 600, "imn", 500, 1, 0, &maker_coins).unwrap();
         let offer = &placed.transaction.outputs[0];
@@ -935,9 +935,9 @@ mod tests {
         assert_eq!(taken.transaction.outputs[0].value_atoms, 125_000);
         assert_eq!(taken.transaction.outputs[1].token.as_ref().unwrap().amount, 350);
 
-        let cancelled = offer_cancel(&maker.private_key_hex, true, &listing, 0, &utxos(&[300_000])).unwrap();
+        let cancelled = offer_cancel(&maker.private_key_hex, true, &listing, 0, &utxos(&[3_000_000])).unwrap();
         assert!(cancelled.transaction.outputs.iter().any(|o| o.token.as_ref().is_some_and(|t| t.amount == 600)));
-        assert!(offer_cancel(&taker.private_key_hex, true, &listing, 0, &utxos(&[300_000])).is_err());
+        assert!(offer_cancel(&taker.private_key_hex, true, &listing, 0, &utxos(&[3_000_000])).is_err());
     }
 
     #[test]
@@ -1009,15 +1009,15 @@ mod tests {
             signed
         };
 
-        assert_eq!(fee_of(10_000, &[1_000_000]).inputs_used, 1);
+        assert_eq!(fee_of(1_000_000, &[100_000_000]).inputs_used, 1);
         // 20 small coins: the fee grows with every input needed to pay it
-        let many = fee_of(100_000, &[10_000; 20]);
+        let many = fee_of(10_000_000, &[1_000_000; 20]);
         assert!(many.inputs_used > 10 && many.inputs_used <= 18, "{}", many.inputs_used);
         // When the coins cannot cover the amount plus the fee they imply, say so
-        let short = build_payment(&me.private_key_hex, true, &shop.address, 150_000, 0, &utxos(&[10_000; 20]), None, None);
+        let short = build_payment(&me.private_key_hex, true, &shop.address, 19_000_000, 0, &utxos(&[1_000_000; 20]), None, None);
         assert!(short.unwrap_err().contains("Insufficient"));
 
-        let merged = build_consolidation(&me.private_key_hex, true, 0, &utxos(&[90_000, 90_000, 90_000]), None).unwrap();
+        let merged = build_consolidation(&me.private_key_hex, true, 0, &utxos(&[9_000_000, 9_000_000, 9_000_000]), None).unwrap();
         assert!(merged.fee_atoms >= DEFAULT_FEE_PER_BYTE * merged.transaction.to_bytes().len() as u64);
     }
 
@@ -1055,13 +1055,13 @@ mod tests {
         assert_eq!(shared_wallet_open(&vault.script_hex, true).unwrap().address, vault.address);
         assert!(shared_wallet_create(4, &[&alice.public_key_hex, &bob.public_key_hex], true).is_err());
 
-        let coins = utxos(&[400_000, 400_000]);
-        let proposal = shared_propose(&vault.script_hex, true, &shop.address, 500_000, 0, &coins, None, Some("INV-3")).unwrap();
+        let coins = utxos(&[40_000_000, 40_000_000]);
+        let proposal = shared_propose(&vault.script_hex, true, &shop.address, 50_000_000, 0, &coins, None, Some("INV-3")).unwrap();
         let summary = shared_summary(&proposal, &coins).unwrap();
         assert_eq!(summary.payments.len(), 1);
         assert_eq!(summary.payments[0].address.as_deref(), Some(shop.address.as_str()));
-        assert_eq!(summary.payments[0].amount_atoms, 500_000);
-        assert_eq!(summary.change_atoms + summary.fee_atoms, 300_000);
+        assert_eq!(summary.payments[0].amount_atoms, 50_000_000);
+        assert_eq!(summary.change_atoms + summary.fee_atoms, 30_000_000);
         assert_eq!(summary.invoice_id.as_deref(), Some("INV-3"));
         assert!(summary.signed_by.is_empty() && !summary.ready);
 
@@ -1095,8 +1095,8 @@ mod tests {
         let bob = keys_from_private_key(&"b2".repeat(32), true).unwrap();
         let shop = keys_from_private_key(&"11".repeat(32), true).unwrap();
         let vault = shared_wallet_create(2, &[&alice.public_key_hex, &bob.public_key_hex], true).unwrap();
-        let coins = utxos(&[400_000]);
-        let proposal = shared_propose(&vault.script_hex, true, &shop.address, 100_000, 0, &coins, None, None).unwrap();
+        let coins = utxos(&[40_000_000]);
+        let proposal = shared_propose(&vault.script_hex, true, &shop.address, 10_000_000, 0, &coins, None, None).unwrap();
         let signed_by_alice = shared_sign(&proposal, &alice.private_key_hex, &coins).unwrap();
 
         // The coin it spends is not in the co-signer's own node's list (already spent, say)
@@ -1112,7 +1112,7 @@ mod tests {
 
         // A proposal claiming to pay out more than the coins hold
         let mut inflated = proposal.clone();
-        inflated.transaction.outputs[0].value_atoms = 500_000;
+        inflated.transaction.outputs[0].value_atoms = 50_000_000;
         assert!(shared_summary(&inflated, &coins).unwrap_err().contains("more than it spends"));
     }
 

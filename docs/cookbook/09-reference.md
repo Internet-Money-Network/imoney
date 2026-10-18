@@ -13,7 +13,7 @@ page is the short version a developer needs day to day.
 | Reward can be spent after | 20 confirmations |
 | Reported as final after | 60 confirmations (about 5 minutes); set with `--final-confirmations` |
 | Never reorganised beyond | 8,640 blocks deep (12 hours) |
-| Minimum fee | 10 atoms per byte |
+| Minimum fee | 1,000 atoms per byte |
 | An ordinary payment | about 240 bytes, so at least 2,400 atoms in fee |
 | Largest transaction | 50,000 bytes |
 | Largest block | 100,000 bytes |

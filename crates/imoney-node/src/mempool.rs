@@ -266,11 +266,11 @@ mod tests {
     }
 
     #[test]
-    fn default_policy_requires_ten_atoms_per_byte() {
+    fn default_policy_requires_the_minimum_fee_rate() {
         let mut pool = Mempool::default();
         let size = size_of(&tx(1, 0)) as u64;
-        assert!(matches!(pool.insert(tx(1, 0), 10 * size - 1), Err(MempoolError::FeeTooLow(..))));
-        assert!(pool.insert(tx(1, 0), 10 * size).is_ok());
+        assert!(matches!(pool.insert(tx(1, 0), MIN_RELAY_FEE_PER_BYTE * size - 1), Err(MempoolError::FeeTooLow(..))));
+        assert!(pool.insert(tx(1, 0), MIN_RELAY_FEE_PER_BYTE * size).is_ok());
     }
 
     #[test]
