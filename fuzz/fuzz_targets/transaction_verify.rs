@@ -16,7 +16,7 @@ fuzz_target!(|data: &[u8]| {
         assert_eq!(tx.to_bytes(), rest);
         let _ = tx.id();
         let _ = tx.invoice_id();
-        for version in [0, SCRIPT_VERSION_MULTISIG, SCRIPT_VERSION_HASHLOCK, SCRIPT_VERSION_ESCROW, SCRIPT_VERSION_SUBSCRIPTION, SCRIPT_VERSION_VAULT] {
+        for version in [0, SCRIPT_VERSION_MULTISIG, SCRIPT_VERSION_HASHLOCK, SCRIPT_VERSION_ESCROW, SCRIPT_VERSION_SUBSCRIPTION, SCRIPT_VERSION_VAULT, imoney_core::swap_offer::SCRIPT_VERSION_SWAP_OFFER] {
             // An offer take needs no signature by design; its rules are checked against the outputs
             let locked = ScriptPublicKey { version, script: script_hash.to_vec() };
             for index in 0..tx.inputs.len().min(4) {

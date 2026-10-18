@@ -157,6 +157,13 @@ pub struct OfferResponse {
 }
 
 #[derive(Deserialize)]
+pub struct SwapOffersQuery {
+    pub chain_id: Option<u64>,
+    /// The token's contract, as a 0x address.
+    pub token: Option<String>,
+}
+
+#[derive(Deserialize)]
 pub struct HistoryQuery {
     /// Rows to return, newest first (default 50, at most 500).
     pub limit: Option<usize>,
@@ -358,6 +365,7 @@ pub fn create_router(
         .route("/api/v1/invoice/:id", get(invoice_handler))
         .route("/api/v1/token/:id", get(token_handler))
         .route("/api/v1/offers", get(offers_handler))
+        .route("/api/v1/swap-offers", get(swap_offers_handler))
         .route("/api/v1/address/:addr/tokens", get(token_balances_handler))
         .route("/api/v1/ws/address/:addr", get(ws_address_handler))
         .layer(cors);
@@ -695,6 +703,56 @@ async fn offers_handler(State(state): State<Arc<AppState>>, Query(query): Query<
         });
     }
     book.sort_by(|a, b| a.price.total_cmp(&b.price));
+    Ok(Json(book))
+}
+
+/// One swap offer: IMN for a token on another chain, filled by the maker.
+#[derive(Serialize)]
+pub struct SwapOfferResponse {
+    pub transaction_id: String,
+    pub index: u32,
+    /// The maker's IMN address and key.
+    pub maker: String,
+    pub maker_key: String,
+    /// IMN on offer, in atoms.
+    pub atoms: u64,
+    pub chain_id: u64,
+    /// The token's contract and where the maker is paid on that chain, as 0x addresses.
+    pub token: String,
+    pub pay_to: String,
+    /// `n` atoms cost `ceil(n * price_num / price_den)` of the token's smallest units.
+    pub price_num: u64,
+    pub price_den: u64,
+    pub min_atoms: u64,
+    pub terms_hex: String,
+}
+
+/// The open swap offers, cheapest first. Filter by chain and token.
+async fn swap_offers_handler(State(state): State<Arc<AppState>>, Query(query): Query<SwapOffersQuery>) -> Result<Json<Vec<SwapOfferResponse>>, StatusCode> {
+    let ledger = state.ledger.read().await;
+    let mut book = Vec::new();
+    for (outpoint, entry) in ledger.storage.get_swap_offers().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)? {
+        let Some(terms) = imoney_core::swap_offer::SwapOfferTerms::of(&entry.output) else { continue };
+        let token = format!("0x{}", hex::encode(terms.token));
+        if query.chain_id.is_some_and(|c| c != terms.chain_id) || query.token.as_ref().is_some_and(|t| !t.eq_ignore_ascii_case(&token)) {
+            continue;
+        }
+        book.push(SwapOfferResponse {
+            transaction_id: outpoint.transaction_id.to_hex(),
+            index: outpoint.index,
+            maker: Address::from_public_key(ledger.network, imoney_core::AddressType::PubKeyHash, &terms.maker).to_string(),
+            maker_key: hex::encode(terms.maker),
+            atoms: entry.output.value_atoms,
+            chain_id: terms.chain_id,
+            token,
+            pay_to: format!("0x{}", hex::encode(terms.pay_to)),
+            price_num: terms.price_num,
+            price_den: terms.price_den,
+            min_atoms: terms.min_atoms,
+            terms_hex: hex::encode(&entry.output.script_public_key.script),
+        });
+    }
+    book.sort_by(|a, b| (a.price_num as f64 / a.price_den as f64).total_cmp(&(b.price_num as f64 / b.price_den as f64)));
     Ok(Json(book))
 }
 

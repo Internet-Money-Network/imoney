@@ -6,6 +6,13 @@ Notable changes to Internet Money. Nothing has been released yet: everything bel
 ## Unreleased
 
 ### Added
+- **Swap offers: IMN for stablecoins on other chains.** A seller lists IMN against a token on
+  another chain (USDC on Base, say) in the order book, at a price and with a payment address.
+  A buyer locks the payment in the `ImnSwap` contract with `lockForImn`; the seller's
+  `swap-maker` program checks it and locks the IMN for the buyer under the same hash; the
+  buyer claims the IMN, which reveals the secret the seller then uses to claim the payment.
+  If the seller never responds the buyer takes the payment back after its deadline. New:
+  `GET /api/v1/swap-offers`. A consensus rule.
 - **Vaults.** Savings that leave only after a waiting period, to the address named when the
   withdrawal started. A backup key, kept offline, can stop a withdrawal during the wait or
   move the savings at any time, so a stolen everyday key gains a thief nothing quickly. A

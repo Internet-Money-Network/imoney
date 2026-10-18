@@ -275,3 +275,179 @@ pub fn vault_pending_describe(pending_hex: &str, testnet: bool) -> Result<String
         }))
     })())
 }
+
+// ---------------------------------------------------------------- swap offers
+
+fn evm_address(text: &str, what: &str) -> Result<[u8; 20], String> {
+    hex_array(text.trim().trim_start_matches("0x"), what)
+}
+
+/// Lists `atoms` of IMN for sale against a token on another chain: `chain_id` (8453 for Base),
+/// the token's contract and the address to be paid at, as 0x addresses. `atoms` cost
+/// `atoms * price_num / price_den` of the token's smallest units; `min_atoms` is the least sold
+/// in one go.
+#[wasm_bindgen]
+#[allow(clippy::too_many_arguments)]
+pub fn swap_offer_create(
+    private_key_hex: &str,
+    testnet: bool,
+    chain_id: u64,
+    token: &str,
+    pay_to: &str,
+    price_num: u64,
+    price_den: u64,
+    min_atoms: u64,
+    atoms: u64,
+    utxos_json: &str,
+) -> Result<String, JsError> {
+    to_js((|| {
+        let key = signing_key(private_key_hex)?;
+        let terms = imoney_core::swap_offer::SwapOfferTerms::new(
+            key.verifying_key().to_bytes(),
+            chain_id,
+            evm_address(token, "The token's contract")?,
+            evm_address(pay_to, "The address to be paid at")?,
+            price_num,
+            price_den,
+            min_atoms,
+        )
+        .map_err(|e| e.to_string())?;
+        let utxos = crate::spendable_utxos(utxos_json, &address_of(&key, testnet))?;
+        crate::with_fee(0, |fee| {
+            Transaction::build_swap_offer(&key, network(testnet), &terms, atoms, fee, utxos.clone())
+        })
+    })())
+}
+
+/// The swap offer coin a node lists (one entry of `/api/v1/swap-offers`).
+fn swap_offer_coin(offer_json: &str) -> Result<(Outpoint, TxOutput), String> {
+    #[derive(Deserialize)]
+    struct Listed {
+        transaction_id: String,
+        index: u32,
+        atoms: u64,
+        terms_hex: String,
+    }
+    let listed: Listed =
+        serde_json::from_str(offer_json).map_err(|e| format!("Invalid offer: {}", e))?;
+    let terms =
+        imoney_core::swap_offer::SwapOfferTerms::from_bytes(&terms_bytes(&listed.terms_hex)?)
+            .map_err(|e| e.to_string())?;
+    let transaction_id =
+        Hash::from_hex(&listed.transaction_id).map_err(|_| "Invalid transaction ID".to_string())?;
+    Ok((
+        Outpoint {
+            transaction_id,
+            index: listed.index,
+        },
+        TxOutput::new(listed.atoms, terms.script()),
+    ))
+}
+
+/// The hash lock a swap fills into: from the buyer's and maker's codes, the hash of the buyer's
+/// secret, and the blue score from which the maker may take it back. Both sides compute it the
+/// same way, so the buyer knows where to look for their IMN.
+#[wasm_bindgen]
+pub fn swap_lock(
+    buyer_code: &str,
+    maker_code: &str,
+    hash_hex: &str,
+    refund_after: u64,
+    testnet: bool,
+) -> Result<String, JsError> {
+    to_js((|| {
+        let lock = imoney_core::HashLockScript::new(
+            hex_array(buyer_code, "The buyer's code")?,
+            hex_array(maker_code, "The maker's code")?,
+            hex_array(hash_hex, "The hash")?,
+            refund_after,
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(program(lock.to_bytes(), lock.address(network(testnet))))
+    })())
+}
+
+/// With the maker's key: fills `atoms` of a swap offer for a buyer whose payment is locked on
+/// the other chain, by locking them for the buyer under the same hash.
+#[wasm_bindgen]
+pub fn swap_offer_fill(
+    private_key_hex: &str,
+    testnet: bool,
+    offer_json: &str,
+    atoms: u64,
+    buyer_code: &str,
+    hash_hex: &str,
+    refund_after: u64,
+) -> Result<String, JsError> {
+    to_js((|| {
+        let key = signing_key(private_key_hex)?;
+        let (tx, _) = Transaction::fill_swap_offer(
+            &key,
+            network(testnet),
+            swap_offer_coin(offer_json)?,
+            atoms,
+            hex_array(buyer_code, "The buyer's code")?,
+            hex_array(hash_hex, "The hash")?,
+            refund_after,
+            PROGRAM_FEE_ATOMS,
+        )?;
+        Ok(signed(tx, PROGRAM_FEE_ATOMS))
+    })())
+}
+
+/// With the maker's key: takes a swap offer off the order book and back to the wallet.
+#[wasm_bindgen]
+pub fn swap_offer_cancel(
+    private_key_hex: &str,
+    testnet: bool,
+    offer_json: &str,
+) -> Result<String, JsError> {
+    to_js((|| {
+        let key = signing_key(private_key_hex)?;
+        Ok(signed(
+            Transaction::cancel_swap_offer(
+                &key,
+                network(testnet),
+                swap_offer_coin(offer_json)?,
+                PROGRAM_FEE_ATOMS,
+            )?,
+            PROGRAM_FEE_ATOMS,
+        ))
+    })())
+}
+
+/// Claims a hash lock with its secret (the buyer), or takes it back after its refund time
+/// (the maker: leave `secret_hex` empty), to the key's own address.
+#[wasm_bindgen]
+pub fn swap_lock_spend(
+    private_key_hex: &str,
+    testnet: bool,
+    lock_hex: &str,
+    coin_json: &str,
+    secret_hex: &str,
+) -> Result<String, JsError> {
+    to_js((|| {
+        let key = signing_key(private_key_hex)?;
+        let lock = imoney_core::HashLockScript::from_bytes(&terms_bytes(lock_hex)?)
+            .map_err(|e| e.to_string())?;
+        let held = coin(
+            coin_json,
+            ScriptPublicKey::pay_to_address(&lock.address(network(testnet))),
+        )?;
+        let secret = if secret_hex.trim().is_empty() {
+            None
+        } else {
+            Some(hex_array(secret_hex, "The secret")?)
+        };
+        let tx = Transaction::spend_hashlock(
+            &lock,
+            network(testnet),
+            held,
+            &address_of(&key, testnet),
+            PROGRAM_FEE_ATOMS,
+            &key,
+            secret,
+        )?;
+        Ok(signed(tx, PROGRAM_FEE_ATOMS))
+    })())
+}

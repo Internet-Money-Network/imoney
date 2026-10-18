@@ -343,7 +343,7 @@ fn asset_output(asset: &Asset, amount: u64, script: ScriptPublicKey) -> TxOutput
 /// Adds the payer's coins so the transaction covers `outputs` and the fee. `spending` are
 /// inputs already chosen, with the outputs they spend, whose IMN and tokens count towards the
 /// outputs; the payer's coins make up the rest, and any surplus returns to the payer.
-fn fund(
+pub(crate) fn fund(
     mut outputs: Vec<TxOutput>,
     spending: Vec<(TxInput, TxOutput)>,
     payer: &Address,
@@ -409,7 +409,7 @@ fn fund(
 }
 
 /// Signs every input except those listed, which spend offers and carry no key signature.
-fn sign_own(mut tx: Transaction, network: Network, key: &SigningKey, skip: &[usize]) -> Result<Transaction, String> {
+pub(crate) fn sign_own(mut tx: Transaction, network: Network, key: &SigningKey, skip: &[usize]) -> Result<Transaction, String> {
     for index in 0..tx.inputs.len() {
         if !skip.contains(&index) {
             tx.sign_input(network, index, key).map_err(|e| e.to_string())?;

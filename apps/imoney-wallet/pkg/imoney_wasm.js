@@ -696,6 +696,192 @@ export function subscription_terms(customer_code, merchant_code, amount_per_peri
 }
 
 /**
+ * The hash lock a swap fills into: from the buyer's and maker's codes, the hash of the buyer's
+ * secret, and the blue score from which the maker may take it back. Both sides compute it the
+ * same way, so the buyer knows where to look for their IMN.
+ * @param {string} buyer_code
+ * @param {string} maker_code
+ * @param {string} hash_hex
+ * @param {bigint} refund_after
+ * @param {boolean} testnet
+ * @returns {string}
+ */
+export function swap_lock(buyer_code, maker_code, hash_hex, refund_after, testnet) {
+    let deferred5_0;
+    let deferred5_1;
+    try {
+        const ptr0 = passStringToWasm0(buyer_code, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(maker_code, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passStringToWasm0(hash_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ret = wasm.swap_lock(ptr0, len0, ptr1, len1, ptr2, len2, refund_after, testnet);
+        var ptr4 = ret[0];
+        var len4 = ret[1];
+        if (ret[3]) {
+            ptr4 = 0; len4 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred5_0 = ptr4;
+        deferred5_1 = len4;
+        return getStringFromWasm0(ptr4, len4);
+    } finally {
+        wasm.__wbindgen_free(deferred5_0, deferred5_1, 1);
+    }
+}
+
+/**
+ * Claims a hash lock with its secret (the buyer), or takes it back after its refund time
+ * (the maker: leave `secret_hex` empty), to the key's own address.
+ * @param {string} private_key_hex
+ * @param {boolean} testnet
+ * @param {string} lock_hex
+ * @param {string} coin_json
+ * @param {string} secret_hex
+ * @returns {string}
+ */
+export function swap_lock_spend(private_key_hex, testnet, lock_hex, coin_json, secret_hex) {
+    let deferred6_0;
+    let deferred6_1;
+    try {
+        const ptr0 = passStringToWasm0(private_key_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(lock_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passStringToWasm0(coin_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ptr3 = passStringToWasm0(secret_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len3 = WASM_VECTOR_LEN;
+        const ret = wasm.swap_lock_spend(ptr0, len0, testnet, ptr1, len1, ptr2, len2, ptr3, len3);
+        var ptr5 = ret[0];
+        var len5 = ret[1];
+        if (ret[3]) {
+            ptr5 = 0; len5 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred6_0 = ptr5;
+        deferred6_1 = len5;
+        return getStringFromWasm0(ptr5, len5);
+    } finally {
+        wasm.__wbindgen_free(deferred6_0, deferred6_1, 1);
+    }
+}
+
+/**
+ * With the maker's key: takes a swap offer off the order book and back to the wallet.
+ * @param {string} private_key_hex
+ * @param {boolean} testnet
+ * @param {string} offer_json
+ * @returns {string}
+ */
+export function swap_offer_cancel(private_key_hex, testnet, offer_json) {
+    let deferred4_0;
+    let deferred4_1;
+    try {
+        const ptr0 = passStringToWasm0(private_key_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(offer_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.swap_offer_cancel(ptr0, len0, testnet, ptr1, len1);
+        var ptr3 = ret[0];
+        var len3 = ret[1];
+        if (ret[3]) {
+            ptr3 = 0; len3 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred4_0 = ptr3;
+        deferred4_1 = len3;
+        return getStringFromWasm0(ptr3, len3);
+    } finally {
+        wasm.__wbindgen_free(deferred4_0, deferred4_1, 1);
+    }
+}
+
+/**
+ * Lists `atoms` of IMN for sale against a token on another chain: `chain_id` (8453 for Base),
+ * the token's contract and the address to be paid at, as 0x addresses. `atoms` cost
+ * `atoms * price_num / price_den` of the token's smallest units; `min_atoms` is the least sold
+ * in one go.
+ * @param {string} private_key_hex
+ * @param {boolean} testnet
+ * @param {bigint} chain_id
+ * @param {string} token
+ * @param {string} pay_to
+ * @param {bigint} price_num
+ * @param {bigint} price_den
+ * @param {bigint} min_atoms
+ * @param {bigint} atoms
+ * @param {string} utxos_json
+ * @returns {string}
+ */
+export function swap_offer_create(private_key_hex, testnet, chain_id, token, pay_to, price_num, price_den, min_atoms, atoms, utxos_json) {
+    let deferred6_0;
+    let deferred6_1;
+    try {
+        const ptr0 = passStringToWasm0(private_key_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(token, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passStringToWasm0(pay_to, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ptr3 = passStringToWasm0(utxos_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len3 = WASM_VECTOR_LEN;
+        const ret = wasm.swap_offer_create(ptr0, len0, testnet, chain_id, ptr1, len1, ptr2, len2, price_num, price_den, min_atoms, atoms, ptr3, len3);
+        var ptr5 = ret[0];
+        var len5 = ret[1];
+        if (ret[3]) {
+            ptr5 = 0; len5 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred6_0 = ptr5;
+        deferred6_1 = len5;
+        return getStringFromWasm0(ptr5, len5);
+    } finally {
+        wasm.__wbindgen_free(deferred6_0, deferred6_1, 1);
+    }
+}
+
+/**
+ * With the maker's key: fills `atoms` of a swap offer for a buyer whose payment is locked on
+ * the other chain, by locking them for the buyer under the same hash.
+ * @param {string} private_key_hex
+ * @param {boolean} testnet
+ * @param {string} offer_json
+ * @param {bigint} atoms
+ * @param {string} buyer_code
+ * @param {string} hash_hex
+ * @param {bigint} refund_after
+ * @returns {string}
+ */
+export function swap_offer_fill(private_key_hex, testnet, offer_json, atoms, buyer_code, hash_hex, refund_after) {
+    let deferred6_0;
+    let deferred6_1;
+    try {
+        const ptr0 = passStringToWasm0(private_key_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(offer_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passStringToWasm0(buyer_code, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ptr3 = passStringToWasm0(hash_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len3 = WASM_VECTOR_LEN;
+        const ret = wasm.swap_offer_fill(ptr0, len0, testnet, ptr1, len1, atoms, ptr2, len2, ptr3, len3, refund_after);
+        var ptr5 = ret[0];
+        var len5 = ret[1];
+        if (ret[3]) {
+            ptr5 = 0; len5 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred6_0 = ptr5;
+        deferred6_1 = len5;
+        return getStringFromWasm0(ptr5, len5);
+    } finally {
+        wasm.__wbindgen_free(deferred6_0, deferred6_1, 1);
+    }
+}
+
+/**
  * Issues a token. Returns the signed transaction as JSON, with the new token's ID in
  * `token_id`. A fee of 0 sets the fee from the transaction's size.
  * @param {string} private_key_hex

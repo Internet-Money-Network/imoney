@@ -229,5 +229,12 @@ An address of type `Vault` (type byte 7) locks coins to `Blake3-derive-key("IMN 
 
 No output may be named by two withdrawals in one transaction.
 
-### 8.9 Keys
+### 8.9 Swap offers
+An output with script version 9 is a *swap offer*: IMN for sale against a token on another chain. Its script is the terms, 104 bytes: the maker's Ed25519 public key (32), the other chain's ID (8), the token's contract address (20), the address the maker is paid at on that chain (20), a price `price_num` and `price_den` (8 each, positive; `n` atoms cost `ceil(n * price_num / price_den)` of the token's smallest units) and the least sold in one fill, in atoms (8). The chain ID, token and payment address are not zero.
+
+An input spending a swap offer carries only a 64-byte signature by the maker over the ordinary signing hash of that input. Nothing else is checked: the chain cannot see the other chain, so the maker fills an offer themselves, by spending it into a hash lock (§8.4) for the buyer and putting the rest back under the same terms. Nodes list unspent swap offers at `/api/v1/swap-offers`.
+
+The other chain's side is the `ImnSwap` contract. A buyer calls `lockForImn`, which locks the payment for the maker's payment address under the SHA-256 hash of the buyer's secret and records the buyer's IMN key and the blue score from which the maker may take back the IMN lock. Both sides derive the IMN lock's address from the buyer's key, the maker's key, the hash and that blue score. The buyer's refund time on the other chain must be later than the IMN lock's by a margin the maker chooses, so the maker can always claim the payment after the buyer claims the IMN and so reveals the secret.
+
+### 8.10 Keys
 Nodes do not create, store or receive private keys. Wallets sign locally; the reference wallet uses a WebAssembly build of the same transaction code the node runs. A wallet's key is derived from a 12-word BIP-39 recovery phrase as `Blake3-derive-key("IMN 2026 wallet key 0", BIP-39 seed)`.

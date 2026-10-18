@@ -11,6 +11,7 @@ pub mod offer;
 pub mod serialize;
 pub mod subscription;
 pub mod token;
+pub mod swap_offer;
 pub mod transaction;
 pub mod vault;
 

@@ -264,6 +264,9 @@ impl Transaction {
         if spent_script.version == crate::subscription::SCRIPT_VERSION_SUBSCRIPTION {
             return self.verify_subscription_input(network, input_index, &spent_script.script, spending_blue_score);
         }
+        if spent_script.version == crate::swap_offer::SCRIPT_VERSION_SWAP_OFFER {
+            return self.verify_swap_offer_input(network, input_index, &spent_script.script);
+        }
         if spent_script.version == crate::offer::SCRIPT_VERSION_OFFER {
             return self.verify_offer_input(network, input_index, &spent_script.script);
         }

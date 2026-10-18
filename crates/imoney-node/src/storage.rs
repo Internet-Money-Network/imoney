@@ -781,11 +781,20 @@ impl Storage {
     /// Every open offer, found through the script index: all offer scripts share a version and a
     /// length, so they sit together in it.
     pub fn get_offers(&self) -> Result<Vec<(Outpoint, UtxoEntry)>, StorageError> {
+        self.get_listed(imoney_core::offer::SCRIPT_VERSION_OFFER, imoney_core::offer::OFFER_TERMS_BYTES)
+    }
+
+    /// Every unspent swap offer: IMN listed against a coin on another chain.
+    pub fn get_swap_offers(&self) -> Result<Vec<(Outpoint, UtxoEntry)>, StorageError> {
+        self.get_listed(imoney_core::swap_offer::SCRIPT_VERSION_SWAP_OFFER, imoney_core::swap_offer::SWAP_OFFER_TERMS_BYTES)
+    }
+
+    /// Every unspent output whose script has this version and length, found through the script index.
+    fn get_listed(&self, version: u8, terms_len: usize) -> Result<Vec<(Outpoint, UtxoEntry)>, StorageError> {
         let read_tx = self.db.begin_read()?;
         let script_table = read_tx.open_table(SCRIPT_UTXO_TABLE)?;
         let utxo_table = read_tx.open_table(UTXO_TABLE)?;
-        let terms_len = imoney_core::offer::OFFER_TERMS_BYTES;
-        let mut prefix = vec![imoney_core::offer::SCRIPT_VERSION_OFFER];
+        let mut prefix = vec![version];
         prefix.extend_from_slice(&(terms_len as u16).to_be_bytes());
         let mut end = prefix.clone();
         end.extend_from_slice(&vec![0xff; terms_len + 36]);

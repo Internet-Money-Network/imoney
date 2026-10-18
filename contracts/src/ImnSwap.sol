@@ -40,6 +40,10 @@ contract ImnSwap {
         bytes32 hash,
         uint64 refundAfter
     );
+    /// A lock that buys IMN from a swap offer: the buyer's IMN key, and the blue score from
+    /// which the seller may take back the IMN they lock for it. The seller's software reads this
+    /// to fill the offer, and the buyer's wallet to find the IMN lock.
+    event ImnOrder(bytes32 indexed id, bytes32 imnKey, uint64 imnRefundAfter);
     /// The secret is published here for the other party of the swap to read.
     event Claimed(bytes32 indexed id, bytes32 secret);
     event Refunded(bytes32 indexed id);
@@ -59,6 +63,28 @@ contract ImnSwap {
     function lock(address recipient, bytes32 hash, uint64 refundAfter, address token, uint256 amount)
         external
         payable
+        returns (bytes32 id)
+    {
+        id = lockFunds(recipient, hash, refundAfter, token, amount);
+    }
+
+    /// The same lock, made to buy IMN from a swap offer: also names the buyer's IMN key and
+    /// the blue score from which the seller may take back the IMN they lock in return.
+    function lockForImn(
+        address recipient,
+        bytes32 hash,
+        uint64 refundAfter,
+        address token,
+        uint256 amount,
+        bytes32 imnKey,
+        uint64 imnRefundAfter
+    ) external payable returns (bytes32 id) {
+        id = lockFunds(recipient, hash, refundAfter, token, amount);
+        emit ImnOrder(id, imnKey, imnRefundAfter);
+    }
+
+    function lockFunds(address recipient, bytes32 hash, uint64 refundAfter, address token, uint256 amount)
+        private
         returns (bytes32 id)
     {
         if (recipient == address(0)) revert BadRecipient();
