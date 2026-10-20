@@ -190,6 +190,10 @@ impl Transaction {
             if offered == 0 {
                 return Err(invalid("the offer's coin does not hold what it offers"));
             }
+            // An IMN offer holding a token could hand the token over for nothing
+            if terms.give.is_none() && coin.token.is_some() {
+                return Err(invalid("an IMN offer may not hold a token"));
+            }
 
             for output in std::iter::once(payment).chain(rest) {
                 if !named.insert(output) {
@@ -220,6 +224,13 @@ impl Transaction {
             let paid = output(payment)?;
             if paid.script_public_key != terms.maker_script(network) || amount_of(paid, &terms.want) < cost {
                 return Err(invalid("the maker must be paid the price for what is taken"));
+            }
+            // A fully taken token offer gives the IMN it held back to the maker, on top of the price
+            if terms.give.is_some() && rest.is_none() {
+                let owed = if terms.want.is_none() { cost.checked_add(coin.value_atoms) } else { Some(coin.value_atoms) };
+                if owed.is_none_or(|owed| paid.value_atoms < owed) {
+                    return Err(invalid("a fully taken token offer returns its IMN to the maker"));
+                }
             }
         }
         Ok(())
@@ -285,12 +296,11 @@ impl Transaction {
         });
         let rest_index = rest.as_ref().map(|_| 1u16);
         outputs.extend(rest);
-        let mut received = asset_output(&terms.give, take_amount, mine.clone());
         if terms.give.is_some() && rest_index.is_none() {
-            // A fully taken token offer releases the IMN it held as well
-            received.value_atoms = coin.value_atoms;
+            // A fully taken token offer returns the IMN it held to the maker
+            outputs[0].value_atoms += coin.value_atoms;
         }
-        outputs.push(received);
+        outputs.push(asset_output(&terms.give, take_amount, mine.clone()));
 
         let witness = [vec![TAKE], 0u16.to_be_bytes().to_vec(), rest_index.unwrap_or(NO_REST).to_be_bytes().to_vec()].concat();
         let offer_input = TxInput { previous_outpoint: offer_outpoint, signature_script: witness };

@@ -146,13 +146,14 @@ impl Transaction {
         terms_bytes: &[u8],
     ) -> Result<(), TransactionError> {
         let terms = SwapOfferTerms::from_bytes(terms_bytes)?;
-        let signature: [u8; 64] = self.inputs[input_index]
+        let input = self.inputs.get(input_index).ok_or(TransactionError::EmptyInputs)?;
+        let signature: [u8; 64] = input
             .signature_script
             .as_slice()
             .try_into()
             .map_err(|_| {
                 TransactionError::InvalidSignatureScript(
-                    self.inputs[input_index].signature_script.len(),
+                    input.signature_script.len(),
                 )
             })?;
         VerifyingKey::from_bytes(&terms.maker)

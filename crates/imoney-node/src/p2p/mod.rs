@@ -19,8 +19,21 @@ use std::time::{Duration, Instant};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, Notify};
 
-/// Most blocks held while waiting for their parents to arrive.
+/// Most blocks held while waiting for their parents to arrive, in all and from one peer.
 const MAX_ORPHAN_BLOCKS: usize = 1_000;
+const MAX_ORPHANS_PER_PEER: usize = 200;
+/// A block whose parents have not arrived in this long is dropped.
+const ORPHAN_TTL: Duration = Duration::from_secs(10 * 60);
+/// Orphans older than this no longer hold back "synced": a peer cannot keep the node from
+/// mining by sending blocks whose parents never come.
+const ORPHAN_SYNC_GRACE: Duration = Duration::from_secs(2 * 60);
+
+/// A block waiting for its parents, who sent it and when.
+struct Orphan {
+    block: Block,
+    from: std::net::IpAddr,
+    at: Instant,
+}
 /// Most connections accepted from other nodes.
 const MAX_INBOUND_PEERS: usize = 64;
 /// Number of connections this node tries to keep open to other nodes.
@@ -87,7 +100,7 @@ pub struct PeerManager {
     dialing: Mutex<HashSet<SocketAddr>>,
     banned: Mutex<HashMap<IpAddr, Instant>>,
     /// Blocks received before their parents, keyed by block hash.
-    orphans: Mutex<HashMap<Hash, Block>>,
+    orphans: Mutex<HashMap<Hash, Orphan>>,
     /// False while the node still has to catch up with the peers it was told to connect to.
     synced: AtomicBool,
     /// When initial sync was requested; after `sync_wait` with no peer, the node stops waiting.
@@ -492,17 +505,30 @@ impl PeerManager {
     }
 
     fn mark_synced_if_caught_up(&self) {
-        if self.orphans.lock().unwrap().is_empty() {
+        if self.orphans.lock().unwrap().values().all(|o| o.at.elapsed() >= ORPHAN_SYNC_GRACE) {
             self.synced.store(true, Ordering::SeqCst);
         }
     }
 
-    /// Holds a block until its parents arrive.
-    fn park_orphan(&self, block: Block) {
+    /// Holds a block until its parents arrive. Expired orphans are dropped first; a peer over
+    /// its share loses its oldest, and when the pool is full the oldest of all goes.
+    fn park_orphan(&self, from: std::net::IpAddr, block: Block) {
         let mut orphans = self.orphans.lock().unwrap();
-        if orphans.len() < MAX_ORPHAN_BLOCKS {
-            orphans.insert(block.hash(), block);
+        orphans.retain(|_, o| o.at.elapsed() < ORPHAN_TTL);
+        let oldest = |orphans: &HashMap<Hash, Orphan>, only: Option<std::net::IpAddr>| {
+            orphans.iter().filter(|(_, o)| only.is_none_or(|ip| o.from == ip)).min_by_key(|(_, o)| o.at).map(|(h, _)| *h)
+        };
+        if orphans.values().filter(|o| o.from == from).count() >= MAX_ORPHANS_PER_PEER {
+            if let Some(h) = oldest(&orphans, Some(from)) {
+                orphans.remove(&h);
+            }
         }
+        if orphans.len() >= MAX_ORPHAN_BLOCKS {
+            if let Some(h) = oldest(&orphans, None) {
+                orphans.remove(&h);
+            }
+        }
+        orphans.insert(block.hash(), Orphan { block, from, at: Instant::now() });
     }
 
     /// Adds a block whose parents are known, then any waiting blocks it unblocks.
@@ -538,12 +564,12 @@ impl PeerManager {
             let mut orphans = self.orphans.lock().unwrap();
             let ready: Vec<Hash> = orphans
                 .iter()
-                .filter(|(_, orphan)| orphan.header.parents.iter().all(|p| ledger.has_block(p)))
+                .filter(|(_, orphan)| orphan.block.header.parents.iter().all(|p| ledger.has_block(p)))
                 .map(|(orphan_hash, _)| *orphan_hash)
                 .collect();
             for orphan_hash in ready {
                 if let Some(orphan) = orphans.remove(&orphan_hash) {
-                    queue.push(orphan);
+                    queue.push(orphan.block);
                 }
             }
         }
@@ -569,8 +595,15 @@ impl PeerManager {
                 let (connected, penalty) = self.connect_block_and_orphans(&mut ledger, block);
                 (missing, connected, penalty)
             } else {
-                self.park_orphan(block);
-                (missing, Vec::new(), 0)
+                // Only a block that cost real work to make is worth holding
+                match ledger.check_orphan(&block, &self.pow) {
+                    Ok(()) => {
+                        self.park_orphan(peer_addr.ip(), block);
+                        (missing, Vec::new(), 0)
+                    }
+                    Err(StateError::InvalidPoW(_)) => (Vec::new(), Vec::new(), PENALTY_INVALID_POW),
+                    Err(_) => (Vec::new(), Vec::new(), PENALTY_INVALID_BLOCK),
+                }
             }
         };
 

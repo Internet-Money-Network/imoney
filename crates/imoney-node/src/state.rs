@@ -972,6 +972,40 @@ impl DagLedger {
     ///
     /// Every consensus field in the header is recomputed and compared, never trusted. The ledger
     /// is then moved to the state implied by the new set of tips, in one database transaction.
+    /// Checks a header's proof of work against the difficulty it claims, which must be no
+    /// easier than the network allows. Needs nothing but the header.
+    pub fn check_claimed_pow(&self, header: &imoney_core::BlockHeader, pow_engine: &HallmarkPow) -> Result<(), StateError> {
+        if compact_to_u256(header.bits) > compact_to_u256(self.params.daa.max_target_bits) {
+            return Err(StateError::Header(format!("Difficulty 0x{:08x} is easier than the network allows", header.bits)));
+        }
+        let pre_pow_hash = header.pre_pow_hash().map_err(|e| StateError::Header(e.to_string()))?;
+        if !is_valid_pow(&pow_engine.calculate_hash(&pre_pow_hash, header.nonce), header.bits) {
+            return Err(StateError::InvalidPoW(header.hash()));
+        }
+        Ok(())
+    }
+
+    /// Whether a block whose parents are not known yet is worth holding: well formed, within the
+    /// size limit, with valid proof of work at a difficulty no easier than a sixteenth of the
+    /// current one. Node policy, not consensus: such a block is checked in full once it connects.
+    pub fn check_orphan(&self, block: &Block, pow_engine: &HallmarkPow) -> Result<(), StateError> {
+        block.validate_structure().map_err(|e| StateError::Header(e.to_string()))?;
+        if block.to_bytes().len() > imoney_core::constants::MAX_BLOCK_BYTES {
+            return Err(StateError::Header("Block too large".to_string()));
+        }
+        // The orphan's target divided by 16 (big-endian bytes shifted right four bits) must not
+        // exceed the current target
+        let target = compact_to_u256(block.header.bits);
+        let mut sixteenth = [0u8; 32];
+        for i in 0..32 {
+            sixteenth[i] = (target[i] >> 4) | if i > 0 { target[i - 1] << 4 } else { 0 };
+        }
+        if sixteenth > compact_to_u256(self.difficulty_bits) {
+            return Err(StateError::Header("Orphan difficulty far below the network's".to_string()));
+        }
+        self.check_claimed_pow(&block.header, pow_engine)
+    }
+
     pub fn add_block(
         &mut self,
         block: Block,
@@ -990,14 +1024,7 @@ impl DagLedger {
         // Proof of work comes first, against the difficulty the header itself claims: nothing
         // below is worth doing for a block nobody paid to make. Whether the claimed difficulty
         // is the right one is checked further down, once the block's place in the DAG is known.
-        if compact_to_u256(header.bits) > compact_to_u256(self.params.daa.max_target_bits) {
-            return Err(StateError::Header(format!("Difficulty 0x{:08x} is easier than the network allows", header.bits)));
-        }
-        let pre_pow_hash = header.pre_pow_hash().map_err(|e| StateError::Header(e.to_string()))?;
-        let pow_hash = pow_engine.calculate_hash(&pre_pow_hash, header.nonce);
-        if !is_valid_pow(&pow_hash, header.bits) {
-            return Err(StateError::InvalidPoW(block_hash));
-        }
+        self.check_claimed_pow(header, pow_engine)?;
 
         // Validate parents and work out where the block sits in the DAG
         if header.parents.len() > MAX_BLOCK_PARENTS {
