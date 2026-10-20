@@ -207,6 +207,17 @@
     </div>
 
     <!-- First run: create or restore a wallet -->
+    <div class="card" id="unlock-card" style="display: none;">
+      <h2>Unlock your wallet</h2>
+      <div class="form-group">
+        <label for="unlock-password">Password</label>
+        <input type="password" id="unlock-password" autocomplete="current-password" />
+      </div>
+      <button class="btn" id="unlock-btn">Unlock</button>
+      <button class="btn quiet" id="unlock-forget-btn">Use a different wallet</button>
+      <div id="unlock-status" class="status-msg"></div>
+    </div>
+
     <div class="card" id="setup-card" style="display: none;">
       <h2>Set up your wallet</h2>
       <p class="soft" style="margin: 0 0 16px;">
@@ -230,6 +241,14 @@
           <input type="text" id="restore-phrase" autocomplete="off" spellcheck="false" placeholder="twelve words separated by spaces" />
         </div>
         <button class="btn quiet" id="restore-wallet-btn">Restore wallet</button>
+      </div>
+      <div class="divide">
+        <label><input type="checkbox" id="setup-remember" /> Remember this wallet on this device</label>
+        <div class="form-group" id="setup-password-box" style="display: none;">
+          <label for="setup-password">Choose a password (at least 8 characters). You will type it each time you open the wallet.</label>
+          <input type="password" id="setup-password" autocomplete="new-password" />
+        </div>
+        <p class="small soft" style="margin: 0;">Not remembered: the wallet closes with this tab and your recovery phrase opens it again.</p>
       </div>
       <div id="setup-status" class="status-msg"></div>
     </div>
@@ -580,6 +599,18 @@
           </div>
 
           <div class="divide">
+            <label for="remember-password">Remember this wallet on this device</label>
+            <p class="small soft" style="margin: 0 0 12px;" id="remember-state">
+              It is not remembered: closing this tab closes the wallet.
+            </p>
+            <div class="form-group">
+              <input type="password" id="remember-password" autocomplete="new-password" placeholder="password, at least 8 characters" />
+            </div>
+            <button class="btn quiet" id="remember-btn">Remember with this password</button>
+            <div id="remember-status" class="status-msg"></div>
+          </div>
+
+          <div class="divide">
             <label>Remove this wallet from this browser</label>
             <p class="small soft" style="margin: 0 0 12px;">
               You will need your recovery phrase to get it back.
@@ -642,26 +673,99 @@
     }
 
     // ---------------------------------------------------------------- wallet setup
-    function loadWallet() {
-      const key = localStorage.getItem('imoney_priv');
-      if (!key) return null;
-      try {
-        return JSON.parse(wasm.keys_from_private_key(key, TESTNET));
-      } catch {
-        return null;
-      }
+    // The private key is never stored as it is. Remembering a wallet stores it encrypted
+    // (AES-GCM) under a key derived from the user's password (PBKDF2, 600,000 rounds).
+    const VAULT = 'imoney_vault';
+    const LEGACY_KEY = 'imoney_priv';
+    const textBytes = (text) => new TextEncoder().encode(text);
+    const toB64 = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes)));
+    const fromB64 = (text) => Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
+
+    async function vaultKey(password, salt) {
+      const base = await crypto.subtle.importKey('raw', textBytes(password), 'PBKDF2', false, ['deriveKey']);
+      return crypto.subtle.deriveKey(
+        { name: 'PBKDF2', salt, iterations: 600000, hash: 'SHA-256' },
+        base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+    }
+
+    async function rememberKey(privateKeyHex, password) {
+      const salt = crypto.getRandomValues(new Uint8Array(16));
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const data = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await vaultKey(password, salt), textBytes(privateKeyHex));
+      localStorage.setItem(VAULT, JSON.stringify({ salt: toB64(salt), iv: toB64(iv), data: toB64(data) }));
+    }
+
+    async function unlockKey(password) {
+      const vault = JSON.parse(localStorage.getItem(VAULT));
+      const key = await vaultKey(password, fromB64(vault.salt));
+      const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromB64(vault.iv) }, key, fromB64(vault.data));
+      return JSON.parse(wasm.keys_from_private_key(new TextDecoder().decode(plain), TESTNET));
+    }
+
+    const hasVault = () => { try { return !!localStorage.getItem(VAULT); } catch { return false; } };
+
+    function showRememberState() {
+      $('remember-state').innerText = hasVault()
+        ? 'It is remembered, protected by your password. Saving a new password replaces the old one.'
+        : 'It is not remembered: closing this tab closes the wallet.';
     }
 
     function openWallet(keys) {
       wallet = keys;
-      localStorage.setItem('imoney_priv', keys.private_key_hex);
       $('setup-card').style.display = 'none';
+      $('unlock-card').style.display = 'none';
       $('wallet-main').style.display = 'block';
       $('current-address').innerText = wallet.address;
+      showRememberState();
       renderRequest();
       connectWs();
       refreshBalance();
     }
+
+    // Opens a newly created or restored wallet, first remembering it if the user asked to
+    async function openFromSetup(keys) {
+      if ($('setup-remember').checked) {
+        const password = $('setup-password').value;
+        if (password.length < 8) throw new Error('Choose a password of at least 8 characters, or untick "Remember".');
+        await rememberKey(keys.private_key_hex, password);
+        $('setup-password').value = '';
+      }
+      openWallet(keys);
+    }
+
+    $('setup-remember').addEventListener('change', () => {
+      $('setup-password-box').style.display = $('setup-remember').checked ? 'block' : 'none';
+    });
+
+    $('unlock-btn').addEventListener('click', async () => {
+      try {
+        const keys = await unlockKey($('unlock-password').value);
+        $('unlock-password').value = '';
+        openWallet(keys);
+      } catch {
+        show($('unlock-status'), 'Wrong password.', false);
+      }
+    });
+    $('unlock-password').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('unlock-btn').click(); });
+    $('unlock-forget-btn').addEventListener('click', () => {
+      if (!confirm('Forget the remembered wallet? You will need its recovery phrase to open it again.')) return;
+      localStorage.removeItem(VAULT);
+      $('unlock-card').style.display = 'none';
+      $('setup-card').style.display = 'block';
+    });
+
+    $('remember-btn').addEventListener('click', async () => {
+      const password = $('remember-password').value;
+      if (password.length < 8) {
+        show($('remember-status'), 'Use at least 8 characters.', false);
+        return;
+      }
+      await rememberKey(wallet.private_key_hex, password);
+      localStorage.removeItem(LEGACY_KEY);
+      $('remember-password').value = '';
+      showRememberState();
+      show($('remember-status'), 'Remembered. Next time, open the wallet with this password.', true);
+    });
 
     let pendingPhrase = null;
     $('create-wallet-btn').addEventListener('click', () => {
@@ -674,19 +778,20 @@
       pendingPhrase = null;
       $('new-phrase').innerText = '';
       $('new-phrase-box').style.display = 'none';
-      openWallet(keys);
+      openFromSetup(keys).catch((err) => show($('setup-status'), err.message || String(err), false));
     });
-    $('restore-wallet-btn').addEventListener('click', () => {
+    $('restore-wallet-btn').addEventListener('click', async () => {
       try {
         const keys = JSON.parse(wasm.keys_from_mnemonic($('restore-phrase').value, TESTNET));
+        await openFromSetup(keys);
         $('restore-phrase').value = '';
-        openWallet(keys);
       } catch (err) {
         show($('setup-status'), err.message || String(err), false);
       }
     });
     $('forget-btn').addEventListener('click', () => {
-      localStorage.removeItem('imoney_priv');
+      localStorage.removeItem(VAULT);
+      localStorage.removeItem(LEGACY_KEY);
       localStorage.removeItem('imoney_addr');
       localStorage.removeItem('imoney_shared');
       wallet = null;
@@ -1753,9 +1858,19 @@
     });
 
     // ---------------------------------------------------------------- start
-    const existing = loadWallet();
-    if (existing) {
-      openWallet(existing);
+    // Older versions kept the key unencrypted. That copy stays only until the user protects
+    // it with a password (or forgets the wallet), so nobody is locked out of their money.
+    let legacy = null;
+    try {
+      const plain = localStorage.getItem(LEGACY_KEY);
+      if (plain) legacy = JSON.parse(wasm.keys_from_private_key(plain, TESTNET));
+    } catch {}
+    if (legacy) {
+      openWallet(legacy);
+      document.querySelector('[data-tab="settings"]').click();
+      show($('remember-status'), 'This wallet is stored on this device without protection. Choose a password below to protect it.', false);
+    } else if (hasVault()) {
+      $('unlock-card').style.display = 'block';
     } else {
       $('setup-card').style.display = 'block';
     }

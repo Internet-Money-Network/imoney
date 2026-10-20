@@ -47,7 +47,7 @@ Create the address in the wallet at `/wallet` first, and write down its recovery
 | :--- | :--- | :--- |
 | `--data-dir` | `./data` | Where the database, peer list and miner key are kept. |
 | `--p2p-bind` | `0.0.0.0:18555` | Address other nodes connect to. Open this port in your firewall. |
-| `--rpc-bind` | `127.0.0.1:18556` | Address of the HTTP API, wallet and dashboard. Keep it private unless you mean to run a public API. |
+| `--rpc-bind` | `127.0.0.1:18556` | Address of the HTTP API, wallet and dashboard. Keep it private unless you mean to run a public API; a non-loopback address also needs `--rpc-token`. |
 | `--peers` | none | Nodes to connect to, as `host:port`, comma-separated. A host name may resolve to several nodes. |
 | `--auto-mine` | off | Mine with this machine's CPU. |
 | `--mining-address` | node's own key | Where mining rewards go. |
