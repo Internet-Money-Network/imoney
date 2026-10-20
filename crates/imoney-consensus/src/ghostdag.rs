@@ -144,10 +144,19 @@ impl Dag {
                 return Err(GhostdagError::DuplicateParent(*parent));
             }
         }
-        for a in parents {
-            for b in parents {
-                if a != b && self.is_ancestor(a, b) {
-                    return Err(GhostdagError::ParentIsAncestor(*a, *b));
+        // One walk down from all parents together, to the lowest parent's level, instead of one
+        // per pair: a parent reached from another is its ancestor. Each block is visited once,
+        // so the cost does not multiply with the number of parents.
+        let floor = parents.iter().map(|p| self.get(p).level).min().unwrap_or(0);
+        let mut visited: HashSet<Hash> = HashSet::new();
+        let mut stack: Vec<(Hash, Hash)> = parents.iter().map(|p| (*p, *p)).collect();
+        while let Some((current, origin)) = stack.pop() {
+            for parent in &self.get(&current).parents {
+                if seen.contains(parent) {
+                    return Err(GhostdagError::ParentIsAncestor(*parent, origin));
+                }
+                if self.get(parent).level > floor && visited.insert(*parent) {
+                    stack.push((*parent, origin));
                 }
             }
         }

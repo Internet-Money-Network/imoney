@@ -1,5 +1,6 @@
 use imoney_core::{Encode, Hash, Outpoint, Transaction};
-use std::collections::HashMap;
+use std::cmp::Ordering;
+use std::collections::{BTreeSet, HashMap};
 use thiserror::Error;
 
 pub use imoney_core::constants::MIN_RELAY_FEE_PER_BYTE;
@@ -33,9 +34,33 @@ impl MempoolEntry {
     }
 }
 
+/// A pending transaction's place in the fee ranking: lowest fee per byte first, then by ID.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Rank {
+    fee: u64,
+    size: usize,
+    id: Hash,
+}
+
+impl Ord for Rank {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let mine = (self.fee as u128) * (other.size as u128);
+        let theirs = (other.fee as u128) * (self.size as u128);
+        mine.cmp(&theirs).then_with(|| self.id.cmp(&other.id))
+    }
+}
+
+impl PartialOrd for Rank {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 /// Transactions waiting to be included in a block.
 pub struct Mempool {
     entries: HashMap<Hash, MempoolEntry>,
+    /// Every entry, cheapest first, so eviction and block selection need no sorting.
+    ranked: BTreeSet<Rank>,
     /// Which pending transaction spends each outpoint.
     spent: HashMap<Outpoint, Hash>,
     /// Pending transactions by the invoice they name.
@@ -56,6 +81,7 @@ impl Mempool {
     pub fn new(max_bytes: usize) -> Self {
         Self {
             entries: HashMap::new(),
+            ranked: BTreeSet::new(),
             spent: HashMap::new(),
             invoices: HashMap::new(),
             total_bytes: 0,
@@ -104,11 +130,7 @@ impl Mempool {
         if fee < min_fee {
             return Err(MempoolError::FeeTooLow(fee, min_fee, size));
         }
-        for input in &tx.inputs {
-            if let Some(spender) = self.spent.get(&input.previous_outpoint) {
-                return Err(MempoolError::Conflict(*spender));
-            }
-        }
+        self.check_conflicts(&tx)?;
 
         let entry = MempoolEntry { tx, fee, size };
         if self.total_bytes + size > self.max_bytes {
@@ -122,35 +144,35 @@ impl Mempool {
             self.invoices.entry(invoice_id.to_string()).or_default().push(tx_id);
         }
         self.total_bytes += size;
+        self.ranked.insert(Rank { fee, size, id: tx_id });
         self.entries.insert(tx_id, entry);
         Ok(tx_id)
     }
 
+    /// Fails when a pending transaction already spends one of `tx`'s inputs. Cheap, so the
+    /// ledger asks this before the costlier signature and UTXO checks.
+    pub fn check_conflicts(&self, tx: &Transaction) -> Result<(), MempoolError> {
+        for input in &tx.inputs {
+            if let Some(spender) = self.spent.get(&input.previous_outpoint) {
+                return Err(MempoolError::Conflict(*spender));
+            }
+        }
+        Ok(())
+    }
+
     /// Evicts the cheapest transactions until `incoming` fits, but only ones that pay less than it.
     fn make_room_for(&mut self, incoming: &MempoolEntry) -> Result<(), MempoolError> {
-        let mut cheapest: Vec<(Hash, MempoolEntry)> =
-            self.entries.iter().map(|(id, entry)| (*id, entry.clone())).collect();
-        cheapest.sort_by(|(_, a), (_, b)| {
-            if a.pays_more_than(b) {
-                std::cmp::Ordering::Greater
-            } else if b.pays_more_than(a) {
-                std::cmp::Ordering::Less
-            } else {
-                std::cmp::Ordering::Equal
-            }
-        });
-
         let mut freed = 0usize;
         let mut victims = Vec::new();
-        for (id, entry) in &cheapest {
+        for rank in &self.ranked {
             if self.total_bytes - freed + incoming.size <= self.max_bytes {
                 break;
             }
-            if !incoming.pays_more_than(entry) {
+            if !incoming.pays_more_than(&self.entries[&rank.id]) {
                 return Err(MempoolError::Full);
             }
-            freed += entry.size;
-            victims.push(*id);
+            freed += rank.size;
+            victims.push(rank.id);
         }
         if self.total_bytes - freed + incoming.size > self.max_bytes {
             return Err(MempoolError::Full);
@@ -163,6 +185,7 @@ impl Mempool {
 
     pub fn remove(&mut self, tx_id: &Hash) -> Option<Transaction> {
         let entry = self.entries.remove(tx_id)?;
+        self.ranked.remove(&Rank { fee: entry.fee, size: entry.size, id: *tx_id });
         for input in &entry.tx.inputs {
             self.spent.remove(&input.previous_outpoint);
         }
@@ -210,22 +233,12 @@ impl Mempool {
     }
 
     /// Picks transactions for a block: highest fee per byte first, up to `max_bytes` in total.
-    /// Ties are broken by transaction ID so the choice is deterministic.
+    /// Ties are broken by transaction ID (highest first) so the choice is deterministic.
     pub fn select_for_block(&self, max_bytes: usize) -> Vec<Transaction> {
-        let mut ranked: Vec<(&Hash, &MempoolEntry)> = self.entries.iter().collect();
-        ranked.sort_by(|(id_a, a), (id_b, b)| {
-            if a.pays_more_than(b) {
-                std::cmp::Ordering::Less
-            } else if b.pays_more_than(a) {
-                std::cmp::Ordering::Greater
-            } else {
-                id_a.cmp(id_b)
-            }
-        });
-
         let mut used = 0usize;
         let mut selected = Vec::new();
-        for (_, entry) in ranked {
+        for rank in self.ranked.iter().rev() {
+            let entry = &self.entries[&rank.id];
             if used + entry.size > max_bytes {
                 continue;
             }

@@ -144,6 +144,8 @@ pub const META_SINK: &str = "sink";
 const META_SUPPLY: &str = "supply_atoms";
 /// Metadata key: selected-chain blocks at or below this blue score have been pruned.
 pub const META_PRUNED_FLOOR: &str = "pruned_floor";
+/// The last deep reorganisation: its depth and when it happened, so the alert survives a restart.
+pub const META_LAST_REORG: &str = "last_reorg";
 /// Metadata key: the acceptance data of the virtual block.
 pub const META_VIRTUAL_ACCEPTANCE: &str = "virtual_acceptance";
 

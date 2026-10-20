@@ -68,6 +68,16 @@ struct Args {
 }
 
 
+/// Writes a file only its owner can read: it holds a private key.
+fn write_private(path: &std::path::Path, contents: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    options.open(path)?.write_all(contents.as_bytes())
+}
+
 /// Loads the node's own mining keypair from the data directory, creating it on first run.
 fn load_or_create_miner_key(data_dir: &Path) -> Result<(Address, PathBuf), Box<dyn std::error::Error>> {
     let key_path = data_dir.join("miner-key.hex");
@@ -79,7 +89,7 @@ fn load_or_create_miner_key(data_dir: &Path) -> Result<(Address, PathBuf), Box<d
         ed25519_dalek::SigningKey::from_bytes(&key_bytes)
     } else {
         let key = ed25519_dalek::SigningKey::generate(&mut rand::rngs::OsRng);
-        fs::write(&key_path, hex::encode(key.to_bytes()))?;
+        write_private(&key_path, &hex::encode(key.to_bytes()))?;
         key
     };
 
@@ -263,8 +273,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let shutdown_peers = p2p_manager.clone();
+    // Off loopback, anyone who can reach the port could submit blocks: insist on a token
+    let rpc_addr: SocketAddr = args.rpc_bind.parse()?;
+    if !rpc_addr.ip().is_loopback() && args.rpc_token.is_none() {
+        return Err("--rpc-bind is not a loopback address: set --rpc-token as well".into());
+    }
     let app = create_router(ledger, pow, p2p_manager, args.rpc_token);
-    let addr: SocketAddr = args.rpc_bind.parse()?;
+    let addr = rpc_addr;
     let listener = tokio::net::TcpListener::bind(addr).await?;
     println!("[+] HTTP RPC & Web Dashboard listening on http://{}", addr);
 

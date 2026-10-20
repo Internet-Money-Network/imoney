@@ -39,6 +39,14 @@ const RETARGET_EVERY: Duration = Duration::from_secs(30);
 const RETARGET_AFTER_SHARES: u32 = 24;
 /// Share targets are the block target made easier by a power of two, up to this many bits.
 const MAX_SHIFT: u32 = 24;
+/// Submits each miner may make per second on average; each one costs a hash to check.
+const SUBMITS_PER_SECOND: f64 = 20.0;
+/// Submits a miner may make in a burst before the rate applies.
+const SUBMIT_BURST: f64 = 100.0;
+/// Shares remembered per job; past this a job takes no more shares and miners must wait for the next.
+const SEEN_PER_JOB: usize = 50_000;
+/// Shares that fail the target before a miner is disconnected.
+const MAX_BAD_SHARES: u32 = 200;
 
 const ERR_OTHER: i64 = 20;
 const ERR_STALE: i64 = 21;
@@ -142,6 +150,10 @@ struct MinerState {
     /// Sum of the expected hashes behind each accepted share, for the hashrate estimate.
     work: f64,
     connected: Instant,
+    /// Submits the miner may still make now (a token bucket refilled at `SUBMITS_PER_SECOND`).
+    submit_budget: f64,
+    budget_refilled: Instant,
+    bad_shares: u32,
 }
 
 impl Miner {
@@ -381,14 +393,41 @@ impl Bridge {
             return Err((ERR_OTHER, "nonce does not start with this connection's extranonce"));
         }
         let job = self.find_job(&address, job_id).ok_or((ERR_STALE, "stale job"))?;
-        if !job.seen.lock().unwrap().insert(nonce) {
+        {
+            // Every submit costs a hash to check, so each miner gets a budget of them
+            let mut state = miner.state.lock().unwrap();
+            let now = Instant::now();
+            let refill = now.duration_since(state.budget_refilled).as_secs_f64() * SUBMITS_PER_SECOND;
+            state.submit_budget = (state.submit_budget + refill).min(SUBMIT_BURST);
+            state.budget_refilled = now;
+            if state.submit_budget < 1.0 {
+                return Err((ERR_OTHER, "too many submits"));
+            }
+            state.submit_budget -= 1.0;
+        }
+        if job.seen.lock().unwrap().contains(&nonce) {
             return Err((ERR_DUPLICATE, "duplicate share"));
         }
 
         let hash = self.pow.calculate_hash(&job.pre_pow_hash, nonce);
         let share_target = self.share_target(&job, shift);
         if hash.0 > share_target {
+            let mut state = miner.state.lock().unwrap();
+            state.bad_shares += 1;
+            if state.bad_shares > MAX_BAD_SHARES {
+                return Err((ERR_UNAUTHORIZED, "too many bad shares"));
+            }
             return Err((ERR_LOW_DIFFICULTY, "hash is above the share target"));
+        }
+        // Only shares that meet the target are remembered, and only so many per job
+        {
+            let mut seen = job.seen.lock().unwrap();
+            if seen.len() >= SEEN_PER_JOB {
+                return Err((ERR_STALE, "job is full, wait for the next"));
+            }
+            if !seen.insert(nonce) {
+                return Err((ERR_DUPLICATE, "duplicate share"));
+            }
         }
         // The share counts before the block it may be: the finder's own share is part of it
         if let Some(pool) = &self.pool {
@@ -480,6 +519,9 @@ impl Bridge {
                 Err((code, message)) => json!({ "id": id, "result": null, "error": [code, message, null] }),
             };
             if !miner.send(&reply) {
+                break;
+            }
+            if reply["error"][1] == "too many bad shares" {
                 break;
             }
 
@@ -615,6 +657,9 @@ fn main() {
                 accepted: 0,
                 work: 0.0,
                 connected: Instant::now(),
+                submit_budget: SUBMIT_BURST,
+                budget_refilled: Instant::now(),
+                bad_shares: 0,
             }),
         });
         miners.insert(next_id, miner.clone());

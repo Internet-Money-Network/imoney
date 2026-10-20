@@ -109,12 +109,21 @@ impl Dag {
     }
 
     /// Median timestamp of the recent past. A new block's timestamp must be later than this.
+    ///
+    /// The window is the last blocks of the selected chain, so its cost is fixed: it does not
+    /// grow with how many tips a block merges, and merged blocks cannot pull the median about.
     pub fn past_median_time(&self, ghostdag: &GhostdagData) -> u64 {
-        let mut timestamps: Vec<u64> = self
-            .block_window(ghostdag, MEDIAN_TIME_WINDOW)
-            .iter()
-            .map(|h| self.get(h).timestamp_ms)
-            .collect();
+        let mut timestamps = Vec::with_capacity(MEDIAN_TIME_WINDOW);
+        let mut hash = ghostdag.selected_parent;
+        while timestamps.len() < MEDIAN_TIME_WINDOW {
+            let block = self.get(&hash);
+            // Genesis is left out: its fixed timestamp says nothing about the present
+            if block.parents.is_empty() {
+                break;
+            }
+            timestamps.push(block.timestamp_ms);
+            hash = block.ghostdag.selected_parent;
+        }
         timestamps.sort_unstable();
         match timestamps.get(timestamps.len() / 2) {
             Some(median) => *median,
@@ -138,10 +147,16 @@ impl Dag {
     /// easy blocks to be mined in a burst, and one false timestamp can move the next block's
     /// difficulty by no more than that. Integer arithmetic only.
     pub fn expected_bits(&self, ghostdag: &GhostdagData, params: &DaaParams) -> u32 {
+        self.expected_bits_after(&ghostdag.selected_parent, params)
+    }
+
+    /// `expected_bits` for a block whose selected parent is `selected_parent`. It needs nothing
+    /// else, so a block's difficulty can be checked before the costlier GHOSTDAG work.
+    pub fn expected_bits_after(&self, selected_parent: &Hash, params: &DaaParams) -> u32 {
         if !params.retarget {
             return params.max_target_bits;
         }
-        let parent = self.get(&ghostdag.selected_parent);
+        let parent = self.get(selected_parent);
         // The first block follows genesis, whose fixed timestamp measures nothing
         if parent.ghostdag.is_genesis() || parent.parents.is_empty() {
             return params.max_target_bits;

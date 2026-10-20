@@ -213,7 +213,11 @@ fn invalid(reason: &'static str) -> std::io::Error {
 
 /// Writes one framed message.
 pub async fn write_frame<W: AsyncWrite + Unpin>(writer: &mut W, magic: [u8; 4], message: &Message) -> std::io::Result<()> {
-    let payload = message.to_bytes();
+    write_payload(writer, magic, message.to_bytes()).await
+}
+
+/// Writes one message already encoded with `Message::to_bytes`.
+pub async fn write_payload<W: AsyncWrite + Unpin>(writer: &mut W, magic: [u8; 4], payload: Vec<u8>) -> std::io::Result<()> {
     if payload.len() > MAX_FRAME_BYTES {
         return Err(invalid("outgoing message too large"));
     }

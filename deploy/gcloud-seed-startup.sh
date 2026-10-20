@@ -44,6 +44,6 @@ if ! docker ps -a --format '{{.Names}}' | grep -q '^imoney-node$'; then
   if [ "$(metadata imn-api-public)" = "1" ]; then API_BIND=0.0.0.0; fi
   docker run -d --name imoney-node --restart unless-stopped --memory 1500m \
     -v imoney-data:/data -p 18555:18555 -p "$API_BIND:18556:18556" \
-    imoney:latest ${PEERS:+--peers "$PEERS"} ${TOKEN:+--rpc-token "$TOKEN"}
+    imoney:latest ${PEERS:+--peers "$PEERS"} ${TOKEN:+--rpc-bind 0.0.0.0:18556 --rpc-token "$TOKEN"}
 fi
 echo "imn-seed: ready"

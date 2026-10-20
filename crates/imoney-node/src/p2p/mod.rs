@@ -7,13 +7,13 @@ mod tests;
 
 use crate::genesis::TESTNET_MAGIC;
 use crate::state::{DagLedger, SharedLedger, StateError};
-use codec::{write_frame, FrameReader, Message, PROTOCOL_VERSION};
-use imoney_core::{Block, Hash, Transaction};
+use codec::{write_payload, FrameReader, Message, PROTOCOL_VERSION};
+use imoney_core::{Block, Encode, Hash, Transaction};
 use imoney_pow::HallmarkPow;
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::net::{TcpListener, TcpStream};
@@ -36,6 +36,8 @@ struct Orphan {
 }
 /// Most connections accepted from other nodes.
 const MAX_INBOUND_PEERS: usize = 64;
+/// Most connections accepted from one IP address, so one host cannot take every inbound slot.
+const MAX_INBOUND_PER_IP: usize = 4;
 /// Number of connections this node tries to keep open to other nodes.
 const TARGET_OUTBOUND_PEERS: usize = 8;
 /// Most node addresses remembered for dialing.
@@ -64,6 +66,9 @@ const PING_INTERVAL: Duration = Duration::from_secs(30);
 const IDLE_TIMEOUT: Duration = Duration::from_secs(90);
 /// Messages queued for one peer before further ones are dropped.
 const PEER_QUEUE: usize = 2_048;
+/// Bytes queued for one peer before further messages are dropped, so a peer that asks for
+/// much and reads slowly cannot make this node hold gigabytes for it.
+const PEER_QUEUE_BYTES: usize = 32 * 1024 * 1024;
 /// How often each peer is asked for its tips, so a missed announcement cannot leave a node behind.
 const TIP_POLL_INTERVAL: Duration = Duration::from_secs(15);
 /// How long a node waits for its configured peers before it stops holding back the miner.
@@ -71,8 +76,32 @@ const SYNC_WAIT: Duration = Duration::from_secs(30);
 /// How often learned peer addresses are written to disk.
 const PEER_SAVE_INTERVAL: Duration = Duration::from_secs(60);
 
+/// A peer's outgoing queue of encoded messages, bounded by count and by bytes.
+#[derive(Clone)]
+struct PeerSender {
+    queue: mpsc::Sender<Vec<u8>>,
+    queued_bytes: Arc<AtomicUsize>,
+}
+
+impl PeerSender {
+    /// Queues a message; returns false (and drops it) when the queue is full.
+    fn try_send(&self, message: Message) -> bool {
+        let payload = message.to_bytes();
+        let len = payload.len();
+        if self.queued_bytes.fetch_add(len, Ordering::SeqCst) + len > PEER_QUEUE_BYTES {
+            self.queued_bytes.fetch_sub(len, Ordering::SeqCst);
+            return false;
+        }
+        if self.queue.try_send(payload).is_err() {
+            self.queued_bytes.fetch_sub(len, Ordering::SeqCst);
+            return false;
+        }
+        true
+    }
+}
+
 struct PeerHandle {
-    sender: mpsc::Sender<Message>,
+    sender: PeerSender,
     outbound: bool,
     /// Set once the handshake has completed.
     node_id: Option<u64>,
@@ -320,11 +349,17 @@ impl PeerManager {
             return;
         }
         let shutdown = Arc::new(Notify::new());
-        let (sender, mut outgoing) = mpsc::channel::<Message>(PEER_QUEUE);
+        let (queue, mut outgoing) = mpsc::channel::<Vec<u8>>(PEER_QUEUE);
+        let queued_bytes = Arc::new(AtomicUsize::new(0));
+        let sender = PeerSender { queue, queued_bytes: queued_bytes.clone() };
         {
             let mut peers = self.peers.lock().unwrap();
-            if !is_outbound && peers.values().filter(|p| !p.outbound).count() >= MAX_INBOUND_PEERS {
-                return;
+            if !is_outbound {
+                let inbound = peers.values().filter(|p| !p.outbound).count();
+                let same_ip = peers.iter().filter(|(a, p)| !p.outbound && a.ip() == peer_addr.ip()).count();
+                if inbound >= MAX_INBOUND_PEERS || (same_ip >= MAX_INBOUND_PER_IP && !peer_addr.ip().is_loopback()) {
+                    return;
+                }
             }
             peers.insert(
                 peer_addr,
@@ -343,8 +378,11 @@ impl PeerManager {
         let (mut reader, mut writer) = stream.into_split();
         let magic = self.magic;
         let writer_task = tokio::spawn(async move {
-            while let Some(message) = outgoing.recv().await {
-                if write_frame(&mut writer, magic, &message).await.is_err() {
+            while let Some(payload) = outgoing.recv().await {
+                let len = payload.len();
+                let written = write_payload(&mut writer, magic, payload).await;
+                queued_bytes.fetch_sub(len, Ordering::SeqCst);
+                if written.is_err() {
                     break;
                 }
             }
@@ -426,7 +464,7 @@ impl PeerManager {
     }
 
     /// Checks the peer's first message. Returns false when the connection must be dropped.
-    async fn on_version(&self, peer_addr: SocketAddr, is_outbound: bool, sender: &mpsc::Sender<Message>, message: Message) -> bool {
+    async fn on_version(&self, peer_addr: SocketAddr, is_outbound: bool, sender: &PeerSender, message: Message) -> bool {
         let Message::Version { protocol, network, genesis, node_id, listen_port, archival, .. } = message else {
             return false;
         };
@@ -577,7 +615,7 @@ impl PeerManager {
     }
 
     /// Handles a block from a peer: connects it, or parks it and asks for its missing parents.
-    async fn receive_block(&self, peer_addr: SocketAddr, sender: &mpsc::Sender<Message>, block: Block) {
+    async fn receive_block(&self, peer_addr: SocketAddr, sender: &PeerSender, block: Block) {
         // The ledger lock is released before anything is queued for sending
         let (missing_parents, connected, penalty) = {
             let mut ledger = self.ledger.write().await;
@@ -624,7 +662,7 @@ impl PeerManager {
     }
 
     /// Dispatches inbound peer messages after the handshake.
-    async fn on_message(&self, peer_addr: SocketAddr, sender: &mpsc::Sender<Message>, message: Message) {
+    async fn on_message(&self, peer_addr: SocketAddr, sender: &PeerSender, message: Message) {
         match message {
             Message::Version { .. } => self.misbehave(peer_addr, 10),
             Message::GetTips => {

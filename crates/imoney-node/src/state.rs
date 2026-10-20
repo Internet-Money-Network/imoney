@@ -2,7 +2,7 @@ use crate::genesis::{create_devnet_genesis, create_testnet_genesis};
 use crate::mempool::{Mempool, MempoolError};
 use crate::storage::{
     AcceptanceData, AcceptedTx, BlockMeta, HistoryItem, HistoryRow, Storage, StorageError, TxRecord, UtxoEntry,
-    WriteBatch, META_PRUNED_FLOOR, META_SINK, META_VIRTUAL_ACCEPTANCE,
+    WriteBatch, META_LAST_REORG, META_PRUNED_FLOOR, META_SINK, META_VIRTUAL_ACCEPTANCE,
 };
 use imoney_consensus::{work_from_bits, DaaParams, Dag, DagBlock, GhostdagData, GhostdagError, GhostdagParams};
 use imoney_core::constants::{
@@ -521,6 +521,13 @@ impl DagLedger {
 
             let sink_bytes = ledger.storage.get_metadata(META_SINK)?.expect("Metadata must exist if blocks exist");
             ledger.virtual_selected_parent = <Hash as Decode>::from_bytes(&sink_bytes).map_err(StorageError::from)?;
+            if let Some(bytes) = ledger.storage.get_metadata(META_LAST_REORG)? {
+                if bytes.len() == 16 {
+                    let depth = u64::from_be_bytes(bytes[..8].try_into().unwrap());
+                    let at = u64::from_be_bytes(bytes[8..].try_into().unwrap());
+                    ledger.last_reorg = Some((depth as usize, at));
+                }
+            }
             if let Some(bytes) = ledger.storage.get_metadata(META_PRUNED_FLOOR)? {
                 ledger.pruned_floor = bytes.try_into().map(u64::from_be_bytes).unwrap_or(0);
             }
@@ -552,7 +559,15 @@ impl DagLedger {
         self.finality_conflict = state.finality_conflict;
         if state.reorg_depth >= REORG_ALARM_DEPTH {
             eprintln!("[!] Selected chain reorganised: {} blocks replaced.", state.reorg_depth);
-            self.last_reorg = Some((state.reorg_depth, chrono::Utc::now().timestamp_millis() as u64));
+            let at = chrono::Utc::now().timestamp_millis() as u64;
+            self.last_reorg = Some((state.reorg_depth, at));
+            let mut batch = WriteBatch::default();
+            let mut bytes = (state.reorg_depth as u64).to_be_bytes().to_vec();
+            bytes.extend_from_slice(&at.to_be_bytes());
+            batch.metadata.push((META_LAST_REORG, bytes));
+            if let Err(e) = self.storage.commit(&batch) {
+                eprintln!("[-] Could not record the reorganisation: {}", e);
+            }
         }
     }
 
@@ -1030,6 +1045,19 @@ impl DagLedger {
         if header.parents.len() > MAX_BLOCK_PARENTS {
             return Err(StateError::TooManyParents(header.parents.len(), MAX_BLOCK_PARENTS));
         }
+        // The difficulty depends only on the selected parent, so it is checked before the
+        // walks through the DAG below
+        if header.parents.iter().all(|p| self.dag.contains(p)) {
+            if let Some(selected_parent) = self.dag.best_of(&header.parents) {
+                let expected_bits = self.dag.expected_bits_after(&selected_parent, &self.params.daa);
+                if header.bits != expected_bits {
+                    return Err(StateError::Header(format!(
+                        "Difficulty bits 0x{:08x} should be 0x{:08x}",
+                        header.bits, expected_bits
+                    )));
+                }
+            }
+        }
         self.check_parents(&header.parents)?;
         let ghostdag = self.dag.ghostdag(&header.parents)?;
 
@@ -1245,6 +1273,8 @@ impl DagLedger {
             return Ok(tx_id);
         }
 
+        // A conflict is found from memory; the spend checks below read the database and verify signatures
+        self.mempool.check_conflicts(&tx)?;
         let fee = self.check_spend(&tx, |outpoint| self.storage.get_utxo(outpoint), self.virtual_blue_score)?;
 
         // The mempool applies relay policy: minimum fee, no conflicting spends, size cap

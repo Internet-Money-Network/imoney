@@ -71,6 +71,16 @@ pub fn reward_tx_id(block_hash: &Hash) -> Hash {
     tagged_hash("IMN 2026 block reward", &[&block_hash.0])
 }
 
+/// Writes a file only its owner can read: it holds a private key.
+fn write_private(path: &std::path::Path, contents: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    options.open(path)?.write_all(contents.as_bytes())
+}
+
 fn load_or_create_key(path: &PathBuf) -> Result<SigningKey, String> {
     if let Ok(text) = std::fs::read_to_string(path) {
         let bytes: [u8; 32] = hex::decode(text.trim())
@@ -81,7 +91,7 @@ fn load_or_create_key(path: &PathBuf) -> Result<SigningKey, String> {
     }
     let mut bytes = [0u8; 32];
     rand::rngs::OsRng.fill_bytes(&mut bytes);
-    std::fs::write(path, hex::encode(bytes)).map_err(|e| format!("could not write {}: {}", path.display(), e))?;
+    write_private(path, &hex::encode(bytes)).map_err(|e| format!("could not write {}: {}", path.display(), e))?;
     Ok(SigningKey::from_bytes(&bytes))
 }
 

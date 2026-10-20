@@ -13,4 +13,6 @@ USER imoney
 VOLUME /data
 # 18555: peer-to-peer (open to the internet). 18556: RPC and wallet (keep private).
 EXPOSE 18555 18556
-ENTRYPOINT ["imoney-node", "--data-dir", "/data", "--p2p-bind", "0.0.0.0:18555", "--rpc-bind", "0.0.0.0:18556"]
+# The API listens on loopback unless asked otherwise; a public one needs --rpc-token:
+#   docker run ... imoney --rpc-bind 0.0.0.0:18556 --rpc-token <secret>
+ENTRYPOINT ["imoney-node", "--data-dir", "/data", "--p2p-bind", "0.0.0.0:18555"]

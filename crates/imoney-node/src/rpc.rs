@@ -23,6 +23,40 @@ pub struct AppState {
     pub rpc_token: Option<String>,
     /// The last computed network statistics and the tip they were computed for.
     pub stats_cache: std::sync::Mutex<Option<(Hash, NetworkStats)>>,
+    /// Mining templates and block submissions each cost real work, so both are rate-limited.
+    pub template_limit: RateLimit,
+    pub submit_limit: RateLimit,
+    /// Open address WebSockets, each holding a task and a ledger subscription.
+    pub sockets_open: std::sync::atomic::AtomicUsize,
+}
+
+/// Most address WebSockets open at once.
+const MAX_SOCKETS: usize = 1_024;
+
+/// A token bucket: `rate` requests per second on average, up to `burst` at once.
+pub struct RateLimit {
+    rate: f64,
+    burst: f64,
+    bucket: std::sync::Mutex<(f64, std::time::Instant)>,
+}
+
+impl RateLimit {
+    pub fn new(rate: f64, burst: f64) -> Self {
+        RateLimit { rate, burst, bucket: std::sync::Mutex::new((burst, std::time::Instant::now())) }
+    }
+
+    /// Takes one request from the bucket; false when it is empty.
+    pub fn allow(&self) -> bool {
+        let mut bucket = self.bucket.lock().unwrap();
+        let now = std::time::Instant::now();
+        bucket.0 = (bucket.0 + now.duration_since(bucket.1).as_secs_f64() * self.rate).min(self.burst);
+        bucket.1 = now;
+        if bucket.0 < 1.0 {
+            return false;
+        }
+        bucket.0 -= 1.0;
+        true
+    }
 }
 
 
@@ -128,6 +162,19 @@ pub struct OffersQuery {
     pub give: Option<String>,
     /// What the offers want in return: `imn` or a token ID. Omitted: any.
     pub want: Option<String>,
+    /// Offers to skip, cheapest first (default 0).
+    pub offset: Option<usize>,
+    /// Offers to return (default and most 500).
+    pub limit: Option<usize>,
+}
+
+/// Most offers returned by one request.
+const MAX_OFFERS_PER_PAGE: usize = 500;
+
+/// The requested page of a sorted order book.
+fn page<T>(book: Vec<T>, offset: Option<usize>, limit: Option<usize>) -> Vec<T> {
+    let limit = limit.unwrap_or(MAX_OFFERS_PER_PAGE).min(MAX_OFFERS_PER_PAGE);
+    book.into_iter().skip(offset.unwrap_or(0)).take(limit).collect()
 }
 
 /// One open offer in the order book.
@@ -161,6 +208,8 @@ pub struct SwapOffersQuery {
     pub chain_id: Option<u64>,
     /// The token's contract, as a 0x address.
     pub token: Option<String>,
+    pub offset: Option<usize>,
+    pub limit: Option<usize>,
 }
 
 #[derive(Deserialize)]
@@ -345,7 +394,16 @@ pub fn create_router(
         .allow_methods(Any)
         .allow_headers(Any);
 
-    let state = Arc::new(AppState { ledger, pow, p2p, rpc_token, stats_cache: std::sync::Mutex::new(None) });
+    let state = Arc::new(AppState {
+        ledger,
+        pow,
+        p2p,
+        rpc_token,
+        stats_cache: std::sync::Mutex::new(None),
+        template_limit: RateLimit::new(20.0, 100.0),
+        submit_limit: RateLimit::new(50.0, 200.0),
+        sockets_open: std::sync::atomic::AtomicUsize::new(0),
+    });
 
     // Read-only queries and broadcasting an already-signed transaction: callable from any website,
     // which is what lets a merchant's checkout page talk to the merchant's node.
@@ -356,7 +414,6 @@ pub fn create_router(
         .route("/api/v1/stats", get(stats_handler))
         .route("/api/v1/blocks", get(blocks_handler))
         .route("/api/v1/block/:hash", get(block_handler))
-        .route("/api/v1/mining/template", get(template_handler))
         .route("/api/v1/tx/broadcast", post(broadcast_handler))
         .route("/api/v1/tx/:txid", get(tx_status_handler))
         .route("/api/v1/address/:addr/balance", get(balance_handler))
@@ -374,7 +431,13 @@ pub fn create_router(
     // cannot reach it, and an optional token. The node never handles private keys.
     let restricted = Router::new()
         .route("/api/v1/mining/submit", post(submit_handler))
+        .layer(middleware::from_fn_with_state(state.clone(), limit_submits))
         .layer(middleware::from_fn_with_state(state.clone(), require_token));
+
+    // Templates are for miners, not websites: no cross-origin access, and rate-limited
+    let mining = Router::new()
+        .route("/api/v1/mining/template", get(template_handler))
+        .layer(middleware::from_fn_with_state(state.clone(), limit_templates));
 
     Router::new()
         .route("/", get(dashboard_handler))
@@ -386,7 +449,22 @@ pub fn create_router(
         .route("/wallet/sdk.js", get(wallet_sdk_handler))
         .merge(public)
         .merge(restricted)
+        .merge(mining)
         .with_state(state)
+}
+
+async fn limit_templates(State(state): State<Arc<AppState>>, request: Request, next: Next) -> Response {
+    if !state.template_limit.allow() {
+        return StatusCode::TOO_MANY_REQUESTS.into_response();
+    }
+    next.run(request).await
+}
+
+async fn limit_submits(State(state): State<Arc<AppState>>, request: Request, next: Next) -> Response {
+    if !state.submit_limit.allow() {
+        return StatusCode::TOO_MANY_REQUESTS.into_response();
+    }
+    next.run(request).await
 }
 
 /// Rejects the request unless it carries the configured bearer token. No token configured: allowed.
@@ -703,7 +781,7 @@ async fn offers_handler(State(state): State<Arc<AppState>>, Query(query): Query<
         });
     }
     book.sort_by(|a, b| a.price.total_cmp(&b.price));
-    Ok(Json(book))
+    Ok(Json(page(book, query.offset, query.limit)))
 }
 
 /// One swap offer: IMN for a token on another chain, filled by the maker.
@@ -753,7 +831,7 @@ async fn swap_offers_handler(State(state): State<Arc<AppState>>, Query(query): Q
         });
     }
     book.sort_by(|a, b| (a.price_num as f64 / a.price_den as f64).total_cmp(&(b.price_num as f64 / b.price_den as f64)));
-    Ok(Json(book))
+    Ok(Json(page(book, query.offset, query.limit)))
 }
 
 /// A token's name and terms.
@@ -1014,8 +1092,16 @@ async fn ws_address_handler(
     ws: WebSocketUpgrade,
     Path(addr_str): Path<String>,
     State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_address_socket(socket, addr_str, state))
+) -> Response {
+    use std::sync::atomic::Ordering;
+    if state.sockets_open.fetch_add(1, Ordering::SeqCst) >= MAX_SOCKETS {
+        state.sockets_open.fetch_sub(1, Ordering::SeqCst);
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    }
+    ws.on_upgrade(move |socket| async move {
+        handle_address_socket(socket, addr_str, state.clone()).await;
+        state.sockets_open.fetch_sub(1, Ordering::SeqCst);
+    })
 }
 
 async fn handle_address_socket(mut socket: WebSocket, addr_str: String, state: Arc<AppState>) {
