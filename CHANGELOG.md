@@ -6,6 +6,10 @@ Notable changes to Internet Money. Nothing has been released yet: everything bel
 ## Unreleased
 
 ### Added
+- **The public test network was restarted as testnet-3**, carrying the consensus changes
+  below (tokens, offers, swap offers, escrow, subscriptions, vaults) and the October 2026
+  security fixes, including a past median time taken from the selected chain. It has a new
+  genesis block: delete the data directory except `miner-key.hex` before upgrading.
 - **Higher minimum fee: 1,000 atoms per byte** (was 10). An ordinary payment now costs about
   0.0025 IMN, still well under a cent at any price likely for years, and filling every block
   for a day costs about 17,000 IMN instead of 170. Node policy, not a consensus rule, so it can

@@ -13,10 +13,11 @@ pub const TESTNET_GENESIS_BITS: u32 = 0x1e100000;
 /// Private test networks (`--devnet`) and unit tests: every other hash is a block.
 pub const DEVNET_GENESIS_BITS: u32 = 0x207fffff;
 
-/// The genesis block of the public test network (testnet-2: the full-size FishHash dataset).
+/// The genesis block of the public test network (testnet-3: tokens, offers, vaults and the
+/// security fixes of October 2026).
 pub fn create_testnet_genesis() -> Block {
-    // 2026-10-08 00:00:00 UTC
-    genesis(1_791_417_600_000, TESTNET_GENESIS_BITS, b"Internet Money testnet-2: 5-second blockDAG, Hallmark PoW, fair launch")
+    // 2026-10-20 00:00:00 UTC
+    genesis(1_792_454_400_000, TESTNET_GENESIS_BITS, b"Internet Money testnet-3: 5-second blockDAG, Hallmark PoW, fair launch")
 }
 
 /// The genesis block shared by private test networks, which are told apart by their

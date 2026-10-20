@@ -115,7 +115,7 @@ impl ConsensusParams {
             // 12 hours of 5-second blocks
             finality_depth: 8_640,
             genesis: create_testnet_genesis(),
-            name: "testnet-2",
+            name: "testnet-3",
         }
     }
 
