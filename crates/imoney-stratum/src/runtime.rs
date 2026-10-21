@@ -401,14 +401,22 @@ impl PoolRuntime {
         };
         let _ = write!(
             writer,
-            "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\n{}Connection: close\r\n\r\n{}",
             status,
             kind,
             body.len(),
+            SECURITY_HEADERS,
             body
         );
     }
 }
+
+/// Sent with every status-page reply: no framing by other sites (clickjacking), and the page
+/// may load only its own inline code, its fonts and this server's API.
+const SECURITY_HEADERS: &str = "Content-Security-Policy: default-src 'none'; script-src 'unsafe-inline'; \
+style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self'; \
+img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'\r\n\
+X-Frame-Options: DENY\r\nReferrer-Policy: no-referrer\r\nX-Content-Type-Options: nosniff\r\n";
 
 /// Most status-page connections open at once, and from one IP address.
 const MAX_STATUS_CONNECTIONS: usize = 64;

@@ -202,7 +202,7 @@ impl PeerManager {
         let _ = std::fs::write(path, lines.join("\n"));
     }
 
-    /// Stops holding back the miner when no configured peer could be reached in time.
+    /// Stops holding back the miner when no peer this node dialed is connected after the wait.
     /// Without this, a node whose seeds are all down would wait forever and the chain would stall.
     fn give_up_waiting_for_sync(&self) {
         if self.is_synced() {
@@ -210,8 +210,11 @@ impl PeerManager {
         }
         let waited_long_enough =
             self.sync_requested_at.lock().unwrap().is_some_and(|since| since.elapsed() > self.sync_wait);
-        let has_peer = self.peers.lock().unwrap().values().any(|p| p.node_id.is_some());
-        if waited_long_enough && !has_peer {
+        // Only a link this node opened can mark it synced, so only those keep it waiting. Inbound
+        // links alone (the duplicate-link rule can leave a node with nothing else) would
+        // otherwise hold the miner back forever.
+        let has_outbound_peer = self.peers.lock().unwrap().values().any(|p| p.outbound && p.node_id.is_some());
+        if waited_long_enough && !has_outbound_peer {
             println!("[*] No configured peer reachable after {:?}; continuing without initial sync.", self.sync_wait);
             self.synced.store(true, Ordering::SeqCst);
         }

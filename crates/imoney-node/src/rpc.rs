@@ -54,6 +54,14 @@ pub struct RateLimit {
 /// Most client addresses tracked; beyond this, idle ones are forgotten.
 const MAX_TRACKED_CLIENTS: usize = 10_000;
 
+/// Whether a WebSocket from `origin` may open: no Origin (not a browser), the node's own pages,
+/// or a website the operator named.
+fn socket_origin_allowed(origin: Option<&str>, host: Option<&str>, allowed: &[String]) -> bool {
+    let Some(origin) = origin else { return true };
+    let same_site = host.is_some_and(|h| origin.split_once("://").is_some_and(|(_, rest)| rest == h));
+    same_site || allowed.iter().any(|a| a == origin)
+}
+
 /// The client an address belongs to for limiting. One IPv6 subscriber usually holds a whole
 /// /64, so its addresses count as one client.
 fn client_key(ip: std::net::IpAddr) -> std::net::IpAddr {
@@ -1204,18 +1212,19 @@ async fn ws_address_handler(
     headers: axum::http::HeaderMap,
 ) -> Response {
     use std::sync::atomic::Ordering;
-    // Browsers do not apply CORS to WebSockets, so the allowed websites are checked here
-    if !state.allowed_origins.is_empty() {
+    // Browsers do not apply CORS to WebSockets, so the website is checked here, whatever the
+    // allow list says: a page from another site may only listen if the operator named it.
+    // Programs that are not browsers send no Origin and are unaffected.
+    {
         let origin = headers.get(axum::http::header::ORIGIN).and_then(|o| o.to_str().ok());
         let host = headers.get(axum::http::header::HOST).and_then(|h| h.to_str().ok());
-        // The node's own pages (the wallet) are always allowed
-        let same_site = |o: &str| host.is_some_and(|h| o.split_once("://").is_some_and(|(_, rest)| rest == h));
-        if origin.is_some_and(|o| !same_site(o) && !state.allowed_origins.iter().any(|allowed| allowed == o)) {
+        if !socket_origin_allowed(origin, host, &state.allowed_origins) {
             return StatusCode::FORBIDDEN.into_response();
         }
     }
+    // Loopback gets no exemption: a web page in the operator's browser connects from there too
     let client = client_key(client.ip());
-    if !client.is_loopback() {
+    {
         let mut per_client = state.sockets_per_client.lock().unwrap();
         let open = per_client.entry(client).or_insert(0);
         if *open >= MAX_SOCKETS_PER_CLIENT {
@@ -1344,6 +1353,20 @@ mod tests {
             limit.allow(IpAddr::V4(Ipv4Addr::from(0x0a00_0000 + n)));
         }
         assert!(limit.buckets.lock().unwrap().len() <= MAX_TRACKED_CLIENTS);
+    }
+
+    /// Another website may not open an address socket unless the operator named it, even when
+    /// no allow list is set.
+    #[test]
+    fn address_socket_checks_the_website() {
+        let none: Vec<String> = Vec::new();
+        let host = Some("127.0.0.1:18556");
+        assert!(socket_origin_allowed(None, host, &none));
+        assert!(socket_origin_allowed(Some("http://127.0.0.1:18556"), host, &none));
+        assert!(!socket_origin_allowed(Some("http://evil.example"), host, &none));
+        let shop = vec!["https://shop.example".to_string()];
+        assert!(socket_origin_allowed(Some("https://shop.example"), host, &shop));
+        assert!(!socket_origin_allowed(Some("https://other.example"), host, &shop));
     }
 
     /// Addresses within one IPv6 /64 share a bucket.

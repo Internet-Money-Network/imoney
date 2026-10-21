@@ -63,7 +63,8 @@ struct Args {
     rpc_token: Option<String>,
 
     /// Websites allowed to use this node's API from a browser, comma-separated
-    /// (e.g. https://shop.example). Default: any website.
+    /// (e.g. https://shop.example). Default: any website for the HTTP API; the address
+    /// WebSocket always accepts only the node's own pages and the websites named here.
     #[arg(long, value_delimiter = ',')]
     allowed_origins: Vec<String>,
 

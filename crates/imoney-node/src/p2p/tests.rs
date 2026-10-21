@@ -480,3 +480,16 @@ async fn an_inbound_peer_can_neither_hold_back_nor_fake_sync() {
     a.connect(&b);
     eventually!("A syncs through the peer it dialed", a.manager.is_synced());
 }
+
+/// A node left with only inbound links (the duplicate-link rule can drop its own) must not wait
+/// for sync forever: with no peer it dialed, it stops waiting just as if none were reachable.
+#[tokio::test(flavor = "multi_thread")]
+async fn inbound_peers_alone_do_not_hold_back_the_miner_forever() {
+    let a = TestNode::start("inbound-only-a").await;
+    let b = TestNode::start("inbound-only-b").await;
+    a.manager.require_initial_sync();
+    // B dials A, so A's only peer is inbound
+    b.connect(&a);
+    eventually!("handshake completes", a.peer_count().await == 1);
+    eventually!("A stops waiting", a.manager.is_synced());
+}

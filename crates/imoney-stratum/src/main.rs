@@ -52,10 +52,14 @@ const MAX_BAD_SHARES: u32 = 200;
 /// for hundreds of rigs behind one address at the usual share rate.
 const SUBMITS_PER_SECOND_PER_IP: f64 = 100.0;
 const SUBMIT_BURST_PER_IP: f64 = 500.0;
-/// Most connections from one IP address.
-const MAX_MINERS_PER_IP: usize = 256;
-/// How long an address is refused after one of its miners is dropped for bad shares.
+/// Most connections from one IP address, by default; well below the pool's total, so one
+/// address cannot take every slot. `--max-miners-per-ip` raises it for a farm behind one IP.
+const DEFAULT_MAX_MINERS_PER_IP: usize = 32;
+/// How long a payout address is refused at an IP after its miner is dropped for bad shares.
 const BAD_SHARE_BAN: Duration = Duration::from_secs(10 * 60);
+/// Banned payout addresses at one IP at which the whole IP is refused: someone switching
+/// addresses to dodge the ban.
+const BANNED_LOGINS_PER_IP: usize = 3;
 
 const ERR_OTHER: i64 = 20;
 const ERR_STALE: i64 = 21;
@@ -89,6 +93,10 @@ struct Args {
     /// Most miners connected at once
     #[arg(long, default_value_t = 256)]
     max_miners: usize,
+
+    /// Most miners connected at once from one IP address
+    #[arg(long, default_value_t = DEFAULT_MAX_MINERS_PER_IP)]
+    max_miners_per_ip: usize,
 
     /// Run as a pool: mine to the pool's own address and share out the rewards
     #[arg(long, default_value_t = false)]
@@ -188,7 +196,9 @@ struct Bridge {
     /// Submit budget per IP address: tokens left and when last refilled.
     ip_budgets: Mutex<HashMap<IpAddr, (f64, Instant)>>,
     /// Addresses refused until the given time.
-    banned: Mutex<HashMap<IpAddr, Instant>>,
+    /// Payout addresses refused at an IP, and until when. One misbehaving worker behind a
+    /// shared address (NAT, a farm) does not shut out the others.
+    banned: Mutex<HashMap<(IpAddr, String), Instant>>,
 }
 
 /// `target` made `shift` bits easier, stopping at the largest possible target.
@@ -509,6 +519,9 @@ impl Bridge {
                 let login = params.first().and_then(Value::as_str).ok_or((ERR_OTHER, "missing address"))?;
                 let address = login.split('.').next().unwrap_or(login);
                 Address::decode(address).map_err(|_| (ERR_UNAUTHORIZED, "the login must be a payout address"))?;
+                if self.banned.lock().unwrap().get(&(miner.ip, address.to_string())).is_some_and(|until| *until > Instant::now()) {
+                    return Err((ERR_UNAUTHORIZED, "this address is refused for a while after too many bad shares"));
+                }
                 let mut state = miner.state.lock().unwrap();
                 state.address = Some(address.to_string());
                 state.work_address = Some(match &self.pool {
@@ -547,7 +560,8 @@ impl Bridge {
                 break;
             }
             if reply["error"][1] == "too many bad shares" {
-                self.banned.lock().unwrap().insert(miner.ip, Instant::now() + BAD_SHARE_BAN);
+                let login = miner.state.lock().unwrap().address.clone().unwrap_or_default();
+                self.banned.lock().unwrap().insert((miner.ip, login), Instant::now() + BAD_SHARE_BAN);
                 break;
             }
 
@@ -667,14 +681,14 @@ fn main() {
             let now = Instant::now();
             let mut banned = bridge.banned.lock().unwrap();
             banned.retain(|_, until| *until > now);
-            if banned.contains_key(&ip) {
+            if banned.keys().filter(|(banned_ip, _)| *banned_ip == ip).count() >= BANNED_LOGINS_PER_IP {
                 continue; // Dropping the stream closes it
             }
             // Forget the budgets of addresses that have been quiet for a while
             bridge.ip_budgets.lock().unwrap().retain(|_, (_, refilled)| now.duration_since(*refilled) < Duration::from_secs(600));
         }
         let mut miners = bridge.miners.lock().unwrap();
-        if miners.len() >= bridge.args.max_miners || miners.values().filter(|m| m.ip == ip).count() >= MAX_MINERS_PER_IP {
+        if miners.len() >= bridge.args.max_miners || miners.values().filter(|m| m.ip == ip).count() >= bridge.args.max_miners_per_ip {
             continue;
         }
         // An extranonce no connected miner is using

@@ -8,6 +8,8 @@
 #   imn-api-public  "1" to serve the read-only API on port 18556 to the outside (the firewall
 #                   decides who can reach it); otherwise the API listens on this machine only
 #   imn-rpc-token   token required for submitting blocks, when the API is public
+#   imn-origins     websites allowed to use the public API from a browser, comma-separated
+#                   (default https://internetmoneynetwork.org, the site that proxies to it)
 set -euo pipefail
 
 metadata() {
@@ -40,10 +42,12 @@ fi
 if ! docker ps -a --format '{{.Names}}' | grep -q '^imoney-node$'; then
   PEERS=$(metadata imn-peers)
   TOKEN=$(metadata imn-rpc-token)
+  ORIGINS=$(metadata imn-origins)
+  ORIGINS=${ORIGINS:-https://internetmoneynetwork.org}
   API_BIND=127.0.0.1
   if [ "$(metadata imn-api-public)" = "1" ]; then API_BIND=0.0.0.0; fi
   docker run -d --name imoney-node --restart unless-stopped --memory 1500m \
     -v imoney-data:/data -p 18555:18555 -p "$API_BIND:18556:18556" \
-    imoney:latest ${PEERS:+--peers "$PEERS"} ${TOKEN:+--rpc-bind 0.0.0.0:18556 --rpc-token "$TOKEN"}
+    imoney:latest ${PEERS:+--peers "$PEERS"} ${TOKEN:+--rpc-bind 0.0.0.0:18556 --rpc-token "$TOKEN" --allowed-origins "$ORIGINS"}
 fi
 echo "imn-seed: ready"
