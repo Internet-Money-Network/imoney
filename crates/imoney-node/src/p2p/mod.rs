@@ -124,6 +124,8 @@ pub struct PeerManager {
     peers: Mutex<HashMap<SocketAddr, PeerHandle>>,
     /// Addresses of nodes worth dialing: configured seeds plus those learned from peers.
     known_addrs: Mutex<HashSet<SocketAddr>>,
+    /// Peers given on the command line: never forgotten, however often they fail.
+    pinned_addrs: Mutex<HashSet<SocketAddr>>,
     /// Addresses that turned out to be this node itself.
     self_addrs: Mutex<HashSet<SocketAddr>>,
     dialing: Mutex<HashSet<SocketAddr>>,
@@ -154,6 +156,7 @@ impl PeerManager {
             listen_port: AtomicU16::new(p2p_port),
             peers: Mutex::new(HashMap::new()),
             known_addrs: Mutex::new(HashSet::new()),
+            pinned_addrs: Mutex::new(HashSet::new()),
             self_addrs: Mutex::new(HashSet::new()),
             dialing: Mutex::new(HashSet::new()),
             banned: Mutex::new(HashMap::new()),
@@ -294,6 +297,7 @@ impl PeerManager {
 
     /// Adds a seed node or peer to dial. The connection is retried for as long as it is wanted.
     pub fn connect_to_peer(self: Arc<Self>, peer_addr: SocketAddr) {
+        self.pinned_addrs.lock().unwrap().insert(peer_addr);
         self.known_addrs.lock().unwrap().insert(peer_addr);
     }
 
@@ -338,6 +342,11 @@ impl PeerManager {
                     manager.handle_peer(stream, addr, true).await;
                 } else {
                     manager.dialing.lock().unwrap().remove(&addr);
+                    // An address that does not answer is forgotten, so made-up addresses
+                    // gossiped by a peer cannot fill the book for good
+                    if !manager.pinned_addrs.lock().unwrap().contains(&addr) {
+                        manager.known_addrs.lock().unwrap().remove(&addr);
+                    }
                 }
             });
         }

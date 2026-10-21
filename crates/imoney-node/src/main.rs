@@ -62,6 +62,11 @@ struct Args {
     #[arg(long)]
     rpc_token: Option<String>,
 
+    /// Websites allowed to use this node's API from a browser, comma-separated
+    /// (e.g. https://shop.example). Default: any website.
+    #[arg(long, value_delimiter = ',')]
+    allowed_origins: Vec<String>,
+
     /// Enable automatic background miner (targets ~5s block intervals)
     #[arg(long, default_value_t = false)]
     auto_mine: bool,
@@ -79,7 +84,7 @@ fn write_private(path: &std::path::Path, contents: &str) -> std::io::Result<()> 
 }
 
 /// Loads the node's own mining keypair from the data directory, creating it on first run.
-fn load_or_create_miner_key(data_dir: &Path) -> Result<(Address, PathBuf), Box<dyn std::error::Error>> {
+fn load_or_create_miner_key(data_dir: &Path, network: Network) -> Result<(Address, PathBuf), Box<dyn std::error::Error>> {
     let key_path = data_dir.join("miner-key.hex");
     let signing_key = if key_path.exists() {
         let bytes = hex::decode(fs::read_to_string(&key_path)?.trim())?;
@@ -94,7 +99,7 @@ fn load_or_create_miner_key(data_dir: &Path) -> Result<(Address, PathBuf), Box<d
     };
 
     let addr = Address::from_public_key(
-        Network::Testnet,
+        network,
         AddressType::PubKeyHash,
         signing_key.verifying_key().as_bytes(),
     );
@@ -118,11 +123,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     fs::create_dir_all(&args.data_dir)?;
     let db_path = args.data_dir.join("imoney.redb");
 
+    let (consensus, pow_params) = match &args.devnet {
+        Some(_) => (ConsensusParams::devnet(), PowParams::dev()),
+        None => (ConsensusParams::testnet(), PowParams::mainnet()),
+    };
+
     // Parse or generate mining payout address
     let mining_address = match args.mining_address {
         Some(s) => Some(Address::decode(&s)?),
         None => {
-            let (addr, key_path) = load_or_create_miner_key(&args.data_dir)?;
+            let (addr, key_path) = load_or_create_miner_key(&args.data_dir, consensus.network)?;
             println!("[*] Mining Address (local key): {}", addr);
             println!("[*] Its private key is stored in {:?}. Keep that file private.", key_path);
             Some(addr)
@@ -133,10 +143,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Verifying blocks needs only the light cache; mining holds the full dataset in memory.
     // The public test network uses the FishHash specification's sizes, which need a graphics
     // card to mine at any speed; private networks use small ones so a CPU can mine.
-    let (consensus, pow_params) = match &args.devnet {
-        Some(_) => (ConsensusParams::devnet(), PowParams::dev()),
-        None => (ConsensusParams::testnet(), PowParams::mainnet()),
-    };
     let pow_mode = if args.auto_mine { PowMode::Full } else { PowMode::Light };
     let pow = Arc::new(HallmarkPow::new(pow_params, consensus.genesis.hash(), pow_mode));
     if pow_mode == PowMode::Full && args.devnet.is_none() {
@@ -278,7 +284,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if !rpc_addr.ip().is_loopback() && args.rpc_token.is_none() {
         return Err("--rpc-bind is not a loopback address: set --rpc-token as well".into());
     }
-    let app = create_router(ledger, pow, p2p_manager, args.rpc_token);
+    let app = create_router(ledger, pow, p2p_manager, args.rpc_token, args.allowed_origins);
     let addr = rpc_addr;
     let listener = tokio::net::TcpListener::bind(addr).await?;
     println!("[+] HTTP RPC & Web Dashboard listening on http://{}", addr);

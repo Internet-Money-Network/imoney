@@ -10,7 +10,7 @@ use imoney_core::{Address, AddressType, Encode, Hash, Network, Outpoint, ScriptP
 use rand::RngCore;
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufReader, Write};
 use std::net::TcpListener;
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -337,36 +337,80 @@ impl PoolRuntime {
     }
 
     /// Serves the status page and its two JSON endpoints. Read-only.
-    pub fn serve_status(&self, listener: TcpListener) {
+    /// Serves the status page and its API. Each connection gets its own thread and ten
+    /// seconds to send its request line, so a slow or silent client cannot hold the page up.
+    pub fn serve_status(self: std::sync::Arc<Self>, listener: TcpListener) {
+        let open: std::sync::Arc<Mutex<HashMap<std::net::IpAddr, usize>>> = Default::default();
         for stream in listener.incoming().flatten() {
-            let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(5)));
-            let Ok(mut writer) = stream.try_clone() else { continue };
-            let mut request_line = String::new();
-            if BufReader::new(stream).read_line(&mut request_line).is_err() {
-                continue;
+            let Ok(peer) = stream.peer_addr() else { continue };
+            {
+                let mut open = open.lock().unwrap();
+                let total: usize = open.values().sum();
+                let from_ip = open.entry(peer.ip()).or_insert(0);
+                if total >= MAX_STATUS_CONNECTIONS || *from_ip >= MAX_STATUS_CONNECTIONS_PER_IP {
+                    continue; // Dropping the stream closes it
+                }
+                *from_ip += 1;
             }
-            let path = request_line.split_whitespace().nth(1).unwrap_or("/");
-            let (status, kind, body) = match path.split('?').next().unwrap_or("/") {
-                "/" => ("200 OK", "text/html; charset=utf-8", POOL_PAGE.to_string()),
-                "/api/stats" => ("200 OK", "application/json", self.stats().to_string()),
-                other => match other.strip_prefix("/api/miner/").map(percent_decode) {
-                    Some(address) if Address::decode(&address).is_ok() => {
-                        ("200 OK", "application/json", self.miner(&address).to_string())
+            let (pool, open) = (self.clone(), open.clone());
+            std::thread::spawn(move || {
+                pool.answer_status(stream);
+                let mut open = open.lock().unwrap();
+                if let Some(count) = open.get_mut(&peer.ip()) {
+                    *count -= 1;
+                    if *count == 0 {
+                        open.remove(&peer.ip());
                     }
-                    _ => ("404 Not Found", "text/plain", "Not found".to_string()),
-                },
-            };
-            let _ = write!(
-                writer,
-                "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n{}",
-                status,
-                kind,
-                body.len(),
-                body
-            );
+                }
+            });
         }
     }
+
+    fn answer_status(&self, stream: std::net::TcpStream) {
+        use std::io::Read;
+        let deadline = Instant::now() + std::time::Duration::from_secs(10);
+        let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(5)));
+        let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(10)));
+        let Ok(mut writer) = stream.try_clone() else { return };
+        let mut reader = BufReader::new(stream).take(2048);
+        let mut request_line = Vec::new();
+        let mut byte = [0u8; 1];
+        loop {
+            if Instant::now() > deadline {
+                return;
+            }
+            match reader.read(&mut byte) {
+                Ok(1) if byte[0] == b'\n' => break,
+                Ok(1) => request_line.push(byte[0]),
+                _ => return,
+            }
+        }
+        let request_line = String::from_utf8_lossy(&request_line);
+        let path = request_line.split_whitespace().nth(1).unwrap_or("/");
+        let (status, kind, body) = match path.split('?').next().unwrap_or("/") {
+            "/" => ("200 OK", "text/html; charset=utf-8", POOL_PAGE.to_string()),
+            "/api/stats" => ("200 OK", "application/json", self.stats().to_string()),
+            other => match other.strip_prefix("/api/miner/").map(percent_decode) {
+                Some(address) if Address::decode(&address).is_ok() => {
+                    ("200 OK", "application/json", self.miner(&address).to_string())
+                }
+                _ => ("404 Not Found", "text/plain", "Not found".to_string()),
+            },
+        };
+        let _ = write!(
+            writer,
+            "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n{}",
+            status,
+            kind,
+            body.len(),
+            body
+        );
+    }
 }
+
+/// Most status-page connections open at once, and from one IP address.
+const MAX_STATUS_CONNECTIONS: usize = 64;
+const MAX_STATUS_CONNECTIONS_PER_IP: usize = 4;
 
 #[cfg(test)]
 mod tests {

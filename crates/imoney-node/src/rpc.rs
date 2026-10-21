@@ -28,6 +28,8 @@ pub struct AppState {
     pub submit_limit: RateLimit,
     /// Open address WebSockets, each holding a task and a ledger subscription.
     pub sockets_open: std::sync::atomic::AtomicUsize,
+    /// Websites allowed to call the API from a browser; empty means any.
+    pub allowed_origins: Vec<String>,
 }
 
 /// Most address WebSockets open at once.
@@ -246,6 +248,17 @@ pub struct HistoryResponse {
 }
 
 #[derive(Deserialize)]
+pub struct UtxosQuery {
+    /// Continue after this coin, written `txid:index` (the last one of the previous page).
+    pub after: Option<String>,
+    /// Coins to return (default and most 5,000).
+    pub limit: Option<usize>,
+}
+
+/// Most coins returned by one request.
+const MAX_UTXOS_PER_PAGE: usize = 5_000;
+
+#[derive(Deserialize)]
 pub struct InvoiceQuery {
     /// The address the invoice is payable to.
     pub address: String,
@@ -388,11 +401,15 @@ pub fn create_router(
     pow: Arc<HallmarkPow>,
     p2p: Arc<PeerManager>,
     rpc_token: Option<String>,
+    allowed_origins: Vec<String>,
 ) -> Router {
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+    let cors = CorsLayer::new().allow_methods(Any).allow_headers(Any);
+    let cors = if allowed_origins.is_empty() {
+        cors.allow_origin(Any)
+    } else {
+        let origins: Vec<axum::http::HeaderValue> = allowed_origins.iter().filter_map(|o| o.parse().ok()).collect();
+        cors.allow_origin(origins)
+    };
 
     let state = Arc::new(AppState {
         ledger,
@@ -403,6 +420,7 @@ pub fn create_router(
         template_limit: RateLimit::new(20.0, 100.0),
         submit_limit: RateLimit::new(50.0, 200.0),
         sockets_open: std::sync::atomic::AtomicUsize::new(0),
+        allowed_origins,
     });
 
     // Read-only queries and broadcasting an already-signed transaction: callable from any website,
@@ -665,7 +683,11 @@ async fn template_handler(
         Some(addr_str) => Some(Address::decode(&addr_str).map_err(|_| StatusCode::BAD_REQUEST)?),
         None => None,
     };
-    let template = state.ledger.read().await.get_mining_template(payout.as_ref());
+    let ledger = state.ledger.read().await;
+    if payout.is_none() && ledger.mining_address.is_none() {
+        return Err(StatusCode::BAD_REQUEST); // A block must pay someone
+    }
+    let template = ledger.get_mining_template(payout.as_ref());
     Ok(Json(template))
 }
 
@@ -716,10 +738,22 @@ async fn balance_handler(
 async fn utxos_handler(
     State(state): State<Arc<AppState>>,
     Path(addr_str): Path<String>,
+    Query(query): Query<UtxosQuery>,
 ) -> Result<Json<Vec<UtxoItemResponse>>, StatusCode> {
     let address = Address::decode(&addr_str).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let after = match query.after.as_deref() {
+        Some(text) => {
+            let (txid, index) = text.split_once(':').ok_or(StatusCode::BAD_REQUEST)?;
+            Some(imoney_core::Outpoint {
+                transaction_id: Hash::from_hex(txid).map_err(|_| StatusCode::BAD_REQUEST)?,
+                index: index.parse().map_err(|_| StatusCode::BAD_REQUEST)?,
+            })
+        }
+        None => None,
+    };
+    let limit = query.limit.unwrap_or(MAX_UTXOS_PER_PAGE).min(MAX_UTXOS_PER_PAGE);
     let ledger = state.ledger.read().await;
-    let utxos = ledger.get_utxos_with_status(&address).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let utxos = ledger.get_utxos_with_status(&address, after.as_ref(), limit).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let response = utxos
         .into_iter()
@@ -1092,8 +1126,19 @@ async fn ws_address_handler(
     ws: WebSocketUpgrade,
     Path(addr_str): Path<String>,
     State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
 ) -> Response {
     use std::sync::atomic::Ordering;
+    // Browsers do not apply CORS to WebSockets, so the allowed websites are checked here
+    if !state.allowed_origins.is_empty() {
+        let origin = headers.get(axum::http::header::ORIGIN).and_then(|o| o.to_str().ok());
+        let host = headers.get(axum::http::header::HOST).and_then(|h| h.to_str().ok());
+        // The node's own pages (the wallet) are always allowed
+        let same_site = |o: &str| host.is_some_and(|h| o.split_once("://").is_some_and(|(_, rest)| rest == h));
+        if origin.is_some_and(|o| !same_site(o) && !state.allowed_origins.iter().any(|allowed| allowed == o)) {
+            return StatusCode::FORBIDDEN.into_response();
+        }
+    }
     if state.sockets_open.fetch_add(1, Ordering::SeqCst) >= MAX_SOCKETS {
         state.sockets_open.fetch_sub(1, Ordering::SeqCst);
         return StatusCode::SERVICE_UNAVAILABLE.into_response();

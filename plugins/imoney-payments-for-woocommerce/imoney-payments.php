@@ -87,6 +87,11 @@ function imoney_check_order($order) {
     if ((int) $invoice[$level . '_atoms'] >= $required_atoms) {
         $tx_id = isset($invoice['payments'][0]['tx_id']) ? sanitize_text_field($invoice['payments'][0]['tx_id']) : '';
         $order->payment_complete($tx_id);
+        if ($level !== 'final') {
+            // Accepted before it was final: keep checking until it is (see imoney_recheck_order)
+            $order->update_meta_data('_imoney_awaiting_final', '1');
+            $order->save();
+        }
         $order->add_order_note(sprintf(
             /* translators: 1: IMN amount, 2: invoice number, 3: confirmation level */
             __('Internet Money payment of %1$s IMN received for invoice %2$s (level: %3$s).', 'imoney-payments'),
@@ -664,6 +669,38 @@ function imoney_check_pending_orders() {
     ));
     foreach ($orders as $order) {
         imoney_check_order($order);
+    }
+
+    // Orders accepted before their payment was final are checked again until it is. If the
+    // payment disappears (a reorganisation or a double spend), the order is put on hold.
+    $accepted = wc_get_orders(array(
+        'payment_method' => 'imoney',
+        'meta_key'       => '_imoney_awaiting_final',
+        'meta_value'     => '1',
+        'limit'          => 50,
+    ));
+    foreach ($accepted as $order) {
+        imoney_recheck_order($order);
+    }
+}
+
+/**
+ * Re-checks a paid order whose payment was not yet final when it was accepted.
+ */
+function imoney_recheck_order($order) {
+    $required_atoms = (int) $order->get_meta('_imoney_amount_atoms');
+    $invoice = imoney_node_invoice($order->get_meta('_imoney_invoice_id'), $order->get_meta('_imoney_address'));
+    if (!$invoice || !isset($invoice['seen_atoms'], $invoice['final_atoms'])) {
+        return; // Node unreachable: try again next time
+    }
+    if ((int) $invoice['final_atoms'] >= $required_atoms) {
+        $order->delete_meta_data('_imoney_awaiting_final');
+        $order->add_order_note(__('Internet Money payment is now final.', 'imoney-payments'));
+        $order->save();
+    } elseif ((int) $invoice['seen_atoms'] < $required_atoms) {
+        $order->delete_meta_data('_imoney_awaiting_final');
+        $order->update_status('on-hold', __('Internet Money payment is no longer on the network (reversed or double-spent). Check before shipping.', 'imoney-payments'));
+        $order->save();
     }
 }
 

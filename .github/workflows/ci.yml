@@ -69,6 +69,20 @@ jobs:
             imoney-*.tar.gz
             imoney-*.zip
 
+  dependency-audit:
+    name: Audit Dependencies for Known Vulnerabilities
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+
+      - name: Check Cargo.lock against the RustSec advisory database
+        run: cargo audit
+
   sdk-and-packages:
     name: Build & Test Developer SDK
     runs-on: ubuntu-latest

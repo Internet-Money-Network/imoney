@@ -34,6 +34,11 @@ const MIN_LEVELS_IN_MEMORY: u64 = 2_000;
 /// Confirmations after which this node reports a payment as final, unless configured otherwise.
 pub const DEFAULT_FINAL_CONFIRMATIONS: u64 = 60;
 /// How long after a reorganisation the node keeps warning that the network is unsettled.
+/// Most payments listed for one invoice at one address.
+const MAX_INVOICE_PAYMENTS: usize = 1_000;
+/// Most tips tried as extra parents of the virtual block; each try runs GHOSTDAG.
+const MAX_VIRTUAL_PARENT_CANDIDATES: usize = 2 * MAX_BLOCK_PARENTS;
+
 pub const NETWORK_ALERT_WINDOW_MS: u64 = 30 * 60 * 1000;
 
 /// A selected-chain switch that undoes at least this many blocks is recorded as a warning sign.
@@ -98,6 +103,8 @@ pub struct ConsensusParams {
     pub genesis: Block,
     /// The name nodes report for this network.
     pub name: &'static str,
+    /// Which address prefix the network uses.
+    pub network: Network,
 }
 
 impl ConsensusParams {
@@ -116,6 +123,7 @@ impl ConsensusParams {
             finality_depth: 8_640,
             genesis: create_testnet_genesis(),
             name: "testnet-3",
+            network: Network::Testnet,
         }
     }
 
@@ -440,7 +448,7 @@ impl DagLedger {
 
         let mut ledger = Self {
             storage,
-            network: Network::Testnet,
+            network: params.network,
             dag: Dag::new(params.ghostdag.clone()),
             params,
             blocks: HashMap::new(),
@@ -756,6 +764,17 @@ impl DagLedger {
                     tx_index: index as u32,
                     invoice_id: tx.invoice_id().map(str::to_string),
                     issued_token: tx.issued_token(),
+                    payees: if tx.invoice_id().is_some() {
+                        let mut scripts: Vec<ScriptPublicKey> = Vec::new();
+                        for output in &tx.outputs {
+                            if !scripts.contains(&output.script_public_key) {
+                                scripts.push(output.script_public_key.clone());
+                            }
+                        }
+                        scripts
+                    } else {
+                        Vec::new()
+                    },
                 };
                 view.put_invoice(&accepted);
                 acceptance.accepted.push(accepted);
@@ -890,6 +909,8 @@ impl DagLedger {
             .copied()
             .collect();
         others.sort_by_key(|h| std::cmp::Reverse(self.dag.sort_key(h)));
+        // However many tips there are, only the heaviest few are tried
+        others.truncate(MAX_VIRTUAL_PARENT_CANDIDATES);
 
         let mut parents = vec![*sink];
         for tip in others {
@@ -921,14 +942,15 @@ impl DagLedger {
         // Only tips whose selected chain runs through the finality point may become the sink
         let finality_point = self.finality_point();
         let finality_score = self.dag.get(&finality_point).ghostdag.blue_score;
-        let eligible: Vec<Hash> = self
-            .tips
-            .iter()
-            .filter(|tip| self.chain_ancestor_at_or_below(**tip, finality_score) == finality_point)
-            .copied()
-            .collect();
-        let heaviest = self.dag.best_of(self.tips.iter()).expect("the DAG always has a tip");
-        let new_sink = self.dag.best_of(eligible.iter()).unwrap_or(old_sink);
+        // Heaviest first, stopping at the first eligible one: usually that is the first tried,
+        // so one walk down to the finality point is made however many tips there are
+        let mut by_weight: Vec<Hash> = self.tips.iter().copied().collect();
+        by_weight.sort_by_key(|h| std::cmp::Reverse(self.dag.sort_key(h)));
+        let heaviest = *by_weight.first().expect("the DAG always has a tip");
+        let new_sink = by_weight
+            .into_iter()
+            .find(|tip| self.chain_ancestor_at_or_below(*tip, finality_score) == finality_point)
+            .unwrap_or(old_sink);
         let finality_conflict = heaviest != new_sink;
 
         view.undo(&self.virtual_acceptance);
@@ -1107,14 +1129,15 @@ impl DagLedger {
         // Validate the body: coinbase first, sizes, merkle root
         block.validate_structure()?;
 
-        // The coinbase names the miner's payout: at most one output, worth at most the subsidy.
+        // The coinbase names the miner's payout: exactly one output, worth at most the subsidy.
+        // Without one, a blue block's subsidy and fees would vanish.
         // The ledger adds the block's fees when the block is merged as blue.
         let coinbase = &block.transactions[0];
         if coinbase.payload.len() < 8 || coinbase.payload[..8] != header.daa_score.to_be_bytes() {
             return Err(StateError::Coinbase("payload must start with the block's DAA score".to_string()));
         }
-        if coinbase.outputs.len() > 1 {
-            return Err(StateError::Coinbase("more than one output".to_string()));
+        if coinbase.outputs.len() != 1 {
+            return Err(StateError::Coinbase("must have exactly one output".to_string()));
         }
         if coinbase.issue.is_some() || coinbase.outputs.iter().any(|o| o.token.is_some()) {
             return Err(StateError::Coinbase("a block reward cannot create tokens".to_string()));
@@ -1164,14 +1187,30 @@ impl DagLedger {
         self.blocks.insert(block_hash, block.header.clone());
         self.level_index.insert((meta.level, block_hash));
         self.block_count += 1;
+        let reorganised = virtual_state.reorg_depth > 0;
         self.set_virtual(virtual_state);
 
-        // Drop pending transactions that were accepted or can no longer be spent. A block can
-        // only invalidate a pending transaction by removing a coin it spends, so looking up the
-        // coins this block removed is enough; the rest of the pool is untouched.
+        // Drop pending transactions that were accepted or can no longer be spent: those
+        // spending a coin this block removed, and every transaction the block carries. One the
+        // block carried but the ledger skipped has become invalid (a hash-lock claim past its
+        // deadline, say); left in the pool it would go into every later block for free.
         for outpoint in &view.batch.utxo_deletes {
             if !view.batch.utxo_puts.contains_key(outpoint) {
                 self.mempool.remove_spender(outpoint);
+            }
+        }
+        for tx in block.transactions.iter().skip(1) {
+            self.mempool.remove(&tx.id());
+        }
+        // A reorganisation can lower the blue score and bring back or remove coins: check
+        // everything still pending against the new state. Rare, so the cost is acceptable.
+        if reorganised {
+            let spending_score = self.virtual_blue_score;
+            let storage = self.storage.clone();
+            let mut pending: Vec<Transaction> = self.mempool.transactions().cloned().collect();
+            pending.retain(|tx| self.check_spend(tx, |outpoint| storage.get_utxo(outpoint), spending_score).is_err());
+            for tx in pending {
+                self.mempool.remove(&tx.id());
             }
         }
 
@@ -1298,14 +1337,12 @@ impl DagLedger {
         let ghostdag = self.dag.ghostdag(&parents)?;
         let daa_score = self.dag.daa_score(&ghostdag);
 
-        let coinbase_outputs = payout
-            .map(|address| TxOutput {
-                value_atoms: block_subsidy_atoms(daa_score),
-                script_public_key: ScriptPublicKey::pay_to_address(address),
-                token: None,
-            })
-            .into_iter()
-            .collect();
+        let address = payout.ok_or_else(|| StateError::Coinbase("no payout address".to_string()))?;
+        let coinbase_outputs = vec![TxOutput {
+            value_atoms: block_subsidy_atoms(daa_score),
+            script_public_key: ScriptPublicKey::pay_to_address(address),
+            token: None,
+        }];
         let mut body = vec![Transaction::coinbase(daa_score, coinbase_outputs, &[])];
         body.extend(transactions);
 
@@ -1334,7 +1371,7 @@ impl DagLedger {
 
         let block = self
             .build_block(&self.virtual_parents, payout.or(self.mining_address.as_ref()), transactions)
-            .expect("the virtual parents always form a valid block");
+            .expect("the virtual parents always form a valid block; callers supply a payout");
         let pre_pow_hash = block.header.pre_pow_hash().unwrap_or(Hash::ZERO);
 
         MiningTemplate {
@@ -1357,7 +1394,7 @@ impl DagLedger {
     /// A token's name and terms, and the accepted transaction that issued it. Pruned nodes
     /// forget tokens issued before their pruning point.
     pub fn token_info(&self, id: &Hash) -> Result<Option<(TokenInfo, TxInfo)>, StorageError> {
-        for tx_id in self.storage.get_invoice_tx_ids(&crate::storage::token_index_key(id))? {
+        for tx_id in self.storage.get_invoice_tx_ids(&crate::storage::token_index_key(id), 1)? {
             if let Some(info) = self.get_transaction(&tx_id)? {
                 if let Some(token) = info.tx.issue.clone().filter(|_| info.tx.issued_token() == Some(*id)) {
                     return Ok(Some((token, info)));
@@ -1390,11 +1427,16 @@ impl DagLedger {
 
     /// Queries the UTXOs of an address, each with whether it can be spent right now and how
     /// many confirmations it has (1 once accepted, one more per blue block added on top).
-    pub fn get_utxos_with_status(&self, address: &Address) -> Result<Vec<(Outpoint, TxOutput, bool, u64)>, StorageError> {
+    pub fn get_utxos_with_status(
+        &self,
+        address: &Address,
+        after: Option<&Outpoint>,
+        limit: usize,
+    ) -> Result<Vec<(Outpoint, TxOutput, bool, u64)>, StorageError> {
         let maturity = self.params.coinbase_maturity;
         Ok(self
             .storage
-            .get_utxos(address)?
+            .get_utxos_page(address, after, limit)?
             .into_iter()
             .map(|(outpoint, entry)| {
                 let spendable = !entry.is_coinbase || entry.blue_score + maturity <= self.virtual_blue_score;
@@ -1451,7 +1493,8 @@ impl DagLedger {
                 payer: tx.input_address(self.network, 0),
             })
             .collect();
-        for tx_id in self.storage.get_invoice_tx_ids(invoice_id)? {
+        let key = crate::storage::invoice_payee_key(invoice_id, &script);
+        for tx_id in self.storage.get_invoice_tx_ids(&key, MAX_INVOICE_PAYMENTS)? {
             if let Some(info) = self.get_transaction(&tx_id)? {
                 payments.push(InvoicePayment {
                     tx_id,

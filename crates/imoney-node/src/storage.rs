@@ -29,14 +29,14 @@ pub enum StorageError {
 // acceptance data, which make up most of the database, are stored packed (see `pack`).
 const BLOCKS_TABLE: TableDefinition<&[u8; 32], &[u8]> = TableDefinition::new("v4/blocks");
 const BLOCK_META_TABLE: TableDefinition<&[u8; 32], &[u8]> = TableDefinition::new("v4/block_meta");
-const ACCEPTANCE_TABLE: TableDefinition<&[u8; 32], &[u8]> = TableDefinition::new("v4/acceptance");
+const ACCEPTANCE_TABLE: TableDefinition<&[u8; 32], &[u8]> = TableDefinition::new("v5/acceptance");
 const METADATA_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("v4/metadata");
 const UTXO_TABLE: TableDefinition<&[u8], &[u8]> = TableDefinition::new("v4/utxos");
 const TRANSACTIONS_TABLE: TableDefinition<&[u8; 32], &[u8]> = TableDefinition::new("v4/transactions");
 /// Index of unspent outputs by locking script: key is `script key ++ outpoint`, with no value.
 const SCRIPT_UTXO_TABLE: TableDefinition<&[u8], ()> = TableDefinition::new("v4/script_utxos");
 /// Index of accepted payments by invoice: key is `invoice id ++ 0x00 ++ transaction id`.
-const INVOICE_TABLE: TableDefinition<&[u8], ()> = TableDefinition::new("v4/invoices");
+const INVOICE_TABLE: TableDefinition<&[u8], ()> = TableDefinition::new("v5/invoices");
 /// What each locking script received and sent, oldest first: key is
 /// `script key ++ accepting blue score ++ transaction id`.
 const HISTORY_TABLE: TableDefinition<&[u8], &[u8]> = TableDefinition::new("v4/script_history");
@@ -219,6 +219,15 @@ pub struct AcceptedTx {
     pub invoice_id: Option<String>,
     /// The token the transaction issues, if it issues one.
     pub issued_token: Option<Hash>,
+    /// For an invoice payment, each distinct script it pays. The invoice is indexed per
+    /// receiving script, so payments naming someone else's invoice ID to other addresses
+    /// cannot bury the real ones.
+    pub payees: Vec<ScriptPublicKey>,
+}
+
+/// The index key for payments of `invoice_id` to `script`. Invoice IDs cannot contain `>`.
+pub fn invoice_payee_key(invoice_id: &str, script: &ScriptPublicKey) -> String {
+    format!("{}>{}", invoice_id, hex::encode(script_index_prefix(script)))
 }
 
 /// The index key under which a token's issuing transaction is found. Invoice IDs cannot
@@ -230,7 +239,8 @@ pub fn token_index_key(id: &Hash) -> String {
 impl AcceptedTx {
     /// Every key this transaction is listed under in the invoice and token index.
     pub fn index_keys(&self) -> Vec<String> {
-        self.invoice_id.iter().cloned().chain(self.issued_token.as_ref().map(token_index_key)).collect()
+        let invoices = self.invoice_id.iter().flat_map(|id| self.payees.iter().map(move |s| invoice_payee_key(id, s)));
+        invoices.chain(self.issued_token.as_ref().map(token_index_key)).collect()
     }
 }
 
@@ -246,6 +256,11 @@ impl Encode for AcceptedTx {
                 out.push(1);
                 id.encode(out);
             }
+        }
+        out.extend_from_slice(&(self.payees.len() as u32).to_be_bytes());
+        for script in &self.payees {
+            out.push(script.version);
+            put_bytes(out, &script.script);
         }
     }
 }
@@ -265,6 +280,14 @@ impl Decode for AcceptedTx {
                 0 => None,
                 1 => Some(reader.hash()?),
                 _ => return Err(DecodeError::Invalid("issued token flag")),
+            },
+            payees: {
+                let count = reader.u32()? as usize;
+                let mut payees = Vec::with_capacity(count.min(64));
+                for _ in 0..count {
+                    payees.push(ScriptPublicKey { version: reader.u8()?, script: reader.bytes(u16::MAX as usize)? });
+                }
+                payees
             },
         })
     }
@@ -814,17 +837,38 @@ impl Storage {
 
     /// Returns list of all UTXOs belonging to an address, found through the script index.
     pub fn get_utxos(&self, address: &Address) -> Result<Vec<(Outpoint, UtxoEntry)>, StorageError> {
+        self.get_utxos_page(address, None, usize::MAX)
+    }
+
+    /// Up to `limit` of an address's UTXOs, in index order, starting after `after`.
+    pub fn get_utxos_page(
+        &self,
+        address: &Address,
+        after: Option<&Outpoint>,
+        limit: usize,
+    ) -> Result<Vec<(Outpoint, UtxoEntry)>, StorageError> {
         let read_tx = self.db.begin_read()?;
         let script_table = read_tx.open_table(SCRIPT_UTXO_TABLE)?;
         let utxo_table = read_tx.open_table(UTXO_TABLE)?;
 
-        let prefix = script_index_prefix(&ScriptPublicKey::pay_to_address(address));
+        let script = ScriptPublicKey::pay_to_address(address);
+        let prefix = script_index_prefix(&script);
         let mut end = prefix.clone();
         end.extend_from_slice(&[0xff; 36]);
+        let start = match after {
+            Some(outpoint) => script_index_key(&script, outpoint),
+            None => prefix.clone(),
+        };
 
         let mut results = Vec::new();
-        for item in script_table.range::<&[u8]>(prefix.as_slice()..=end.as_slice())? {
+        for item in script_table.range::<&[u8]>(start.as_slice()..=end.as_slice())? {
+            if results.len() >= limit {
+                break;
+            }
             let (key, _) = item?;
+            if after.is_some() && key.value() == start.as_slice() {
+                continue;
+            }
             let outpoint_bytes = &key.value()[prefix.len()..];
             if let Some(val) = utxo_table.get(outpoint_bytes)? {
                 results.push((Outpoint::from_bytes(outpoint_bytes)?, UtxoEntry::from_bytes(val.value())?));
@@ -835,7 +879,8 @@ impl Storage {
     }
 
     /// IDs of the accepted transactions that name `invoice_id`.
-    pub fn get_invoice_tx_ids(&self, invoice_id: &str) -> Result<Vec<Hash>, StorageError> {
+    /// Up to `limit` transactions listed under `invoice_id` (an index key).
+    pub fn get_invoice_tx_ids(&self, invoice_id: &str, limit: usize) -> Result<Vec<Hash>, StorageError> {
         let read_tx = self.db.begin_read()?;
         let table = read_tx.open_table(INVOICE_TABLE)?;
         let mut start = invoice_id.as_bytes().to_vec();
@@ -844,7 +889,7 @@ impl Storage {
         end.extend_from_slice(&[0xff; 32]);
 
         let mut tx_ids = Vec::new();
-        for item in table.range::<&[u8]>(start.as_slice()..=end.as_slice())? {
+        for item in table.range::<&[u8]>(start.as_slice()..=end.as_slice())?.take(limit) {
             let (key, _) = item?;
             tx_ids.push(<Hash as Decode>::from_bytes(&key.value()[start.len()..])?);
         }
