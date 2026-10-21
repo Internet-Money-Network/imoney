@@ -12,7 +12,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { BrowserProvider, ContractFactory, ZeroAddress, formatEther, parseEther } from 'ethers';
-import ganache from 'ganache';
+import { network } from 'hardhat';
 
 const [aliceImnKey, cli] = process.argv.slice(2);
 const node = process.env.IMN_NODE ?? 'http://127.0.0.1:18556';
@@ -30,7 +30,7 @@ const AMOUNT_ATOMS = 300_000_000n; // 3 IMN
 const PRICE = parseEther('0.01');
 
 // The Ethereum side
-const chain = ganache.provider({ logging: { quiet: true }, chain: { hardfork: 'london' } });
+const chain = (await network.connect()).provider;
 const provider = new BrowserProvider(chain, undefined, { cacheTimeout: -1 });
 const [aliceEth, bobEth] = [await provider.getSigner(0), await provider.getSigner(1)];
 const { abi, bytecode } = JSON.parse(readFileSync('out/ImnSwap.json', 'utf8'));
