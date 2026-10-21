@@ -207,6 +207,15 @@
     </div>
 
     <!-- First run: create or restore a wallet -->
+    <div class="card" id="insecure-warning" style="display: none; border-color: var(--negative);">
+      <strong style="color: var(--negative);">This connection is not encrypted.</strong>
+      <p class="small" style="margin: 6px 0 0;">
+        You opened the wallet from another computer over plain http. Anyone on the network path could
+        change this page and take your keys. Use it only on the computer running the node
+        (http://127.0.0.1), or put the node behind https.
+      </p>
+    </div>
+
     <div class="card" id="unlock-card" style="display: none;">
       <h2>Unlock your wallet</h2>
       <div class="form-group">
@@ -671,6 +680,10 @@
       if (sdk) return sdk.imnToAtoms(text);
       return Math.round(parseFloat(text) * ATOMS_PER_IMN);
     }
+
+    // "Everything": the builder caps a share at what the coin holds, so the split never depends
+    // on the amount a node's coin listing reports
+    const ALL_ATOMS = 2n ** 64n - 1n;
 
     // ---------------------------------------------------------------- wallet setup
     // The private key is never stored as it is. Remembering a wallet stores it encrypted
@@ -1538,7 +1551,7 @@
         if (role === 'buyer') actions.append(button('Release to the seller', () => act('Released', wasm.escrow_act(wallet.private_key_hex, TESTNET, deal.terms_hex, coinJson, 'release', 0n)), false));
         if (role === 'seller') actions.append(button('Refund the buyer', () => act('Refunded', wasm.escrow_act(wallet.private_key_hex, TESTNET, deal.terms_hex, coinJson, 'refund', 0n))));
         if (role === 'referee') {
-          actions.append(button('Pay the buyer', () => act('Paid to the buyer', wasm.escrow_act(wallet.private_key_hex, TESTNET, deal.terms_hex, coinJson, 'decide', BigInt(c.value_atoms))), false));
+          actions.append(button('Pay the buyer', () => act('Paid to the buyer', wasm.escrow_act(wallet.private_key_hex, TESTNET, deal.terms_hex, coinJson, 'decide', ALL_ATOMS)), false));
           actions.append(button('Pay the seller', () => act('Paid to the seller', wasm.escrow_act(wallet.private_key_hex, TESTNET, deal.terms_hex, coinJson, 'decide', 0n)), false));
         }
         const collector = info.seller_collects_after_deadline ? 'seller' : 'buyer';
@@ -1858,6 +1871,9 @@
     });
 
     // ---------------------------------------------------------------- start
+    if (location.protocol === 'http:' && !['localhost', '127.0.0.1', '[::1]'].includes(location.hostname)) {
+      $('insecure-warning').style.display = 'block';
+    }
     // Older versions kept the key unencrypted. That copy stays only until the user protects
     // it with a password (or forgets the wallet), so nobody is locked out of their money.
     let legacy = null;

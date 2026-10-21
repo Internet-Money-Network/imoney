@@ -659,8 +659,16 @@ const SDK_JS: &str = include_str!("../../../packages/imoney-sdk/dist/imoney.js")
 
 const EXPLORER_HTML: &str = include_str!("../../../apps/imoney-explorer/index.html");
 
-async fn wallet_gui_handler() -> Html<&'static str> {
-    Html(WALLET_HTML)
+async fn wallet_gui_handler() -> impl IntoResponse {
+    // No other site may frame the wallet, so a click on another page cannot press its buttons
+    (
+        [
+            (axum::http::header::X_FRAME_OPTIONS, "DENY"),
+            (axum::http::header::CONTENT_SECURITY_POLICY, "frame-ancestors 'none'"),
+            (axum::http::header::REFERRER_POLICY, "no-referrer"),
+        ],
+        Html(WALLET_HTML),
+    )
 }
 
 async fn explorer_handler() -> Html<&'static str> {

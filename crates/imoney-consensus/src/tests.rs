@@ -7,8 +7,11 @@ use imoney_pow::compact_to_u256;
 const EASY_BITS: u32 = 0x207fffff;
 const GENESIS: u8 = 0;
 
+/// Block `id`'s hash. Genesis (id 0) does not hash to `Hash::ZERO`: that is the "no selected
+/// parent" marker, and a genesis equal to it would make every child of genesis look like
+/// genesis, so the tests would run a path no real network takes.
 fn h(id: u8) -> Hash {
-    Hash([id; 32])
+    Hash([if id == GENESIS { 0xee } else { id }; 32])
 }
 
 fn dag_with_k(k: u64) -> Dag {

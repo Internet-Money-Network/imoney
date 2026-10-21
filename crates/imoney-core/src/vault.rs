@@ -230,7 +230,7 @@ impl Transaction {
             return Err("That is not the vault's everyday key".to_string());
         }
         // A few blocks of margin, so the transaction stays valid if it lands a little later
-        let pending = PendingWithdrawal { destination: ScriptPublicKey::pay_to_address(to), unlock_at: now + vault.delay + 10, backup: vault.backup };
+        let pending = PendingWithdrawal { destination: ScriptPublicKey::pay_to_address(to), unlock_at: now.saturating_add(vault.delay).saturating_add(10), backup: vault.backup };
         let (outpoint, held) = coin;
         let value = held.value_atoms.checked_sub(fee_atoms).ok_or("The fee is more than the vault coin holds")?;
         let mut tx = Transaction {

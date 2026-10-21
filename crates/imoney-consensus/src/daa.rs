@@ -157,11 +157,15 @@ impl Dag {
             return params.max_target_bits;
         }
         let parent = self.get(selected_parent);
-        // The first block follows genesis, whose fixed timestamp measures nothing
-        if parent.ghostdag.is_genesis() || parent.parents.is_empty() {
+        // Genesis's fixed timestamp measures nothing: neither the block after genesis nor the
+        // one after that has a step to measure
+        if parent.parents.is_empty() {
             return params.max_target_bits;
         }
         let grandparent = self.get(&parent.ghostdag.selected_parent);
+        if grandparent.parents.is_empty() {
+            return params.max_target_bits;
+        }
 
         let elapsed_ms = parent.timestamp_ms as i128 - grandparent.timestamp_ms as i128;
         let scheduled_ms = parent.ghostdag.mergeset_size() as i128 * params.target_time_per_block_ms as i128;

@@ -386,6 +386,8 @@ impl PoolRuntime {
             }
         }
         let request_line = String::from_utf8_lossy(&request_line);
+        // No cross-origin header: only the pool's own page reads this API, so other websites
+        // cannot read a miner's earnings from a visitor's browser
         let path = request_line.split_whitespace().nth(1).unwrap_or("/");
         let (status, kind, body) = match path.split('?').next().unwrap_or("/") {
             "/" => ("200 OK", "text/html; charset=utf-8", POOL_PAGE.to_string()),
@@ -399,7 +401,7 @@ impl PoolRuntime {
         };
         let _ = write!(
             writer,
-            "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n{}",
+            "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
             status,
             kind,
             body.len(),

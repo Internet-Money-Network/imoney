@@ -300,7 +300,7 @@ impl Transaction {
         outputs.extend(rest);
         if terms.give.is_some() && rest_index.is_none() {
             // A fully taken token offer returns the IMN it held to the maker
-            outputs[0].value_atoms += coin.value_atoms;
+            outputs[0].value_atoms = outputs[0].value_atoms.checked_add(coin.value_atoms).ok_or("Amount too large")?;
         }
         outputs.push(asset_output(&terms.give, take_amount, mine.clone()));
 
@@ -365,12 +365,15 @@ pub(crate) fn fund(
     use std::collections::BTreeMap;
     let change_script = ScriptPublicKey::pay_to_address(payer);
     let mut inputs: Vec<TxInput> = Vec::new();
+    // Amounts come from a node's coin listing: never let a bad one wrap around
+    const TOO_LARGE: &str = "Amount too large";
     let mut imn_in: u64 = 0;
     let mut tokens_in: BTreeMap<Hash, u64> = BTreeMap::new();
     for (input, spent) in spending {
-        imn_in += spent.value_atoms;
+        imn_in = imn_in.checked_add(spent.value_atoms).ok_or(TOO_LARGE)?;
         if let Some(token) = spent.token.filter(|t| !t.mint_authority) {
-            *tokens_in.entry(token.id).or_default() += token.amount;
+            let total = tokens_in.entry(token.id).or_default();
+            *total = total.checked_add(token.amount).ok_or(TOO_LARGE)?;
         }
         inputs.push(input);
     }
@@ -378,7 +381,8 @@ pub(crate) fn fund(
     // Tokens the outputs carry beyond what the chosen inputs bring
     let mut tokens_out: BTreeMap<Hash, u64> = BTreeMap::new();
     for token in outputs.iter().filter_map(|o| o.token.as_ref()).filter(|t| !t.mint_authority) {
-        *tokens_out.entry(token.id).or_default() += token.amount;
+        let total = tokens_out.entry(token.id).or_default();
+        *total = total.checked_add(token.amount).ok_or(TOO_LARGE)?;
     }
     let mut change = Vec::new();
     for (id, out) in tokens_out {
@@ -387,8 +391,8 @@ pub(crate) fn fund(
             if have >= out {
                 break;
             }
-            have += output.token.as_ref().map_or(0, |t| t.amount);
-            imn_in += output.value_atoms;
+            have = have.checked_add(output.token.as_ref().map_or(0, |t| t.amount)).ok_or(TOO_LARGE)?;
+            imn_in = imn_in.checked_add(output.value_atoms).ok_or(TOO_LARGE)?;
             inputs.push(TxInput { previous_outpoint: outpoint.clone(), signature_script: Vec::new() });
         }
         if have < out {
@@ -407,7 +411,7 @@ pub(crate) fn fund(
         if imn_in >= imn_out {
             break;
         }
-        imn_in += output.value_atoms;
+        imn_in = imn_in.checked_add(output.value_atoms).ok_or(TOO_LARGE)?;
         inputs.push(TxInput { previous_outpoint: outpoint.clone(), signature_script: Vec::new() });
     }
     if imn_in < imn_out {
