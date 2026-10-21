@@ -31,12 +31,16 @@ pub struct AppState {
     pub broadcast_limit: RateLimit,
     /// Open address WebSockets, each holding a task and a ledger subscription.
     pub sockets_open: std::sync::atomic::AtomicUsize,
+    /// Open address WebSockets per client, so one client cannot take every slot.
+    pub sockets_per_client: std::sync::Mutex<std::collections::HashMap<std::net::IpAddr, usize>>,
     /// Websites allowed to call the API from a browser; empty means any.
     pub allowed_origins: Vec<String>,
 }
 
 /// Most address WebSockets open at once.
 const MAX_SOCKETS: usize = 1_024;
+/// Most address WebSockets one client may hold open at once.
+const MAX_SOCKETS_PER_CLIENT: usize = 16;
 
 /// Token buckets per client IP: `rate` requests per second on average, up to `burst` at once,
 /// for each address. Per address, so one client using up its share leaves the others theirs.
@@ -50,6 +54,18 @@ pub struct RateLimit {
 /// Most client addresses tracked; beyond this, idle ones are forgotten.
 const MAX_TRACKED_CLIENTS: usize = 10_000;
 
+/// The client an address belongs to for limiting. One IPv6 subscriber usually holds a whole
+/// /64, so its addresses count as one client.
+fn client_key(ip: std::net::IpAddr) -> std::net::IpAddr {
+    match ip {
+        std::net::IpAddr::V6(v6) => {
+            let s = v6.segments();
+            std::net::IpAddr::V6(std::net::Ipv6Addr::new(s[0], s[1], s[2], s[3], 0, 0, 0, 0))
+        }
+        v4 => v4,
+    }
+}
+
 impl RateLimit {
     pub fn new(rate: f64, burst: f64) -> Self {
         RateLimit { rate, burst, buckets: std::sync::Mutex::new(std::collections::HashMap::new()) }
@@ -60,12 +76,18 @@ impl RateLimit {
         if ip.is_loopback() {
             return true;
         }
+        let ip = client_key(ip);
         let mut buckets = self.buckets.lock().unwrap();
         let now = std::time::Instant::now();
-        if buckets.len() >= MAX_TRACKED_CLIENTS {
+        if buckets.len() >= MAX_TRACKED_CLIENTS && !buckets.contains_key(&ip) {
             // A full bucket is the same as no entry: forget those
             let (rate, burst) = (self.rate, self.burst);
             buckets.retain(|_, (tokens, at)| *tokens + now.duration_since(*at).as_secs_f64() * rate < burst);
+            // Still full: every tracked client is busy. Turn the newcomer away rather than let
+            // the table (and the cost of this sweep) grow without bound.
+            if buckets.len() >= MAX_TRACKED_CLIENTS {
+                return false;
+            }
         }
         let (tokens, at) = buckets.entry(ip).or_insert((self.burst, now));
         *tokens = (*tokens + now.duration_since(*at).as_secs_f64() * self.rate).min(self.burst);
@@ -438,6 +460,7 @@ pub fn create_router(
         submit_limit: RateLimit::new(50.0, 200.0),
         broadcast_limit: RateLimit::new(20.0, 100.0),
         sockets_open: std::sync::atomic::AtomicUsize::new(0),
+        sockets_per_client: std::sync::Mutex::new(std::collections::HashMap::new()),
         allowed_origins,
     });
 
@@ -1177,6 +1200,7 @@ async fn ws_address_handler(
     ws: WebSocketUpgrade,
     Path(addr_str): Path<String>,
     State(state): State<Arc<AppState>>,
+    axum::extract::ConnectInfo(client): axum::extract::ConnectInfo<std::net::SocketAddr>,
     headers: axum::http::HeaderMap,
 ) -> Response {
     use std::sync::atomic::Ordering;
@@ -1190,13 +1214,33 @@ async fn ws_address_handler(
             return StatusCode::FORBIDDEN.into_response();
         }
     }
+    let client = client_key(client.ip());
+    if !client.is_loopback() {
+        let mut per_client = state.sockets_per_client.lock().unwrap();
+        let open = per_client.entry(client).or_insert(0);
+        if *open >= MAX_SOCKETS_PER_CLIENT {
+            return StatusCode::TOO_MANY_REQUESTS.into_response();
+        }
+        *open += 1;
+    }
+    let release_client = move |state: &AppState| {
+        let mut per_client = state.sockets_per_client.lock().unwrap();
+        if let Some(open) = per_client.get_mut(&client) {
+            *open -= 1;
+            if *open == 0 {
+                per_client.remove(&client);
+            }
+        }
+    };
     if state.sockets_open.fetch_add(1, Ordering::SeqCst) >= MAX_SOCKETS {
         state.sockets_open.fetch_sub(1, Ordering::SeqCst);
+        release_client(&state);
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     }
     ws.on_upgrade(move |socket| async move {
         handle_address_socket(socket, addr_str, state.clone()).await;
         state.sockets_open.fetch_sub(1, Ordering::SeqCst);
+        release_client(&state);
     })
 }
 
@@ -1284,5 +1328,31 @@ async fn handle_address_socket(mut socket: WebSocket, addr_str: String, state: A
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+
+    /// Many distinct clients, each using its bucket, must not grow the table past its limit.
+    #[test]
+    fn rate_limit_table_stays_bounded() {
+        let limit = RateLimit::new(1.0, 1.0);
+        for n in 0..(MAX_TRACKED_CLIENTS as u32 + 500) {
+            limit.allow(IpAddr::V4(Ipv4Addr::from(0x0a00_0000 + n)));
+        }
+        assert!(limit.buckets.lock().unwrap().len() <= MAX_TRACKED_CLIENTS);
+    }
+
+    /// Addresses within one IPv6 /64 share a bucket.
+    #[test]
+    fn ipv6_slash_64_counts_as_one_client() {
+        let limit = RateLimit::new(0.0, 2.0);
+        let ip = |last: u16| IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 1, 2, 0, 0, 0, last));
+        assert!(limit.allow(ip(1)));
+        assert!(limit.allow(ip(2)));
+        assert!(!limit.allow(ip(3)));
     }
 }

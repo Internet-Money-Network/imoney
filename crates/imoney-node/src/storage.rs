@@ -27,6 +27,8 @@ pub enum StorageError {
 
 // Table names carry a schema version: records are in the canonical binary encoding. Blocks and
 // acceptance data, which make up most of the database, are stored packed (see `pack`).
+/// Most offers read for one look at an order book.
+pub const MAX_LISTED: usize = 5_000;
 const BLOCKS_TABLE: TableDefinition<&[u8; 32], &[u8]> = TableDefinition::new("v4/blocks");
 const BLOCK_META_TABLE: TableDefinition<&[u8; 32], &[u8]> = TableDefinition::new("v4/block_meta");
 const ACCEPTANCE_TABLE: TableDefinition<&[u8; 32], &[u8]> = TableDefinition::new("v5/acceptance");
@@ -803,7 +805,7 @@ impl Storage {
             .fold(0u64, |total, (_, entry)| total.saturating_add(entry.output.value_atoms)))
     }
 
-    /// Every open offer, found through the script index: all offer scripts share a version and a
+    /// Every open offer (up to `MAX_LISTED`), found through the script index: all offer scripts share a version and a
     /// length, so they sit together in it.
     pub fn get_offers(&self) -> Result<Vec<(Outpoint, UtxoEntry)>, StorageError> {
         self.get_listed(imoney_core::offer::SCRIPT_VERSION_OFFER, imoney_core::offer::OFFER_TERMS_BYTES)
@@ -814,7 +816,9 @@ impl Storage {
         self.get_listed(imoney_core::swap_offer::SCRIPT_VERSION_SWAP_OFFER, imoney_core::swap_offer::SWAP_OFFER_TERMS_BYTES)
     }
 
-    /// Every unspent output whose script has this version and length, found through the script index.
+    /// Unspent outputs whose script has this version and length, found through the script index.
+    /// At most `MAX_LISTED` are read: the book is public and anyone can add to it, so one request
+    /// must not be able to make the node read an ever-growing table under the ledger lock.
     fn get_listed(&self, version: u8, terms_len: usize) -> Result<Vec<(Outpoint, UtxoEntry)>, StorageError> {
         let read_tx = self.db.begin_read()?;
         let script_table = read_tx.open_table(SCRIPT_UTXO_TABLE)?;
@@ -825,7 +829,7 @@ impl Storage {
         end.extend_from_slice(&vec![0xff; terms_len + 36]);
 
         let mut offers = Vec::new();
-        for item in script_table.range::<&[u8]>(prefix.as_slice()..=end.as_slice())? {
+        for item in script_table.range::<&[u8]>(prefix.as_slice()..=end.as_slice())?.take(MAX_LISTED) {
             let (key, _) = item?;
             let outpoint_bytes = &key.value()[prefix.len() + terms_len..];
             if let Some(val) = utxo_table.get(outpoint_bytes)? {

@@ -14,6 +14,7 @@ use imoney_core::{
     Address, Block, BlockError, BlockHeader, Decode, Encode, Hash, Network, Outpoint, ScriptPublicKey, TokenInfo,
     Transaction, TxOutput,
 };
+use imoney_core::transaction::TransactionError;
 use imoney_emission::{block_subsidy_atoms, block_subsidy_imn};
 use imoney_pow::{compact_to_u256, is_valid_pow, HallmarkPow};
 use serde::{Deserialize, Serialize};
@@ -634,8 +635,23 @@ impl DagLedger {
             }
 
             // Verify signature against public key and address hash
-            tx.verify_input_at(self.network, i, &utxo.output.script_public_key, spending_blue_score)
-                .map_err(|e| StateError::Transaction(format!("{} on input {}: {}", BAD_SIGNATURE, i, e)))?;
+            // Only a failure that holds at every blue score is marked as a bad signature. A
+            // deadline (hash-lock, vault, subscription, escrow) passes at different moments on
+            // nodes a block apart, and an honest peer relaying across one must not be punished.
+            tx.verify_input_at(self.network, i, &utxo.output.script_public_key, spending_blue_score).map_err(|e| {
+                let always_invalid = matches!(
+                    e,
+                    TransactionError::InvalidSignature(_)
+                        | TransactionError::PublicKeyAddressMismatch
+                        | TransactionError::InvalidSignatureScript(_)
+                        | TransactionError::UnsupportedScriptVersion(_)
+                );
+                if always_invalid {
+                    StateError::Transaction(format!("{} on input {}: {}", BAD_SIGNATURE, i, e))
+                } else {
+                    StateError::Transaction(format!("Input {} cannot be spent now: {}", i, e))
+                }
+            })?;
 
             total_input_atoms = total_input_atoms
                 .checked_add(utxo.output.value_atoms)
