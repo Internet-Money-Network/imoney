@@ -203,10 +203,7 @@ struct Bridge {
 
 /// `target` made `shift` bits easier, stopping at the largest possible target.
 fn shifted_target(target: &[u8; 32], shift: u32) -> [u8; 32] {
-    let leading_zero_bits = target
-        .iter()
-        .position(|byte| *byte != 0)
-        .map_or(256, |i| i as u32 * 8 + target[i].leading_zeros());
+    let leading_zero_bits = target.iter().position(|byte| *byte != 0).map_or(256, |i| i as u32 * 8 + target[i].leading_zeros());
     if shift >= leading_zero_bits {
         return [0xff; 32];
     }
@@ -256,13 +253,14 @@ impl Bridge {
     /// Fetches a template for `address` and, if it is new work, stores it and returns it.
     fn refresh(&self, address: &str, max_age: &mut HashMap<String, Instant>) -> Option<Arc<Job>> {
         let url = format!("{}/api/v1/mining/template?address={}", self.args.node, address);
-        let template: Template = match ureq::get(&url).call().map_err(|e| e.to_string()).and_then(|r| r.into_json().map_err(|e| e.to_string())) {
-            Ok(template) => template,
-            Err(e) => {
-                eprintln!("[-] Could not fetch work for {}: {}", address, e);
-                return None;
-            }
-        };
+        let template: Template =
+            match ureq::get(&url).call().map_err(|e| e.to_string()).and_then(|r| r.into_json().map_err(|e| e.to_string())) {
+                Ok(template) => template,
+                Err(e) => {
+                    eprintln!("[-] Could not fetch work for {}: {}", address, e);
+                    return None;
+                }
+            };
         let block = template.block;
         let current = self.latest_job(address);
         let fetched_at = max_age.get(address).copied();
@@ -311,8 +309,7 @@ impl Bridge {
         let mut last_tick = Instant::now();
         loop {
             let miners: Vec<Arc<Miner>> = self.miners.lock().unwrap().values().cloned().collect();
-            let addresses: HashSet<String> =
-                miners.iter().filter_map(|m| m.state.lock().unwrap().work_address.clone()).collect();
+            let addresses: HashSet<String> = miners.iter().filter_map(|m| m.state.lock().unwrap().work_address.clone()).collect();
 
             if let Some(pool) = &self.pool {
                 let mut live = runtime::Live::default();
@@ -408,11 +405,8 @@ impl Bridge {
             (payout, state.work_address.clone().ok_or((ERR_UNAUTHORIZED, "log in first"))?, state.shift)
         };
         let job_id = params.get(1).and_then(Value::as_str).ok_or((ERR_OTHER, "missing job id"))?;
-        let nonce = params
-            .get(2)
-            .and_then(Value::as_str)
-            .and_then(parse_nonce)
-            .ok_or((ERR_OTHER, "nonce must be 16 hexadecimal digits"))?;
+        let nonce =
+            params.get(2).and_then(Value::as_str).and_then(parse_nonce).ok_or((ERR_OTHER, "nonce must be 16 hexadecimal digits"))?;
         if (nonce >> 48) as u16 != miner.extranonce {
             return Err((ERR_OTHER, "nonce does not start with this connection's extranonce"));
         }
@@ -508,12 +502,9 @@ impl Bridge {
 
     fn handle_request(&self, miner: &Miner, method: &str, params: &[Value]) -> Result<Value, (i64, &'static str)> {
         match method {
-            "mining.subscribe" => Ok(json!([
-                [["mining.notify", format!("{:x}", miner.id)]],
-                format!("{:04x}", miner.extranonce),
-                6,
-                self.network
-            ])),
+            "mining.subscribe" => {
+                Ok(json!([[["mining.notify", format!("{:x}", miner.id)]], format!("{:04x}", miner.extranonce), 6, self.network]))
+            }
             "mining.authorize" => {
                 // "address" or "address.worker"; the worker name is only a label
                 let login = params.first().and_then(Value::as_str).ok_or((ERR_OTHER, "missing address"))?;
@@ -587,10 +578,7 @@ fn main() {
 
     // The node's genesis hash seeds the proof of work for its network, and it reports the
     // dataset sizes the network uses
-    let info = ureq::get(&format!("{}/api/v1/info", args.node))
-        .call()
-        .ok()
-        .and_then(|response| response.into_json::<Value>().ok());
+    let info = ureq::get(&format!("{}/api/v1/info", args.node)).call().ok().and_then(|response| response.into_json::<Value>().ok());
     let genesis = info.as_ref().and_then(|info| info["genesis_hash"].as_str().and_then(|hex| Hash::from_hex(hex).ok()));
     let (Some(info), Some(genesis)) = (info, genesis) else {
         eprintln!("[-] Could not reach the node at {}", args.node);

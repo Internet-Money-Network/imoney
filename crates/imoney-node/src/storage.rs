@@ -203,11 +203,7 @@ impl Encode for TxRecord {
 
 impl Decode for TxRecord {
     fn decode(reader: &mut Reader<'_>) -> Result<Self, DecodeError> {
-        Ok(Self {
-            block_hash: reader.hash()?,
-            tx_index: reader.u32()?,
-            accepting_blue_score: reader.u64()?,
-        })
+        Ok(Self { block_hash: reader.hash()?, tx_index: reader.u32()?, accepting_blue_score: reader.u64()? })
     }
 }
 
@@ -431,10 +427,7 @@ impl Encode for BlockMeta {
 
 impl Decode for BlockMeta {
     fn decode(reader: &mut Reader<'_>) -> Result<Self, DecodeError> {
-        Ok(Self {
-            level: reader.u64()?,
-            ghostdag: GhostdagData::from_bytes(&reader.bytes(u32::MAX as usize)?)?,
-        })
+        Ok(Self { level: reader.u64()?, ghostdag: GhostdagData::from_bytes(&reader.bytes(u32::MAX as usize)?)? })
     }
 }
 
@@ -799,10 +792,7 @@ impl Storage {
 
     /// Queries the balance of an address (summing atomic units), including immature rewards.
     pub fn get_balance(&self, address: &Address) -> Result<u64, StorageError> {
-        Ok(self
-            .get_utxos(address)?
-            .iter()
-            .fold(0u64, |total, (_, entry)| total.saturating_add(entry.output.value_atoms)))
+        Ok(self.get_utxos(address)?.iter().fold(0u64, |total, (_, entry)| total.saturating_add(entry.output.value_atoms)))
     }
 
     /// Every open offer (up to `MAX_LISTED`), found through the script index: all offer scripts share a version and a
@@ -902,12 +892,7 @@ impl Storage {
 
     /// The newest `limit` history rows of an address, newest first. `before` is the position of
     /// a row already read: only older rows are returned.
-    pub fn get_history(
-        &self,
-        address: &Address,
-        limit: usize,
-        before: Option<&[u8]>,
-    ) -> Result<Vec<HistoryRow>, StorageError> {
+    pub fn get_history(&self, address: &Address, limit: usize, before: Option<&[u8]>) -> Result<Vec<HistoryRow>, StorageError> {
         let read_tx = self.db.begin_read()?;
         let table = read_tx.open_table(HISTORY_TABLE)?;
         let prefix = script_index_prefix(&ScriptPublicKey::pay_to_address(address));
@@ -938,11 +923,7 @@ impl Storage {
     /// The circulating supply in atoms: the sum of every unspent output, kept as a running total
     /// that each write updates, so reading it does not depend on how many coins exist.
     pub fn total_utxo_atoms(&self) -> Result<u128, StorageError> {
-        Ok(self
-            .get_metadata(META_SUPPLY)?
-            .and_then(|bytes| bytes.try_into().ok())
-            .map(u128::from_be_bytes)
-            .unwrap_or(0))
+        Ok(self.get_metadata(META_SUPPLY)?.and_then(|bytes| bytes.try_into().ok()).map(u128::from_be_bytes).unwrap_or(0))
     }
 
     /// Adds up every unspent output by reading the whole UTXO set. Slow on a large chain; used

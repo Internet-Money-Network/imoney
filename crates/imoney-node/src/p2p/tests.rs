@@ -36,8 +36,7 @@ impl TestNode {
         let ledger: SharedLedger = Arc::new(RwLock::new(ledger));
         let pow = Arc::new(HallmarkPow::new(PowParams::tiny(), Hash([1u8; 32]), PowMode::Full));
         let manager = Arc::new(
-            PeerManager::with_magic(ledger.clone(), pow.clone(), 0, magic)
-                .with_timing(Duration::from_millis(300), Duration::from_secs(1)),
+            PeerManager::with_magic(ledger.clone(), pow.clone(), 0, magic).with_timing(Duration::from_millis(300), Duration::from_secs(1)),
         );
         let addr = manager.clone().start_server("127.0.0.1:0".parse().unwrap()).await.unwrap();
         Self { manager, ledger, pow, addr }
@@ -51,10 +50,8 @@ impl TestNode {
     async fn mine_silently(&self, payout: &Address) -> Hash {
         let mut ledger = self.ledger.write().await;
         let template = ledger.get_mining_template(Some(payout));
-        let (nonce, _) = self
-            .pow
-            .mine(&template.pre_pow_hash, template.block.header.bits, 0, 1_000_000, Arc::new(AtomicBool::new(false)))
-            .unwrap();
+        let (nonce, _) =
+            self.pow.mine(&template.pre_pow_hash, template.block.header.bits, 0, 1_000_000, Arc::new(AtomicBool::new(false))).unwrap();
         ledger.add_block(template.into_block(nonce), &self.pow).unwrap()
     }
 
@@ -62,10 +59,8 @@ impl TestNode {
     async fn mine(&self, payout: &Address) -> Hash {
         let mut ledger = self.ledger.write().await;
         let template = ledger.get_mining_template(Some(payout));
-        let (nonce, _) = self
-            .pow
-            .mine(&template.pre_pow_hash, template.block.header.bits, 0, 1_000_000, Arc::new(AtomicBool::new(false)))
-            .unwrap();
+        let (nonce, _) =
+            self.pow.mine(&template.pre_pow_hash, template.block.header.bits, 0, 1_000_000, Arc::new(AtomicBool::new(false))).unwrap();
         let block = template.into_block(nonce);
         let hash = ledger.add_block(block.clone(), &self.pow).unwrap();
         drop(ledger);
@@ -335,10 +330,7 @@ async fn only_a_block_without_proof_of_work_bans_at_once() {
         let mut block = a.ledger.read().await.get_mining_template(Some(&miner)).block;
         block.header.blue_score += 1 + nonce;
         let pre_pow_hash = block.header.pre_pow_hash().unwrap();
-        let (found, _) = a
-            .pow
-            .mine(&pre_pow_hash, block.header.bits, 0, 1_000_000, Arc::new(AtomicBool::new(false)))
-            .unwrap();
+        let (found, _) = a.pow.mine(&pre_pow_hash, block.header.bits, 0, 1_000_000, Arc::new(AtomicBool::new(false))).unwrap();
         block.header.nonce = found;
         write_frame(&mut stream, MAGIC, &Message::Block(block)).await.unwrap();
     }
@@ -347,8 +339,7 @@ async fn only_a_block_without_proof_of_work_bans_at_once() {
     let good = a.ledger.read().await.get_mining_template(Some(&miner)).block;
     let pre_pow_hash = good.header.pre_pow_hash().unwrap();
     let mut good = good;
-    good.header.nonce =
-        a.pow.mine(&pre_pow_hash, good.header.bits, 0, 1_000_000, Arc::new(AtomicBool::new(false))).unwrap().0;
+    good.header.nonce = a.pow.mine(&pre_pow_hash, good.header.bits, 0, 1_000_000, Arc::new(AtomicBool::new(false))).unwrap().0;
     write_frame(&mut stream, MAGIC, &Message::Block(good)).await.unwrap();
     eventually!("the good block is added", a.block_count().await == 2);
     assert_eq!(a.peer_count().await, 1);
@@ -470,8 +461,7 @@ async fn an_inbound_peer_can_neither_hold_back_nor_fake_sync() {
     let mut orphan = a.ledger.read().await.get_mining_template(Some(&miner)).block;
     orphan.header.parents = vec![Hash([7u8; 32])];
     let pre_pow_hash = orphan.header.pre_pow_hash().unwrap();
-    orphan.header.nonce =
-        a.pow.mine(&pre_pow_hash, orphan.header.bits, 0, 1_000_000, Arc::new(AtomicBool::new(false))).unwrap().0;
+    orphan.header.nonce = a.pow.mine(&pre_pow_hash, orphan.header.bits, 0, 1_000_000, Arc::new(AtomicBool::new(false))).unwrap().0;
     write_frame(&mut stream, MAGIC, &Message::Block(orphan)).await.unwrap();
     tokio::time::sleep(Duration::from_secs(1)).await;
     assert!(!a.manager.is_synced(), "an inbound peer's word is not enough");

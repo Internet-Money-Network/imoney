@@ -25,8 +25,8 @@ const LIGHT_CACHE_ROUNDS: usize = 3;
 
 /// The seed fixed by the FishHash specification, as used by Iron Fish.
 pub const FISHHASH_SEED: [u8; 32] = [
-    0xeb, 0x01, 0x63, 0xae, 0xf2, 0xab, 0x1c, 0x5a, 0x66, 0x31, 0x0c, 0x1c, 0x14, 0xd6, 0x0f, 0x42,
-    0x55, 0xa9, 0xb3, 0x9b, 0x0e, 0xdf, 0x26, 0x53, 0x98, 0x44, 0xf1, 0x17, 0xad, 0x67, 0x21, 0x19,
+    0xeb, 0x01, 0x63, 0xae, 0xf2, 0xab, 0x1c, 0x5a, 0x66, 0x31, 0x0c, 0x1c, 0x14, 0xd6, 0x0f, 0x42, 0x55, 0xa9, 0xb3, 0x9b, 0x0e, 0xdf,
+    0x26, 0x53, 0x98, 0x44, 0xf1, 0x17, 0xad, 0x67, 0x21, 0x19,
 ];
 
 /// Light cache size fixed by the FishHash specification (about 75 MB).
@@ -138,12 +138,8 @@ impl FishHashContext {
     /// Builds the light cache, and the full dataset too when `full` is set.
     pub fn new(seed: &[u8; 32], light_cache_items: u32, dataset_items: u32, full: bool) -> Self {
         let light_cache = build_light_cache(seed, light_cache_items);
-        let full_dataset = full.then(|| {
-            (0..dataset_items as usize)
-                .into_par_iter()
-                .map(|index| calculate_dataset_item_1024(&light_cache, index))
-                .collect()
-        });
+        let full_dataset = full
+            .then(|| (0..dataset_items as usize).into_par_iter().map(|index| calculate_dataset_item_1024(&light_cache, index)).collect());
         Self { light_cache, full_dataset, dataset_items }
     }
 

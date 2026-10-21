@@ -1,20 +1,18 @@
 use crate::genesis::{create_devnet_genesis, create_testnet_genesis};
 use crate::mempool::{Mempool, MempoolError};
 use crate::storage::{
-    AcceptanceData, AcceptedTx, BlockMeta, HistoryItem, HistoryRow, Storage, StorageError, TxRecord, UtxoEntry,
-    WriteBatch, META_LAST_REORG, META_PRUNED_FLOOR, META_SINK, META_VIRTUAL_ACCEPTANCE,
+    AcceptanceData, AcceptedTx, BlockMeta, HistoryItem, HistoryRow, Storage, StorageError, TxRecord, UtxoEntry, WriteBatch,
+    META_LAST_REORG, META_PRUNED_FLOOR, META_SINK, META_VIRTUAL_ACCEPTANCE,
 };
 use imoney_consensus::{work_from_bits, DaaParams, Dag, DagBlock, GhostdagData, GhostdagError, GhostdagParams};
 use imoney_core::constants::{
-    ATOMS_PER_IMN, BLOCKS_PER_HALVING_ERA, BLOCKS_PER_YEAR, MAX_BLOCK_BYTES, MAX_BLOCK_PARENTS, MAX_TX_BYTES,
-    TARGET_TIME_PER_BLOCK_MS,
+    ATOMS_PER_IMN, BLOCKS_PER_HALVING_ERA, BLOCKS_PER_YEAR, MAX_BLOCK_BYTES, MAX_BLOCK_PARENTS, MAX_TX_BYTES, TARGET_TIME_PER_BLOCK_MS,
 };
 use imoney_core::serialize::tagged_hash;
-use imoney_core::{
-    Address, Block, BlockError, BlockHeader, Decode, Encode, Hash, Network, Outpoint, ScriptPublicKey, TokenInfo,
-    Transaction, TxOutput,
-};
 use imoney_core::transaction::TransactionError;
+use imoney_core::{
+    Address, Block, BlockError, BlockHeader, Decode, Encode, Hash, Network, Outpoint, ScriptPublicKey, TokenInfo, Transaction, TxOutput,
+};
 use imoney_emission::{block_subsidy_atoms, block_subsidy_imn};
 use imoney_pow::{compact_to_u256, is_valid_pow, HallmarkPow};
 use serde::{Deserialize, Serialize};
@@ -265,10 +263,7 @@ pub type BlockPage = (Vec<Block>, Option<(u64, Hash)>);
 
 /// The outpoint of the reward the ledger creates for a blue block.
 pub fn reward_outpoint(block_hash: &Hash) -> Outpoint {
-    Outpoint {
-        transaction_id: tagged_hash("IMN 2026 block reward", &[&block_hash.0]),
-        index: 0,
-    }
+    Outpoint { transaction_id: tagged_hash("IMN 2026 block reward", &[&block_hash.0]), index: 0 }
 }
 
 /// Uncommitted ledger changes layered over the database.
@@ -356,11 +351,7 @@ impl LedgerView {
             self.put_invoice(accepted);
             self.put_record(
                 accepted.tx_id,
-                TxRecord {
-                    block_hash: accepted.block_hash,
-                    tx_index: accepted.tx_index,
-                    accepting_blue_score: acceptance.blue_score,
-                },
+                TxRecord { block_hash: accepted.block_hash, tx_index: accepted.tx_index, accepting_blue_score: acceptance.blue_score },
             );
         }
     }
@@ -423,7 +414,6 @@ pub struct DagLedger {
     level_index: BTreeSet<(u64, Hash)>,
     virtual_acceptance: AcceptanceData,
 }
-
 
 impl DagLedger {
     /// Opens the ledger of the network described by `params` from disk, or creates it if new.
@@ -489,9 +479,7 @@ impl DagLedger {
         let genesis_hash = genesis.hash();
         if stored_blocks == 0 {
             // Genesis initialization
-            ledger
-                .dag
-                .insert_genesis(genesis_hash, genesis.header.timestamp_ms, genesis.header.bits);
+            ledger.dag.insert_genesis(genesis_hash, genesis.header.timestamp_ms, genesis.header.bits);
             let meta = BlockMeta { level: 0, ghostdag: GhostdagData::default() };
             view.batch.blocks.push((genesis_hash, genesis.to_bytes()));
             view.batch.block_meta.push((genesis_hash, meta.to_bytes()));
@@ -508,10 +496,8 @@ impl DagLedger {
             // Recover from disk: the recent blocks, and genesis
             let floor = ledger.storage.top_level()?.unwrap_or(0).saturating_sub(keep_levels).max(1);
             let mut loaded = ledger.storage.load_blocks_from_level(floor)?;
-            let (genesis_header, genesis_meta) = ledger
-                .storage
-                .get_header_and_meta(&genesis_hash)?
-                .ok_or(StorageError::MissingBlock(genesis_hash))?;
+            let (genesis_header, genesis_meta) =
+                ledger.storage.get_header_and_meta(&genesis_hash)?.ok_or(StorageError::MissingBlock(genesis_hash))?;
             loaded.push((genesis_hash, genesis_header, genesis_meta));
 
             let mut non_tips = HashSet::new();
@@ -524,12 +510,8 @@ impl DagLedger {
                 ledger.blocks.insert(hash, header);
             }
             // Tips: recent blocks that are not parents of any other block
-            ledger.tips = ledger
-                .blocks
-                .keys()
-                .filter(|h| !non_tips.contains(h) && (**h != genesis_hash || stored_blocks == 1))
-                .copied()
-                .collect();
+            ledger.tips =
+                ledger.blocks.keys().filter(|h| !non_tips.contains(h) && (**h != genesis_hash || stored_blocks == 1)).copied().collect();
 
             let sink_bytes = ledger.storage.get_metadata(META_SINK)?.expect("Metadata must exist if blocks exist");
             ledger.virtual_selected_parent = <Hash as Decode>::from_bytes(&sink_bytes).map_err(StorageError::from)?;
@@ -609,10 +591,7 @@ impl DagLedger {
         }
         let size = tx.to_bytes().len();
         if size > MAX_TX_BYTES {
-            return Err(StateError::Transaction(format!(
-                "Transaction is {} bytes, above the {}-byte limit",
-                size, MAX_TX_BYTES
-            )));
+            return Err(StateError::Transaction(format!("Transaction is {} bytes, above the {}-byte limit", size, MAX_TX_BYTES)));
         }
 
         let mut total_input_atoms: u64 = 0;
@@ -671,10 +650,7 @@ impl DagLedger {
             .try_fold(0u64, |acc, o| acc.checked_add(o.value_atoms))
             .ok_or_else(|| StateError::Transaction("Output total overflows".to_string()))?;
         if total_input_atoms < total_output_atoms {
-            return Err(StateError::Transaction(format!(
-                "Inputs {} atoms < outputs {} atoms",
-                total_input_atoms, total_output_atoms
-            )));
+            return Err(StateError::Transaction(format!("Inputs {} atoms < outputs {} atoms", total_input_atoms, total_output_atoms)));
         }
 
         Ok(total_input_atoms - total_output_atoms)
@@ -770,10 +746,7 @@ impl DagLedger {
                     created.push((outpoint, entry));
                 }
 
-                view.put_record(
-                    tx_id,
-                    TxRecord { block_hash, tx_index: index as u32, accepting_blue_score: blue_score },
-                );
+                view.put_record(tx_id, TxRecord { block_hash, tx_index: index as u32, accepting_blue_score: blue_score });
                 let accepted = AcceptedTx {
                     tx_id,
                     block_hash,
@@ -918,12 +891,8 @@ impl DagLedger {
     fn pick_virtual_parents(&self, sink: &Hash) -> Vec<Hash> {
         let sink_score = self.dag.get(sink).ghostdag.blue_score;
         // A tip left behind for longer than the finality depth is never merged
-        let mut others: Vec<Hash> = self
-            .tips
-            .iter()
-            .filter(|t| *t != sink && !self.too_old_to_be_a_parent(t, sink_score))
-            .copied()
-            .collect();
+        let mut others: Vec<Hash> =
+            self.tips.iter().filter(|t| *t != sink && !self.too_old_to_be_a_parent(t, sink_score)).copied().collect();
         others.sort_by_key(|h| std::cmp::Reverse(self.dag.sort_key(h)));
         // However many tips there are, only the heaviest few are tried
         others.truncate(MAX_VIRTUAL_PARENT_CANDIDATES);
@@ -948,11 +917,7 @@ impl DagLedger {
     /// Moves the UTXO set in `view` from the current virtual state to the virtual state of the
     /// current tips: undoes the old virtual block, switches the selected chain if a heavier one
     /// exists (undoing and applying whole blocks), then applies the new virtual block.
-    fn resolve_virtual(
-        &self,
-        view: &mut LedgerView,
-        pending: Option<(&Hash, &Block)>,
-    ) -> Result<VirtualState, StateError> {
+    fn resolve_virtual(&self, view: &mut LedgerView, pending: Option<(&Hash, &Block)>) -> Result<VirtualState, StateError> {
         let old_sink = self.virtual_selected_parent;
 
         // Only tips whose selected chain runs through the finality point may become the sink
@@ -963,10 +928,8 @@ impl DagLedger {
         let mut by_weight: Vec<Hash> = self.tips.iter().copied().collect();
         by_weight.sort_by_key(|h| std::cmp::Reverse(self.dag.sort_key(h)));
         let heaviest = *by_weight.first().expect("the DAG always has a tip");
-        let new_sink = by_weight
-            .into_iter()
-            .find(|tip| self.chain_ancestor_at_or_below(*tip, finality_score) == finality_point)
-            .unwrap_or(old_sink);
+        let new_sink =
+            by_weight.into_iter().find(|tip| self.chain_ancestor_at_or_below(*tip, finality_score) == finality_point).unwrap_or(old_sink);
         let finality_conflict = heaviest != new_sink;
 
         view.undo(&self.virtual_acceptance);
@@ -1059,11 +1022,7 @@ impl DagLedger {
         self.check_claimed_pow(&block.header, pow_engine)
     }
 
-    pub fn add_block(
-        &mut self,
-        block: Block,
-        pow_engine: &HallmarkPow,
-    ) -> Result<Hash, StateError> {
+    pub fn add_block(&mut self, block: Block, pow_engine: &HallmarkPow) -> Result<Hash, StateError> {
         let header = &block.header;
         let block_hash = header.hash();
 
@@ -1089,10 +1048,7 @@ impl DagLedger {
             if let Some(selected_parent) = self.dag.best_of(&header.parents) {
                 let expected_bits = self.dag.expected_bits_after(&selected_parent, &self.params.daa);
                 if header.bits != expected_bits {
-                    return Err(StateError::Header(format!(
-                        "Difficulty bits 0x{:08x} should be 0x{:08x}",
-                        header.bits, expected_bits
-                    )));
+                    return Err(StateError::Header(format!("Difficulty bits 0x{:08x} should be 0x{:08x}", header.bits, expected_bits)));
                 }
             }
         }
@@ -1103,28 +1059,16 @@ impl DagLedger {
         let expected_daa_score = self.dag.daa_score(&ghostdag);
         let expected_bits = self.dag.expected_bits(&ghostdag, &self.params.daa);
         if header.blue_score != ghostdag.blue_score {
-            return Err(StateError::Header(format!(
-                "Blue score {} should be {}",
-                header.blue_score, ghostdag.blue_score
-            )));
+            return Err(StateError::Header(format!("Blue score {} should be {}", header.blue_score, ghostdag.blue_score)));
         }
         if header.blue_work != ghostdag.blue_work {
-            return Err(StateError::Header(format!(
-                "Blue work {} should be {}",
-                header.blue_work, ghostdag.blue_work
-            )));
+            return Err(StateError::Header(format!("Blue work {} should be {}", header.blue_work, ghostdag.blue_work)));
         }
         if header.daa_score != expected_daa_score {
-            return Err(StateError::Header(format!(
-                "DAA score {} should be {}",
-                header.daa_score, expected_daa_score
-            )));
+            return Err(StateError::Header(format!("DAA score {} should be {}", header.daa_score, expected_daa_score)));
         }
         if header.bits != expected_bits {
-            return Err(StateError::Header(format!(
-                "Difficulty bits 0x{:08x} should be 0x{:08x}",
-                header.bits, expected_bits
-            )));
+            return Err(StateError::Header(format!("Difficulty bits 0x{:08x} should be 0x{:08x}", header.bits, expected_bits)));
         }
         if header.accepted_id_merkle_root != Hash::ZERO || header.utxo_commitment != Hash::ZERO {
             return Err(StateError::Header("Reserved commitment fields must be zero".to_string()));
@@ -1165,14 +1109,7 @@ impl DagLedger {
 
         // Add the block to the in-memory DAG, then move the ledger to the new virtual state
         let removed_tips: Vec<Hash> = header.parents.iter().filter(|p| self.tips.contains(*p)).copied().collect();
-        self.dag.insert(
-            block_hash,
-            header.parents.clone(),
-            header.timestamp_ms,
-            header.bits,
-            header.daa_score,
-            ghostdag.clone(),
-        );
+        self.dag.insert(block_hash, header.parents.clone(), header.timestamp_ms, header.bits, header.daa_score, ghostdag.clone());
         for parent in &removed_tips {
             self.tips.remove(parent);
         }
@@ -1184,12 +1121,10 @@ impl DagLedger {
         view.batch.block_meta.push((block_hash, meta.to_bytes()));
         view.batch.levels.push((meta.level, block_hash));
 
-        let result = self
-            .resolve_virtual(&mut view, Some((&block_hash, &block)))
-            .and_then(|virtual_state| {
-                self.storage.commit(&view.batch)?;
-                Ok(virtual_state)
-            });
+        let result = self.resolve_virtual(&mut view, Some((&block_hash, &block))).and_then(|virtual_state| {
+            self.storage.commit(&view.batch)?;
+            Ok(virtual_state)
+        });
         let virtual_state = match result {
             Ok(virtual_state) => virtual_state,
             Err(e) => {
@@ -1240,7 +1175,6 @@ impl DagLedger {
 
         Ok(block_hash)
     }
-
 
     /// Turns on pruning and prunes whatever is already deep enough. The depth must exceed the
     /// finality depth, so nothing that a reorganisation could still need is ever deleted.
@@ -1341,12 +1275,7 @@ impl DagLedger {
     }
 
     /// Builds an unmined block on the given parents with every consensus field filled in.
-    pub fn build_block(
-        &self,
-        parents: &[Hash],
-        payout: Option<&Address>,
-        transactions: Vec<Transaction>,
-    ) -> Result<Block, StateError> {
+    pub fn build_block(&self, parents: &[Hash], payout: Option<&Address>, transactions: Vec<Transaction>) -> Result<Block, StateError> {
         let mut parents = parents.to_vec();
         parents.sort();
         self.check_parents(&parents)?;
@@ -1421,12 +1350,7 @@ impl DagLedger {
     }
 
     pub fn get_utxos(&self, address: &Address) -> Result<Vec<(Outpoint, TxOutput)>, StorageError> {
-        Ok(self
-            .storage
-            .get_utxos(address)?
-            .into_iter()
-            .map(|(outpoint, entry)| (outpoint, entry.output))
-            .collect())
+        Ok(self.storage.get_utxos(address)?.into_iter().map(|(outpoint, entry)| (outpoint, entry.output)).collect())
     }
 
     /// Queries the UTXOs of an address that can be spent right now (excludes immature rewards).
@@ -1464,12 +1388,7 @@ impl DagLedger {
 
     /// What an address received and sent, newest first, each row with its confirmations.
     /// `before` continues after a row already read (see `HistoryRow::position`).
-    pub fn address_history(
-        &self,
-        address: &Address,
-        limit: usize,
-        before: Option<&[u8]>,
-    ) -> Result<Vec<(HistoryRow, u64)>, StorageError> {
+    pub fn address_history(&self, address: &Address, limit: usize, before: Option<&[u8]>) -> Result<Vec<(HistoryRow, u64)>, StorageError> {
         Ok(self
             .storage
             .get_history(address, limit, before)?
@@ -1485,18 +1404,14 @@ impl DagLedger {
     /// selected chain was reorganised several blocks deep within the last half hour.
     pub fn network_alert(&self) -> bool {
         let now_ms = chrono::Utc::now().timestamp_millis() as u64;
-        self.finality_conflict
-            || self.last_reorg.is_some_and(|(_, at)| now_ms.saturating_sub(at) < NETWORK_ALERT_WINDOW_MS)
+        self.finality_conflict || self.last_reorg.is_some_and(|(_, at)| now_ms.saturating_sub(at) < NETWORK_ALERT_WINDOW_MS)
     }
 
     /// Every payment that names `invoice_id`, pending or accepted, with how much each pays `address`.
     pub fn invoice_payments(&self, invoice_id: &str, address: &Address) -> Result<Vec<InvoicePayment>, StorageError> {
         let script = ScriptPublicKey::pay_to_address(address);
         let paid_to_address = |tx: &Transaction| -> u64 {
-            tx.outputs
-                .iter()
-                .filter(|o| o.script_public_key == script)
-                .fold(0u64, |sum, o| sum.saturating_add(o.value_atoms))
+            tx.outputs.iter().filter(|o| o.script_public_key == script).fold(0u64, |sum, o| sum.saturating_add(o.value_atoms))
         };
 
         let mut payments: Vec<InvoicePayment> = self
@@ -1532,10 +1447,7 @@ impl DagLedger {
         let Some(record) = self.storage.get_tx_record(tx_id)? else {
             return Ok(None);
         };
-        let block = self
-            .storage
-            .get_block(&record.block_hash)?
-            .ok_or(StorageError::MissingBlock(record.block_hash))?;
+        let block = self.storage.get_block(&record.block_hash)?.ok_or(StorageError::MissingBlock(record.block_hash))?;
         let Some(tx) = block.transactions.get(record.tx_index as usize) else {
             return Ok(None);
         };
@@ -1578,20 +1490,12 @@ impl DagLedger {
 
     /// The level of the first locator entry this node has, or 0 when it has none of them.
     pub fn sync_start_level(&self, locator: &[Hash]) -> u64 {
-        locator
-            .iter()
-            .find_map(|hash| self.dag.try_get(hash))
-            .map_or(0, |block| block.level)
+        locator.iter().find_map(|hash| self.dag.try_get(hash)).map_or(0, |block| block.level)
     }
 
     /// Blocks after `cursor` in `(level, hash)` order, up to the given limits.
     /// Also returns the cursor for the next call, or `None` when nothing is left.
-    pub fn blocks_after(
-        &self,
-        cursor: (u64, Hash),
-        max_blocks: usize,
-        max_bytes: usize,
-    ) -> Result<BlockPage, StorageError> {
+    pub fn blocks_after(&self, cursor: (u64, Hash), max_blocks: usize, max_bytes: usize) -> Result<BlockPage, StorageError> {
         let mut blocks = Vec::new();
         let mut bytes = 0usize;
         let mut last = None;
@@ -1658,18 +1562,14 @@ impl DagLedger {
         let circulating_supply_atoms = self.storage.total_utxo_atoms()?;
         let circulating_supply_imn = circulating_supply_atoms as f64 / ATOMS_PER_IMN as f64;
         let block_reward_imn = block_subsidy_imn(self.virtual_daa_score);
-        let annual_inflation_percent = if circulating_supply_imn > 0.0 {
-            100.0 * block_reward_imn * BLOCKS_PER_YEAR as f64 / circulating_supply_imn
-        } else {
-            0.0
-        };
+        let annual_inflation_percent =
+            if circulating_supply_imn > 0.0 { 100.0 * block_reward_imn * BLOCKS_PER_YEAR as f64 / circulating_supply_imn } else { 0.0 };
 
         // The reward halves at the end of each of the first four eras, then stays at the floor
         let era = self.virtual_daa_score / BLOCKS_PER_HALVING_ERA;
         let next_halving_daa_score = (era < 4).then(|| (era + 1) * BLOCKS_PER_HALVING_ERA);
         let blocks_until_halving = next_halving_daa_score.map(|at| at - self.virtual_daa_score);
-        let days_until_halving =
-            blocks_until_halving.map(|blocks| blocks as f64 * TARGET_TIME_PER_BLOCK_MS as f64 / 86_400_000.0);
+        let days_until_halving = blocks_until_halving.map(|blocks| blocks as f64 * TARGET_TIME_PER_BLOCK_MS as f64 / 86_400_000.0);
 
         Ok(NetworkStats {
             difficulty: work_from_bits(self.difficulty_bits) as f64,
@@ -1739,8 +1639,6 @@ impl DagLedger {
         }
     }
 }
-
-
 
 /// What the consensus index keeps about a stored block.
 fn dag_block(header: &BlockHeader, meta: BlockMeta) -> DagBlock {

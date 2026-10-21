@@ -363,8 +363,7 @@ fn random_dags_keep_the_ghostdag_invariants() {
             selected_past.insert(data.selected_parent);
             let mut expected: Vec<Hash> = block_past.difference(&selected_past).copied().collect();
             expected.sort();
-            let mut merged: Vec<Hash> =
-                data.mergeset_blues.iter().skip(1).chain(&data.mergeset_reds).copied().collect();
+            let mut merged: Vec<Hash> = data.mergeset_blues.iter().skip(1).chain(&data.mergeset_reds).copied().collect();
             merged.sort();
             assert_eq!(merged, expected, "seed {} block {}", seed, id);
 
@@ -405,9 +404,7 @@ fn ghostdag_does_not_depend_on_the_order_blocks_arrive_in() {
         let mut rebuilt = dag_with_k(3);
         let mut placed = vec![GENESIS];
         while !waiting.is_empty() {
-            let ready: Vec<usize> = (0..waiting.len())
-                .filter(|i| waiting[*i].1.iter().all(|p| placed.contains(p)))
-                .collect();
+            let ready: Vec<usize> = (0..waiting.len()).filter(|i| waiting[*i].1.iter().all(|p| placed.contains(p))).collect();
             let (id, parents) = waiting.remove(ready[rng.next(ready.len())]);
             add(&mut rebuilt, id, &parents);
             placed.push(id);

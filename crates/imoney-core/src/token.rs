@@ -176,9 +176,7 @@ impl Transaction {
                 if token.mint_authority {
                     *spent_authorities.entry(token.id).or_default() += 1;
                     let version = output.script_public_key.version;
-                    if version == crate::transaction::SCRIPT_VERSION_PUBKEY_HASH
-                        || version == crate::multisig::SCRIPT_VERSION_MULTISIG
-                    {
+                    if version == crate::transaction::SCRIPT_VERSION_PUBKEY_HASH || version == crate::multisig::SCRIPT_VERSION_MULTISIG {
                         authorities.insert(token.id);
                     }
                 } else {
@@ -303,11 +301,8 @@ impl Transaction {
         let script = ScriptPublicKey::pay_to_address(&me);
 
         // The token coins first, smallest first, until the amount is covered
-        let mut token_coins: Vec<(Outpoint, TxOutput)> = coins
-            .iter()
-            .filter(|(_, o)| o.token.as_ref().is_some_and(|t| t.id == id && !t.mint_authority))
-            .cloned()
-            .collect();
+        let mut token_coins: Vec<(Outpoint, TxOutput)> =
+            coins.iter().filter(|(_, o)| o.token.as_ref().is_some_and(|t| t.id == id && !t.mint_authority)).cloned().collect();
         token_coins.sort_by_key(|(_, o)| o.token.as_ref().map_or(0, |t| t.amount));
         let mut gathered: u64 = 0;
         let mut inputs = Vec::new();
@@ -484,12 +479,15 @@ mod tests {
     #[test]
     fn transfers_conserve_every_token_exactly() {
         let coins = [coin(1, 1, 100_000), coin(1, 2, 100_000)];
-        let issue = Transaction::build_token_issue(&key(1), Network::Testnet, info(), 1_000, false, 10_000, vec![coins[0].clone()]).unwrap();
+        let issue =
+            Transaction::build_token_issue(&key(1), Network::Testnet, info(), 1_000, false, 10_000, vec![coins[0].clone()]).unwrap();
         let id = issue.issued_token().unwrap();
         let mut wallet = outputs_of(&issue);
         wallet.push(coins[1].clone());
 
-        let send = Transaction::build_token_transfer(&key(1), Network::Testnet, &address(2), id, 300, 10_000, wallet.clone(), Some("order-7")).unwrap();
+        let send =
+            Transaction::build_token_transfer(&key(1), Network::Testnet, &address(2), id, 300, 10_000, wallet.clone(), Some("order-7"))
+                .unwrap();
         assert!(send.check_tokens(&spent(&send, &wallet)).is_ok());
         assert_eq!(send.outputs[0].token.as_ref().unwrap().amount, 300);
         assert_eq!(send.outputs[1].token.as_ref().unwrap().amount, 700);
@@ -539,11 +537,13 @@ mod tests {
     #[test]
     fn tokens_are_destroyed_only_by_sending_them_to_the_burn_script() {
         let coins = [coin(1, 1, 100_000), coin(1, 2, 100_000)];
-        let issue = Transaction::build_token_issue(&key(1), Network::Testnet, info(), 1_000, false, 10_000, vec![coins[0].clone()]).unwrap();
+        let issue =
+            Transaction::build_token_issue(&key(1), Network::Testnet, info(), 1_000, false, 10_000, vec![coins[0].clone()]).unwrap();
         let id = issue.issued_token().unwrap();
         let mut wallet = outputs_of(&issue);
         wallet.push(coins[1].clone());
-        let mut burn = Transaction::build_token_transfer(&key(1), Network::Testnet, &address(2), id, 1_000, 10_000, wallet.clone(), None).unwrap();
+        let mut burn =
+            Transaction::build_token_transfer(&key(1), Network::Testnet, &address(2), id, 1_000, 10_000, wallet.clone(), None).unwrap();
         burn.outputs[0].script_public_key = ScriptPublicKey::burn();
         assert!(burn.check_tokens(&spent(&burn, &wallet)).is_ok());
         assert_eq!(burn.outputs[0].script_public_key.version, SCRIPT_VERSION_BURN);
@@ -564,7 +564,16 @@ mod tests {
         assert!(empty.check_tokens(&spent(&empty, &coins)).is_err());
         // Plain payments never pick coins that carry tokens
         let wallet = outputs_of(&issue);
-        assert!(Transaction::build_payment(&key(1), Network::Testnet, &address(2), 1, 1, wallet.into_iter().filter(|(_, o)| o.token.is_some()).collect(), None).is_err());
+        assert!(Transaction::build_payment(
+            &key(1),
+            Network::Testnet,
+            &address(2),
+            1,
+            1,
+            wallet.into_iter().filter(|(_, o)| o.token.is_some()).collect(),
+            None
+        )
+        .is_err());
     }
 
     /// A transaction moving the given spent outputs to `outputs`; the rules here need no signatures.
@@ -572,7 +581,10 @@ mod tests {
         Transaction {
             version: 1,
             inputs: (0..inputs)
-                .map(|n| crate::TxInput { previous_outpoint: Outpoint { transaction_id: Hash([n as u8; 32]), index: 0 }, signature_script: Vec::new() })
+                .map(|n| crate::TxInput {
+                    previous_outpoint: Outpoint { transaction_id: Hash([n as u8; 32]), index: 0 },
+                    signature_script: Vec::new(),
+                })
                 .collect(),
             outputs,
             payload: Vec::new(),
@@ -622,5 +634,4 @@ mod tests {
             assert!(copy.check_tokens(&[&held]).is_err());
         }
     }
-
 }

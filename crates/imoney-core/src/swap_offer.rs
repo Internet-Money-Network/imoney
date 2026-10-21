@@ -15,9 +15,7 @@
 use crate::address::{Address, AddressType, Network};
 use crate::hashlock::HashLockScript;
 use crate::offer::{fund, sign_own};
-use crate::transaction::{
-    Outpoint, ScriptPublicKey, Transaction, TransactionError, TxInput, TxOutput,
-};
+use crate::transaction::{Outpoint, ScriptPublicKey, Transaction, TransactionError, TxInput, TxOutput};
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 
 /// Script version of a swap offer output. The script is the terms themselves.
@@ -63,22 +61,12 @@ impl SwapOfferTerms {
             return Err(invalid("the maker must be a valid Ed25519 public key"));
         }
         if chain_id == 0 || token == [0; 20] || pay_to == [0; 20] {
-            return Err(invalid(
-                "name the chain, the token and the address to be paid at",
-            ));
+            return Err(invalid("name the chain, the token and the address to be paid at"));
         }
         if price_num == 0 || price_den == 0 {
             return Err(invalid("the price must be positive"));
         }
-        Ok(Self {
-            maker,
-            chain_id,
-            token,
-            pay_to,
-            price_num,
-            price_den,
-            min_atoms,
-        })
+        Ok(Self { maker, chain_id, token, pay_to, price_num, price_den, min_atoms })
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {
@@ -97,8 +85,7 @@ impl SwapOfferTerms {
         if bytes.len() != SWAP_OFFER_TERMS_BYTES {
             return Err(invalid("swap offer terms are 104 bytes"));
         }
-        let number =
-            |from: usize| u64::from_be_bytes(bytes[from..from + 8].try_into().expect("8 bytes"));
+        let number = |from: usize| u64::from_be_bytes(bytes[from..from + 8].try_into().expect("8 bytes"));
         Self::new(
             bytes[..32].try_into().expect("32 bytes"),
             number(32),
@@ -112,57 +99,37 @@ impl SwapOfferTerms {
 
     /// The locking script of a swap offer with these terms.
     pub fn script(&self) -> ScriptPublicKey {
-        ScriptPublicKey {
-            version: SCRIPT_VERSION_SWAP_OFFER,
-            script: self.to_bytes(),
-        }
+        ScriptPublicKey { version: SCRIPT_VERSION_SWAP_OFFER, script: self.to_bytes() }
     }
 
     /// What `atoms` of IMN cost in the token's smallest units, or `None` if it does not fit.
     pub fn cost(&self, atoms: u64) -> Option<u64> {
-        u64::try_from((atoms as u128 * self.price_num as u128).div_ceil(self.price_den as u128))
-            .ok()
+        u64::try_from((atoms as u128 * self.price_num as u128).div_ceil(self.price_den as u128)).ok()
     }
 
     /// How many atoms a payment of `units` buys: the most whose cost it covers.
     pub fn atoms_for(&self, units: u64) -> u64 {
-        u64::try_from(units as u128 * self.price_den as u128 / self.price_num as u128)
-            .unwrap_or(u64::MAX)
+        u64::try_from(units as u128 * self.price_den as u128 / self.price_num as u128).unwrap_or(u64::MAX)
     }
 
     /// The offer's terms, if this output is a swap offer.
     pub fn of(output: &TxOutput) -> Option<Self> {
-        (output.script_public_key.version == SCRIPT_VERSION_SWAP_OFFER)
-            .then(|| Self::from_bytes(&output.script_public_key.script).ok())?
+        (output.script_public_key.version == SCRIPT_VERSION_SWAP_OFFER).then(|| Self::from_bytes(&output.script_public_key.script).ok())?
     }
 }
 
 impl Transaction {
     /// Checks an input that spends a swap offer: it must carry the maker's signature.
-    pub(crate) fn verify_swap_offer_input(
-        &self,
-        network: Network,
-        input_index: usize,
-        terms_bytes: &[u8],
-    ) -> Result<(), TransactionError> {
+    pub(crate) fn verify_swap_offer_input(&self, network: Network, input_index: usize, terms_bytes: &[u8]) -> Result<(), TransactionError> {
         let terms = SwapOfferTerms::from_bytes(terms_bytes)?;
         let input = self.inputs.get(input_index).ok_or(TransactionError::EmptyInputs)?;
         let signature: [u8; 64] = input
             .signature_script
             .as_slice()
             .try_into()
-            .map_err(|_| {
-                TransactionError::InvalidSignatureScript(
-                    input.signature_script.len(),
-                )
-            })?;
+            .map_err(|_| TransactionError::InvalidSignatureScript(input.signature_script.len()))?;
         VerifyingKey::from_bytes(&terms.maker)
-            .and_then(|key| {
-                key.verify_strict(
-                    self.sig_hash(network, input_index).as_bytes(),
-                    &Signature::from_bytes(&signature),
-                )
-            })
+            .and_then(|key| key.verify_strict(self.sig_hash(network, input_index).as_bytes(), &Signature::from_bytes(&signature)))
             .map_err(|e| TransactionError::InvalidSignature(e.to_string()))
     }
 
@@ -181,18 +148,8 @@ impl Transaction {
         if atoms == 0 || atoms < terms.min_atoms {
             return Err("Offer at least the smallest amount you sell at once".to_string());
         }
-        let me = Address::from_public_key(
-            network,
-            AddressType::PubKeyHash,
-            key.verifying_key().as_bytes(),
-        );
-        let tx = fund(
-            vec![TxOutput::new(atoms, terms.script())],
-            Vec::new(),
-            &me,
-            fee_atoms,
-            coins,
-        )?;
+        let me = Address::from_public_key(network, AddressType::PubKeyHash, key.verifying_key().as_bytes());
+        let tx = fund(vec![TxOutput::new(atoms, terms.script())], Vec::new(), &me, fee_atoms, coins)?;
         sign_own(tx, network, key, &[])
     }
 
@@ -215,80 +172,40 @@ impl Transaction {
         if terms.maker != key.verifying_key().to_bytes() {
             return Err("Only the maker can fill a swap offer".to_string());
         }
-        let rest = coin
-            .value_atoms
-            .checked_sub(atoms)
-            .and_then(|r| r.checked_sub(fee_atoms))
-            .ok_or("The offer does not hold that much")?;
+        let rest = coin.value_atoms.checked_sub(atoms).and_then(|r| r.checked_sub(fee_atoms)).ok_or("The offer does not hold that much")?;
         if atoms == 0 {
             return Err("Fill a positive amount".to_string());
         }
-        let lock = HashLockScript::new(buyer, terms.maker, hash, refund_after)
-            .map_err(|e| e.to_string())?;
-        let mut outputs = vec![TxOutput::new(
-            atoms,
-            ScriptPublicKey::pay_to_address(&lock.address(network)),
-        )];
+        let lock = HashLockScript::new(buyer, terms.maker, hash, refund_after).map_err(|e| e.to_string())?;
+        let mut outputs = vec![TxOutput::new(atoms, ScriptPublicKey::pay_to_address(&lock.address(network)))];
         if rest > 0 {
             outputs.push(TxOutput::new(rest, terms.script()));
         }
-        Ok((
-            Self::sign_swap_offer_spend(key, network, outpoint, outputs),
-            lock,
-        ))
+        Ok((Self::sign_swap_offer_spend(key, network, outpoint, outputs), lock))
     }
 
     /// Cancels a swap offer, returning its IMN less the fee to the maker.
-    pub fn cancel_swap_offer(
-        key: &SigningKey,
-        network: Network,
-        offer: (Outpoint, TxOutput),
-        fee_atoms: u64,
-    ) -> Result<Self, String> {
+    pub fn cancel_swap_offer(key: &SigningKey, network: Network, offer: (Outpoint, TxOutput), fee_atoms: u64) -> Result<Self, String> {
         let (outpoint, coin) = offer;
         let terms = SwapOfferTerms::of(&coin).ok_or("That coin is not a swap offer")?;
         if terms.maker != key.verifying_key().to_bytes() {
             return Err("Only the maker can cancel a swap offer".to_string());
         }
-        let back = coin
-            .value_atoms
-            .checked_sub(fee_atoms)
-            .filter(|v| *v > 0)
-            .ok_or("The fee takes everything in the offer")?;
-        let me = Address::from_public_key(
-            network,
-            AddressType::PubKeyHash,
-            key.verifying_key().as_bytes(),
-        );
-        Ok(Self::sign_swap_offer_spend(
-            key,
-            network,
-            outpoint,
-            vec![TxOutput::new(back, ScriptPublicKey::pay_to_address(&me))],
-        ))
+        let back = coin.value_atoms.checked_sub(fee_atoms).filter(|v| *v > 0).ok_or("The fee takes everything in the offer")?;
+        let me = Address::from_public_key(network, AddressType::PubKeyHash, key.verifying_key().as_bytes());
+        Ok(Self::sign_swap_offer_spend(key, network, outpoint, vec![TxOutput::new(back, ScriptPublicKey::pay_to_address(&me))]))
     }
 
-    fn sign_swap_offer_spend(
-        key: &SigningKey,
-        network: Network,
-        outpoint: Outpoint,
-        outputs: Vec<TxOutput>,
-    ) -> Self {
+    fn sign_swap_offer_spend(key: &SigningKey, network: Network, outpoint: Outpoint, outputs: Vec<TxOutput>) -> Self {
         let mut tx = Transaction {
             version: 1,
-            inputs: vec![TxInput {
-                previous_outpoint: outpoint,
-                signature_script: Vec::new(),
-            }],
+            inputs: vec![TxInput { previous_outpoint: outpoint, signature_script: Vec::new() }],
             outputs,
             payload: Vec::new(),
             service: None,
             issue: None,
         };
-        tx.inputs[0].signature_script = key
-            .sign(tx.sig_hash(network, 0).as_bytes())
-            .to_bytes()
-            .to_vec();
+        tx.inputs[0].signature_script = key.sign(tx.sig_hash(network, 0).as_bytes()).to_bytes().to_vec();
         tx
     }
 }
@@ -306,26 +223,11 @@ mod tests {
 
     // 1 IMN (1e8 atoms) for 0.25 USDC (250,000 units)
     fn terms(maker: &SigningKey) -> SwapOfferTerms {
-        SwapOfferTerms::new(
-            maker.verifying_key().to_bytes(),
-            8453,
-            [0x83; 20],
-            [0x11; 20],
-            250_000,
-            100_000_000,
-            10_000_000,
-        )
-        .unwrap()
+        SwapOfferTerms::new(maker.verifying_key().to_bytes(), 8453, [0x83; 20], [0x11; 20], 250_000, 100_000_000, 10_000_000).unwrap()
     }
 
     fn offer(terms: &SwapOfferTerms, atoms: u64) -> (Outpoint, TxOutput) {
-        (
-            Outpoint {
-                transaction_id: Hash([5u8; 32]),
-                index: 0,
-            },
-            TxOutput::new(atoms, terms.script()),
-        )
+        (Outpoint { transaction_id: Hash([5u8; 32]), index: 0 }, TxOutput::new(atoms, terms.script()))
     }
 
     #[test]
@@ -346,29 +248,14 @@ mod tests {
         let maker = key(1);
         let t = terms(&maker);
         let coin = offer(&t, 500_000_000);
-        let (tx, lock) = Transaction::fill_swap_offer(
-            &maker,
-            NET,
-            coin.clone(),
-            100_000_000,
-            key(2).verifying_key().to_bytes(),
-            [9; 32],
-            5_000,
-            20_000,
-        )
-        .unwrap();
-        tx.verify_input_at(NET, 0, &coin.1.script_public_key, 0)
-            .unwrap();
+        let (tx, lock) =
+            Transaction::fill_swap_offer(&maker, NET, coin.clone(), 100_000_000, key(2).verifying_key().to_bytes(), [9; 32], 5_000, 20_000)
+                .unwrap();
+        tx.verify_input_at(NET, 0, &coin.1.script_public_key, 0).unwrap();
         assert_eq!(tx.outputs[0].value_atoms, 100_000_000);
-        assert_eq!(
-            tx.outputs[0].script_public_key,
-            ScriptPublicKey::pay_to_address(&lock.address(NET))
-        );
+        assert_eq!(tx.outputs[0].script_public_key, ScriptPublicKey::pay_to_address(&lock.address(NET)));
         assert_eq!(lock.refunder, t.maker);
-        assert_eq!(
-            tx.outputs[1],
-            TxOutput::new(500_000_000 - 100_000_000 - 20_000, t.script())
-        );
+        assert_eq!(tx.outputs[1], TxOutput::new(500_000_000 - 100_000_000 - 20_000, t.script()));
     }
 
     #[test]
@@ -376,37 +263,17 @@ mod tests {
         let maker = key(1);
         let t = terms(&maker);
         let coin = offer(&t, 500_000_000);
-        assert!(Transaction::fill_swap_offer(
-            &key(2),
-            NET,
-            coin.clone(),
-            1,
-            [0; 32],
-            [0; 32],
-            1,
-            0
-        )
-        .is_err());
+        assert!(Transaction::fill_swap_offer(&key(2), NET, coin.clone(), 1, [0; 32], [0; 32], 1, 0).is_err());
         // A spend signed by someone else, or with no signature, is invalid
         let mut tx = Transaction::cancel_swap_offer(&maker, NET, coin.clone(), 20_000).unwrap();
-        tx.verify_input_at(NET, 0, &coin.1.script_public_key, 0)
-            .unwrap();
-        tx.inputs[0].signature_script = key(2)
-            .sign(tx.sig_hash(NET, 0).as_bytes())
-            .to_bytes()
-            .to_vec();
-        assert!(tx
-            .verify_input_at(NET, 0, &coin.1.script_public_key, 0)
-            .is_err());
+        tx.verify_input_at(NET, 0, &coin.1.script_public_key, 0).unwrap();
+        tx.inputs[0].signature_script = key(2).sign(tx.sig_hash(NET, 0).as_bytes()).to_bytes().to_vec();
+        assert!(tx.verify_input_at(NET, 0, &coin.1.script_public_key, 0).is_err());
         tx.inputs[0].signature_script = Vec::new();
-        assert!(tx
-            .verify_input_at(NET, 0, &coin.1.script_public_key, 0)
-            .is_err());
+        assert!(tx.verify_input_at(NET, 0, &coin.1.script_public_key, 0).is_err());
         // Changing the outputs after signing breaks the signature
         let mut tx = Transaction::cancel_swap_offer(&maker, NET, coin.clone(), 20_000).unwrap();
         tx.outputs[0].value_atoms -= 1;
-        assert!(tx
-            .verify_input_at(NET, 0, &coin.1.script_public_key, 0)
-            .is_err());
+        assert!(tx.verify_input_at(NET, 0, &coin.1.script_public_key, 0).is_err());
     }
 }

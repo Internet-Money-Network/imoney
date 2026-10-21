@@ -1,7 +1,4 @@
-use imoney_core::constants::{
-    BLOCKS_PER_HALVING_ERA, FLOOR_SUBSIDY_ATOMS, LAUNCH_BLOCK_SUBSIDY_ATOMS,
-    ATOMS_PER_IMN,
-};
+use imoney_core::constants::{ATOMS_PER_IMN, BLOCKS_PER_HALVING_ERA, FLOOR_SUBSIDY_ATOMS, LAUNCH_BLOCK_SUBSIDY_ATOMS};
 
 /// Calculates the halving era index for a given cumulative block height / DAA score.
 /// Era 0: Years 0..4 (Blocks 0..25,228,799)
@@ -21,11 +18,11 @@ pub fn halving_era(daa_score: u64) -> u64 {
 pub fn block_subsidy_atoms(daa_score: u64) -> u64 {
     let era = halving_era(daa_score);
     match era {
-        0 => LAUNCH_BLOCK_SUBSIDY_ATOMS,                 // 5.00000000 IMN (500M atoms)
-        1 => LAUNCH_BLOCK_SUBSIDY_ATOMS / 2,             // 2.50000000 IMN (250M atoms)
-        2 => LAUNCH_BLOCK_SUBSIDY_ATOMS / 4,             // 1.25000000 IMN (125M atoms)
-        3 => LAUNCH_BLOCK_SUBSIDY_ATOMS / 8,             // 0.62500000 IMN (62.5M atoms)
-        _ => FLOOR_SUBSIDY_ATOMS,                        // 0.31250000 IMN (31.25M atoms) - Floor forever
+        0 => LAUNCH_BLOCK_SUBSIDY_ATOMS,     // 5.00000000 IMN (500M atoms)
+        1 => LAUNCH_BLOCK_SUBSIDY_ATOMS / 2, // 2.50000000 IMN (250M atoms)
+        2 => LAUNCH_BLOCK_SUBSIDY_ATOMS / 4, // 1.25000000 IMN (125M atoms)
+        3 => LAUNCH_BLOCK_SUBSIDY_ATOMS / 8, // 0.62500000 IMN (62.5M atoms)
+        _ => FLOOR_SUBSIDY_ATOMS,            // 0.31250000 IMN (31.25M atoms) - Floor forever
     }
 }
 

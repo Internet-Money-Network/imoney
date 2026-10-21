@@ -38,8 +38,7 @@ fn main() -> Result<(), String> {
 
     // Anyone can prepare the payment; it is worth nothing until enough holders sign it
     let amount = 40_000_000;
-    let mut tx =
-        Transaction::build_multisig_payment(&script, NETWORK, &address_of(&funder), amount, FEE_ATOMS, shared_coins, None, None)?;
+    let mut tx = Transaction::build_multisig_payment(&script, NETWORK, &address_of(&funder), amount, FEE_ATOMS, shared_coins, None, None)?;
     for input in 0..tx.inputs.len() {
         // Holders 0 and 2 sign, each on their own machine in real use. Order does not matter.
         let signatures = [tx.multisig_sign(NETWORK, input, &holders[2]), tx.multisig_sign(NETWORK, input, &holders[0])];

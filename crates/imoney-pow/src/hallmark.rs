@@ -186,9 +186,8 @@ mod tests {
     #[test]
     fn output_bits_are_balanced() {
         let pow = engine(PowMode::Full);
-        let ones: u32 = (0..500u64)
-            .map(|nonce| pow.calculate_hash(&Hash([3u8; 32]), nonce).0.iter().map(|b| b.count_ones()).sum::<u32>())
-            .sum();
+        let ones: u32 =
+            (0..500u64).map(|nonce| pow.calculate_hash(&Hash([3u8; 32]), nonce).0.iter().map(|b| b.count_ones()).sum::<u32>()).sum();
         // 128,000 output bits: expect about half set
         assert!((62_000..66_000).contains(&ones), "{}", ones);
     }

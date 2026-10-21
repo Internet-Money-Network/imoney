@@ -164,9 +164,8 @@ impl Transaction {
         if script.script_hash().0[..] != *script_hash {
             return Err(TransactionError::PublicKeyAddressMismatch);
         }
-        let signature_bytes: [u8; 64] = self.inputs[input_index].signature_script[SCRIPT_BYTES + 1..SCRIPT_BYTES + 65]
-            .try_into()
-            .expect("64 bytes");
+        let signature_bytes: [u8; 64] =
+            self.inputs[input_index].signature_script[SCRIPT_BYTES + 1..SCRIPT_BYTES + 65].try_into().expect("64 bytes");
         VerifyingKey::from_bytes(&key)
             .and_then(|key| key.verify_strict(self.sig_hash(network, input_index).as_bytes(), &Signature::from_bytes(&signature_bytes)))
             .map_err(|e| TransactionError::InvalidSignature(e.to_string()))
@@ -230,7 +229,8 @@ mod tests {
     fn setup() -> (SigningKey, SigningKey, [u8; 32], HashLockScript, Address) {
         let (recipient, refunder, secret) = (key(1), key(2), [7u8; 32]);
         let script =
-            HashLockScript::new(recipient.verifying_key().to_bytes(), refunder.verifying_key().to_bytes(), secret_hash(&secret), 100).unwrap();
+            HashLockScript::new(recipient.verifying_key().to_bytes(), refunder.verifying_key().to_bytes(), secret_hash(&secret), 100)
+                .unwrap();
         let to = Address::from_public_key(Network::Testnet, AddressType::PubKeyHash, &[9u8; 32]);
         (recipient, refunder, secret, script, to)
     }

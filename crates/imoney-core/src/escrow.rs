@@ -333,13 +333,17 @@ mod tests {
     }
 
     fn coin(script: &EscrowScript) -> (Outpoint, TxOutput) {
-        (Outpoint { transaction_id: Hash([9u8; 32]), index: 0 }, TxOutput::new(10_000_000, ScriptPublicKey::pay_to_address(&script.address(NET))))
+        (
+            Outpoint { transaction_id: Hash([9u8; 32]), index: 0 },
+            TxOutput::new(10_000_000, ScriptPublicKey::pay_to_address(&script.address(NET))),
+        )
     }
 
     /// Signature and destination, as a node checks them, at `blue_score`.
     fn valid(tx: &Transaction, script: &EscrowScript, blue_score: u64) -> bool {
         let escrowed = coin(script).1;
-        tx.verify_input_at(NET, 0, &escrowed.script_public_key, blue_score).is_ok() && tx.check_escrow_destinations(NET, &[&escrowed]).is_ok()
+        tx.verify_input_at(NET, 0, &escrowed.script_public_key, blue_score).is_ok()
+            && tx.check_escrow_destinations(NET, &[&escrowed]).is_ok()
     }
 
     #[test]
@@ -404,7 +408,8 @@ mod tests {
     #[test]
     fn after_the_deadline_the_named_party_collects_alone() {
         let (buyer, seller, _, auto_release) = setup(true);
-        let collect = Transaction::spend_escrow(&auto_release, NET, coin(&auto_release), EscrowRole::Deadline, &seller, 1_000, None).unwrap();
+        let collect =
+            Transaction::spend_escrow(&auto_release, NET, coin(&auto_release), EscrowRole::Deadline, &seller, 1_000, None).unwrap();
         assert_eq!(collect.outputs[0].script_public_key, auto_release.seller_script(NET));
         assert!(!valid(&collect, &auto_release, 999));
         assert!(valid(&collect, &auto_release, 1_000));
@@ -433,7 +438,8 @@ mod tests {
         let (buyer, _, _, script) = setup(true);
         let (outpoint, mut escrowed) = coin(&script);
         escrowed.token = Some(crate::TokenAmount { id: Hash([4u8; 32]), amount: 50, mint_authority: false });
-        let release = Transaction::spend_escrow(&script, NET, (outpoint, escrowed.clone()), EscrowRole::Buyer, &buyer, 1_000, None).unwrap();
+        let release =
+            Transaction::spend_escrow(&script, NET, (outpoint, escrowed.clone()), EscrowRole::Buyer, &buyer, 1_000, None).unwrap();
         assert!(release.check_escrow_destinations(NET, &[&escrowed]).is_ok());
         let mut short = release.clone();
         short.outputs[0].token.as_mut().unwrap().amount = 49;

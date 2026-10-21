@@ -8,9 +8,7 @@
 use crate::address::{Address, AddressType, Network};
 use crate::hash::Hash;
 use crate::serialize::tagged_hash;
-use crate::transaction::{
-    is_valid_invoice_id, Outpoint, ScriptPublicKey, Transaction, TransactionError, TxInput, TxOutput, INVOICE_TAG,
-};
+use crate::transaction::{is_valid_invoice_id, Outpoint, ScriptPublicKey, Transaction, TransactionError, TxInput, TxOutput, INVOICE_TAG};
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 
 /// Script version 2: the script is the 32-byte hash of a multi-signature script.
@@ -118,10 +116,7 @@ impl Transaction {
     /// One key holder's signature for an input of a multi-signature spend.
     pub fn multisig_sign(&self, network: Network, input_index: usize, signing_key: &SigningKey) -> PartialSignature {
         let sighash = self.sig_hash(network, input_index);
-        PartialSignature {
-            public_key: signing_key.verifying_key().to_bytes(),
-            signature: signing_key.sign(sighash.as_bytes()).to_bytes(),
-        }
+        PartialSignature { public_key: signing_key.verifying_key().to_bytes(), signature: signing_key.sign(sighash.as_bytes()).to_bytes() }
     }
 
     /// Puts collected signatures on an input. Needs at least the script's threshold of
@@ -179,12 +174,7 @@ impl Transaction {
         Some(script.address(network))
     }
 
-    pub(crate) fn verify_multisig_input(
-        &self,
-        network: Network,
-        input_index: usize,
-        script_hash: &[u8],
-    ) -> Result<(), TransactionError> {
+    pub(crate) fn verify_multisig_input(&self, network: Network, input_index: usize, script_hash: &[u8]) -> Result<(), TransactionError> {
         let signature_script = &self.inputs.get(input_index).ok_or(TransactionError::EmptyInputs)?.signature_script;
         let key_count = *signature_script.get(1).ok_or_else(|| invalid("truncated signature script"))? as usize;
         let script_len = 2 + 32 * key_count;
@@ -213,9 +203,7 @@ impl Transaction {
             let key = script.keys.get(position as usize).ok_or_else(|| invalid("signature names a key that is not in the script"))?;
             let verifying_key = VerifyingKey::from_bytes(key).map_err(|e| TransactionError::InvalidSignature(e.to_string()))?;
             let signature = Signature::from_bytes(entry[1..].try_into().expect("64 bytes"));
-            verifying_key
-                .verify_strict(sighash.as_bytes(), &signature)
-                .map_err(|e| TransactionError::InvalidSignature(e.to_string()))?;
+            verifying_key.verify_strict(sighash.as_bytes(), &signature).map_err(|e| TransactionError::InvalidSignature(e.to_string()))?;
         }
         Ok(())
     }
@@ -255,7 +243,8 @@ impl Transaction {
             return Err(format!("Insufficient funds: have {} atoms, require {} atoms", gathered, required));
         }
 
-        let mut outputs = vec![TxOutput { value_atoms: amount_atoms, script_public_key: ScriptPublicKey::pay_to_address(recipient), token: None }];
+        let mut outputs =
+            vec![TxOutput { value_atoms: amount_atoms, script_public_key: ScriptPublicKey::pay_to_address(recipient), token: None }];
         if gathered > required {
             outputs.push(TxOutput {
                 value_atoms: gathered - required,
@@ -263,14 +252,7 @@ impl Transaction {
                 token: None,
             });
         }
-        Ok(Transaction {
-            version: 1,
-            inputs,
-            outputs,
-            payload,
-            service: service.map(ScriptPublicKey::pay_to_address),
-            issue: None,
-        })
+        Ok(Transaction { version: 1, inputs, outputs, payload, service: service.map(ScriptPublicKey::pay_to_address), issue: None })
     }
 }
 
@@ -291,7 +273,11 @@ mod tests {
         let script = MultisigScript::new(2, &[public(1), public(2), public(3)]).unwrap();
         let coin = (
             Outpoint { transaction_id: Hash([7u8; 32]), index: 0 },
-            TxOutput { value_atoms: 100_000, script_public_key: ScriptPublicKey::pay_to_address(&script.address(Network::Testnet)), token: None },
+            TxOutput {
+                value_atoms: 100_000,
+                script_public_key: ScriptPublicKey::pay_to_address(&script.address(Network::Testnet)),
+                token: None,
+            },
         );
         let recipient = Address::from_public_key(Network::Testnet, AddressType::PubKeyHash, &public(9));
         let tx = Transaction::build_multisig_payment(&script, Network::Testnet, &recipient, 60_000, 1_000, vec![coin], Some("INV-7"), None)
@@ -337,8 +323,7 @@ mod tests {
     fn any_two_of_three_keys_can_spend() {
         for signers in [[1u8, 2], [1, 3], [2, 3], [3, 1]] {
             let (script, mut tx) = two_of_three();
-            let signatures: Vec<PartialSignature> =
-                signers.iter().map(|seed| tx.multisig_sign(Network::Testnet, 0, &key(*seed))).collect();
+            let signatures: Vec<PartialSignature> = signers.iter().map(|seed| tx.multisig_sign(Network::Testnet, 0, &key(*seed))).collect();
             tx.set_multisig_signatures(0, &script, &signatures).unwrap();
             assert_eq!(tx.inputs[0].signature_script.len(), script.signature_script_len());
             assert_eq!(verify(&tx, &script), Ok(()));

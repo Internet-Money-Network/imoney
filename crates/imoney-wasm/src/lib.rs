@@ -7,9 +7,8 @@ use bip39::Mnemonic;
 use ed25519_dalek::SigningKey;
 use imoney_core::constants::MIN_RELAY_FEE_PER_BYTE;
 use imoney_core::{
-    Address, AddressType, Encode, Hash, MultisigScript, Network, Outpoint, PartialSignature, ScriptPublicKey, TokenAmount,
-    TokenInfo, Transaction,
-    TxOutput,
+    Address, AddressType, Encode, Hash, MultisigScript, Network, Outpoint, PartialSignature, ScriptPublicKey, TokenAmount, TokenInfo,
+    Transaction, TxOutput,
 };
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
@@ -191,10 +190,9 @@ fn check_proposal(proposal: &Proposal, utxos_json: &str) -> Result<(MultisigScri
     }
     let mut total: u64 = 0;
     for input in &tx.inputs {
-        let (_, coin) = coins
-            .iter()
-            .find(|(outpoint, _)| *outpoint == input.previous_outpoint)
-            .ok_or_else(|| "The proposal spends a coin your node does not list for this shared wallet. It may already be spent.".to_string())?;
+        let (_, coin) = coins.iter().find(|(outpoint, _)| *outpoint == input.previous_outpoint).ok_or_else(|| {
+            "The proposal spends a coin your node does not list for this shared wallet. It may already be spent.".to_string()
+        })?;
         total = total.checked_add(coin.value_atoms).ok_or_else(|| "Input total overflows".to_string())?;
     }
     let outputs = tx.outputs.iter().try_fold(0u64, |sum, o| sum.checked_add(o.value_atoms));
@@ -220,8 +218,7 @@ fn spendable_utxos(utxos_json: &str, owner: &Address) -> Result<Vec<(Outpoint, T
         .into_iter()
         .filter(|item| item.spendable != Some(false))
         .map(|item| {
-            let transaction_id =
-                Hash::from_hex(&item.transaction_id).map_err(|_| "Invalid transaction ID in UTXO list".to_string())?;
+            let transaction_id = Hash::from_hex(&item.transaction_id).map_err(|_| "Invalid transaction ID in UTXO list".to_string())?;
             Ok((
                 Outpoint { transaction_id, index: item.index },
                 TxOutput {
@@ -384,7 +381,9 @@ pub mod wallet {
         let key = signing_key(private_key_hex)?;
         let utxos = spendable_utxos(utxos_json, &address_of(&key, testnet))?;
         let info = TokenInfo { name: name.trim().to_string(), ticker: ticker.trim().to_uppercase(), decimals, url: url.trim().to_string() };
-        with_fee(fee_atoms, |fee| Transaction::build_token_issue(&key, network(testnet), info.clone(), supply, mintable, fee, utxos.clone()))
+        with_fee(fee_atoms, |fee| {
+            Transaction::build_token_issue(&key, network(testnet), info.clone(), supply, mintable, fee, utxos.clone())
+        })
     }
 
     /// Sends `amount` (in the token's smallest unit) of a token, optionally for an invoice.
@@ -443,7 +442,9 @@ pub mod wallet {
         let key = signing_key(private_key_hex)?;
         let (give, want) = (parse_asset(give)?, parse_asset(want)?);
         let utxos = spendable_utxos(utxos_json, &address_of(&key, testnet))?;
-        with_fee(fee_atoms, |fee| Transaction::build_offer(&key, network(testnet), give, give_amount, want, price_num, price_den, fee, utxos.clone()))
+        with_fee(fee_atoms, |fee| {
+            Transaction::build_offer(&key, network(testnet), give, give_amount, want, price_num, price_den, fee, utxos.clone())
+        })
     }
 
     /// Takes `take_amount` of the offer at `offer_tx_id:offer_index`, whose output is given as
@@ -463,7 +464,13 @@ pub mod wallet {
     }
 
     /// Cancels one of the wallet's own offers and returns what it holds.
-    pub fn offer_cancel(private_key_hex: &str, testnet: bool, offer_json: &str, fee_atoms: u64, utxos_json: &str) -> Result<SignedTransaction, String> {
+    pub fn offer_cancel(
+        private_key_hex: &str,
+        testnet: bool,
+        offer_json: &str,
+        fee_atoms: u64,
+        utxos_json: &str,
+    ) -> Result<SignedTransaction, String> {
         let key = signing_key(private_key_hex)?;
         let offer = parse_offer(offer_json, testnet)?;
         let utxos = spendable_utxos(utxos_json, &address_of(&key, testnet))?;
@@ -472,8 +479,7 @@ pub mod wallet {
 
     /// Sets up a shared wallet from its co-signers' public keys (hex, in any order).
     pub fn shared_wallet_create(threshold: u8, public_keys: &[&str], testnet: bool) -> Result<SharedWallet, String> {
-        let keys: Vec<[u8; 32]> =
-            public_keys.iter().map(|key| hex_array(key, "A public key")).collect::<Result<_, _>>()?;
+        let keys: Vec<[u8; 32]> = public_keys.iter().map(|key| hex_array(key, "A public key")).collect::<Result<_, _>>()?;
         let script = MultisigScript::new(threshold, &keys).map_err(|e| e.to_string())?;
         Ok(shared_wallet(&script, testnet))
     }
@@ -567,12 +573,8 @@ pub mod wallet {
                             && hex_array::<64>(&entry.signature, "signature").is_ok_and(|signature| {
                                 let mut probe = tx.clone();
                                 let one = MultisigScript::new(1, &[**key]).expect("one valid key");
-                                probe
-                                    .set_multisig_signatures(index, &one, &[PartialSignature { public_key: **key, signature }])
-                                    .is_ok()
-                                    && probe
-                                        .verify_input(net, index, &ScriptPublicKey::pay_to_address(&one.address(net)))
-                                        .is_ok()
+                                probe.set_multisig_signatures(index, &one, &[PartialSignature { public_key: **key, signature }]).is_ok()
+                                    && probe.verify_input(net, index, &ScriptPublicKey::pay_to_address(&one.address(net))).is_ok()
                             })
                     })
                 })
@@ -605,10 +607,7 @@ pub mod wallet {
         for (index, entries) in signed.signatures.iter_mut().enumerate() {
             let partial = proposal.transaction.multisig_sign(network(proposal.testnet), index, &key);
             entries.retain(|entry| entry.public_key != hex::encode(public_key));
-            entries.push(ProposalSignature {
-                public_key: hex::encode(partial.public_key),
-                signature: hex::encode(partial.signature),
-            });
+            entries.push(ProposalSignature { public_key: hex::encode(partial.public_key), signature: hex::encode(partial.signature) });
         }
         Ok(signed)
     }
@@ -773,7 +772,14 @@ pub fn offer_create(
 
 /// Takes part or all of an offer, given as one entry of the node's `/api/v1/offers`.
 #[wasm_bindgen]
-pub fn offer_take(private_key_hex: &str, testnet: bool, offer_json: &str, take_amount: u64, fee_atoms: u64, utxos_json: &str) -> Result<String, JsError> {
+pub fn offer_take(
+    private_key_hex: &str,
+    testnet: bool,
+    offer_json: &str,
+    take_amount: u64,
+    fee_atoms: u64,
+    utxos_json: &str,
+) -> Result<String, JsError> {
     to_json(wallet::offer_take(private_key_hex, testnet, offer_json, take_amount, fee_atoms, utxos_json))
 }
 
@@ -868,7 +874,9 @@ mod tests {
         let items: Vec<String> = values
             .iter()
             .enumerate()
-            .map(|(i, v)| format!(r#"{{"transaction_id":"{}","index":{},"value_atoms":{},"value_imn":0,"spendable":true}}"#, "ab".repeat(32), i, v))
+            .map(|(i, v)| {
+                format!(r#"{{"transaction_id":"{}","index":{},"value_atoms":{},"value_imn":0,"spendable":true}}"#, "ab".repeat(32), i, v)
+            })
             .collect();
         format!("[{}]", items.join(","))
     }
@@ -878,7 +886,8 @@ mod tests {
         let keys = keys_from_mnemonic(PHRASE, true).unwrap();
         let other = keys_from_mnemonic("legal winner thank year wave sausage worth useful legal winner thank yellow", true).unwrap();
 
-        let issued = token_issue(&keys.private_key_hex, true, "Coffee points", "bean", 0, "", 1_000, true, 0, &utxos(&[5_000_000])).unwrap();
+        let issued =
+            token_issue(&keys.private_key_hex, true, "Coffee points", "bean", 0, "", 1_000, true, 0, &utxos(&[5_000_000])).unwrap();
         let id = issued.token_id.clone().expect("an issuing transaction names its token");
         assert_eq!(issued.transaction.issue.as_ref().unwrap().ticker, "BEAN");
 

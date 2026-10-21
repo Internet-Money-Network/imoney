@@ -28,12 +28,7 @@ pub struct DaaParams {
 
 impl DaaParams {
     pub fn new(max_target_bits: u32) -> Self {
-        Self {
-            target_time_per_block_ms: TARGET_TIME_PER_BLOCK_MS,
-            half_life_ms: DAA_HALF_LIFE_MS,
-            max_target_bits,
-            retarget: true,
-        }
+        Self { target_time_per_block_ms: TARGET_TIME_PER_BLOCK_MS, half_life_ms: DAA_HALF_LIFE_MS, max_target_bits, retarget: true }
     }
 }
 
@@ -173,11 +168,8 @@ impl Dag {
 
         let max_target = target_from_bits(params.max_target_bits);
         let scaled = (U512::from(target_from_bits(parent.bits)) * U512::from(pow2_fixed(exponent))) >> 16;
-        let new_target = if scaled > U512::from(max_target) {
-            max_target
-        } else {
-            U256::try_from(scaled).unwrap_or(max_target).max(U256::one())
-        };
+        let new_target =
+            if scaled > U512::from(max_target) { max_target } else { U256::try_from(scaled).unwrap_or(max_target).max(U256::one()) };
 
         let mut bytes = [0u8; 32];
         new_target.to_big_endian(&mut bytes);

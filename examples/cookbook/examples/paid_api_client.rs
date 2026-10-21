@@ -20,12 +20,8 @@ fn main() -> Result<(), String> {
     let started = Instant::now();
 
     // 1. Ask what it costs
-    let quote: serde_json::Value = http
-        .get(&format!("{}/quote", SERVICE))
-        .call()
-        .map_err(|e| e.to_string())?
-        .into_json()
-        .map_err(|e| e.to_string())?;
+    let quote: serde_json::Value =
+        http.get(&format!("{}/quote", SERVICE)).call().map_err(|e| e.to_string())?.into_json().map_err(|e| e.to_string())?;
     let invoice_id = quote["invoice_id"].as_str().ok_or("no invoice in the quote")?;
     let address = Address::decode(quote["address"].as_str().ok_or("no address in the quote")?).map_err(|e| e.to_string())?;
     let price_atoms = quote["price_atoms"].as_u64().ok_or("no price in the quote")?;

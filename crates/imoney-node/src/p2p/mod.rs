@@ -208,8 +208,7 @@ impl PeerManager {
         if self.is_synced() {
             return;
         }
-        let waited_long_enough =
-            self.sync_requested_at.lock().unwrap().is_some_and(|since| since.elapsed() > self.sync_wait);
+        let waited_long_enough = self.sync_requested_at.lock().unwrap().is_some_and(|since| since.elapsed() > self.sync_wait);
         // Only a link this node opened can mark it synced, so only those keep it waiting. Inbound
         // links alone (the duplicate-link rule can leave a node with nothing else) would
         // otherwise hold the miner back forever.
@@ -253,13 +252,7 @@ impl PeerManager {
 
     /// Returns list of currently connected peers.
     pub async fn get_connected_peers(&self) -> Vec<String> {
-        self.peers
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|(_, peer)| peer.node_id.is_some())
-            .map(|(addr, _)| addr.to_string())
-            .collect()
+        self.peers.lock().unwrap().iter().filter(|(_, peer)| peer.node_id.is_some()).map(|(addr, _)| addr.to_string()).collect()
     }
 
     /// Starts the incoming TCP P2P listener and the task that keeps outbound connections open.
@@ -644,13 +637,7 @@ impl PeerManager {
             if ledger.has_block(&block.hash()) {
                 return;
             }
-            let missing: Vec<Hash> = block
-                .header
-                .parents
-                .iter()
-                .filter(|p| !ledger.has_block(p))
-                .copied()
-                .collect();
+            let missing: Vec<Hash> = block.header.parents.iter().filter(|p| !ledger.has_block(p)).copied().collect();
             if missing.is_empty() {
                 let (connected, penalty) = self.connect_block_and_orphans(&mut ledger, block);
                 (missing, connected, penalty)
@@ -780,8 +767,7 @@ impl PeerManager {
                 }
             }
             Message::GetAddr => {
-                let addrs: Vec<SocketAddr> =
-                    self.known_addrs.lock().unwrap().iter().take(MAX_ADDRS_PER_REPLY).copied().collect();
+                let addrs: Vec<SocketAddr> = self.known_addrs.lock().unwrap().iter().take(MAX_ADDRS_PER_REPLY).copied().collect();
                 let _ = sender.try_send(Message::Addr(addrs));
             }
             Message::Addr(addrs) => {

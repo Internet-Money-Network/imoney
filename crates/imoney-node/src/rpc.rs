@@ -2,9 +2,9 @@ use crate::p2p::PeerManager;
 use crate::state::{LedgerEvent, MiningTemplate, NetworkStats, SharedLedger};
 use axum::extract::ws::{Message as WsMessage, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, Query, Request, State};
+use axum::http::StatusCode;
 use axum::middleware::{self, Next};
 use axum::response::Response;
-use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Json};
 use axum::routing::{get, post};
 use axum::Router;
@@ -107,7 +107,6 @@ impl RateLimit {
         true
     }
 }
-
 
 #[derive(Deserialize)]
 pub struct TemplateQuery {
@@ -481,10 +480,7 @@ pub fn create_router(
         .route("/api/v1/stats", get(stats_handler))
         .route("/api/v1/blocks", get(blocks_handler))
         .route("/api/v1/block/:hash", get(block_handler))
-        .route(
-            "/api/v1/tx/broadcast",
-            post(broadcast_handler).layer(middleware::from_fn_with_state(state.clone(), limit_broadcasts)),
-        )
+        .route("/api/v1/tx/broadcast", post(broadcast_handler).layer(middleware::from_fn_with_state(state.clone(), limit_broadcasts)))
         .route("/api/v1/tx/:txid", get(tx_status_handler))
         .route("/api/v1/address/:addr/balance", get(balance_handler))
         .route("/api/v1/address/:addr/utxos", get(utxos_handler))
@@ -569,8 +565,8 @@ async fn require_token(State(state): State<Arc<AppState>>, request: Request, nex
             .and_then(|value| value.strip_prefix("Bearer "))
             .unwrap_or("");
         // Compare without stopping at the first difference
-        let matches = presented.len() == expected.len()
-            && presented.bytes().zip(expected.bytes()).fold(0u8, |diff, (a, b)| diff | (a ^ b)) == 0;
+        let matches =
+            presented.len() == expected.len() && presented.bytes().zip(expected.bytes()).fold(0u8, |diff, (a, b)| diff | (a ^ b)) == 0;
         if !matches {
             return StatusCode::UNAUTHORIZED.into_response();
         }
@@ -635,32 +631,18 @@ async fn stats_handler(State(state): State<Arc<AppState>>) -> Result<Json<StatsR
 }
 
 /// Most recent blocks, newest first. `limit` defaults to 50 and is capped at 500.
-async fn blocks_handler(
-    State(state): State<Arc<AppState>>,
-    Query(query): Query<BlocksQuery>,
-) -> Json<Vec<BlockSummary>> {
+async fn blocks_handler(State(state): State<Arc<AppState>>, Query(query): Query<BlocksQuery>) -> Json<Vec<BlockSummary>> {
     let ledger = state.ledger.read().await;
     let limit = query.limit.unwrap_or(50).min(500);
-    let blocks = ledger
-        .recent_blocks(limit)
-        .into_iter()
-        .map(|(hash, header)| block_summary(&ledger, &hash, header))
-        .collect();
+    let blocks = ledger.recent_blocks(limit).into_iter().map(|(hash, header)| block_summary(&ledger, &hash, header)).collect();
     Json(blocks)
 }
 
-async fn block_handler(
-    State(state): State<Arc<AppState>>,
-    Path(hash_hex): Path<String>,
-) -> Result<Json<BlockDetailResponse>, StatusCode> {
+async fn block_handler(State(state): State<Arc<AppState>>, Path(hash_hex): Path<String>) -> Result<Json<BlockDetailResponse>, StatusCode> {
     let hash = Hash::from_hex(&hash_hex).map_err(|_| StatusCode::BAD_REQUEST)?;
     let ledger = state.ledger.read().await;
     let header = &ledger.header(&hash).ok_or(StatusCode::NOT_FOUND)?;
-    let block = ledger
-        .storage
-        .get_block(&hash)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+    let block = ledger.storage.get_block(&hash).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.ok_or(StatusCode::NOT_FOUND)?;
     let dag_block = ledger.dag.get(&hash);
     let ghostdag = &dag_block.ghostdag;
 
@@ -723,10 +705,6 @@ async fn wallet_sdk_handler() -> impl IntoResponse {
     ([(axum::http::header::CONTENT_TYPE, "text/javascript")], SDK_JS)
 }
 
-
-
-
-
 const HOME_HTML: &str = include_str!("../../../apps/imoney-home/index.html");
 
 /// The node's front page. It reads the node's status from the API like any other client.
@@ -751,10 +729,7 @@ async fn tips_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
 
 async fn peers_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let peers = state.p2p.get_connected_peers().await;
-    Json(PeersResponse {
-        total_connected: peers.len(),
-        peers,
-    })
+    Json(PeersResponse { total_connected: peers.len(), peers })
 }
 
 async fn template_handler(
@@ -781,26 +756,11 @@ async fn submit_handler(
     match ledger.add_block(payload.block.clone(), &state.pow) {
         Ok(hash) => {
             state.p2p.broadcast_block(payload.block);
-            (
-                StatusCode::OK,
-                Json(SubmitBlockResponse {
-                    success: true,
-                    block_hash: Some(hash.to_hex()),
-                    error: None,
-                }),
-            )
+            (StatusCode::OK, Json(SubmitBlockResponse { success: true, block_hash: Some(hash.to_hex()), error: None }))
         }
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(SubmitBlockResponse {
-                success: false,
-                block_hash: None,
-                error: Some(e.to_string()),
-            }),
-        ),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(SubmitBlockResponse { success: false, block_hash: None, error: Some(e.to_string()) })),
     }
 }
-
 
 async fn balance_handler(
     State(state): State<Arc<AppState>>,
@@ -810,11 +770,7 @@ async fn balance_handler(
     let ledger = state.ledger.read().await;
     let (atoms, coins) = ledger.get_balance(&address).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    Ok(Json(AddressBalanceResponse {
-        address: addr_str,
-        balance_imn: coins,
-        balance_atoms: atoms,
-    }))
+    Ok(Json(AddressBalanceResponse { address: addr_str, balance_imn: coins, balance_atoms: atoms }))
 }
 
 async fn utxos_handler(
@@ -866,7 +822,10 @@ fn parse_asset(text: &str) -> Result<imoney_core::Asset, StatusCode> {
 }
 
 /// The open offers, cheapest first: the order book. Filter by what they give and want.
-async fn offers_handler(State(state): State<Arc<AppState>>, Query(query): Query<OffersQuery>) -> Result<Json<Vec<OfferResponse>>, StatusCode> {
+async fn offers_handler(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<OffersQuery>,
+) -> Result<Json<Vec<OfferResponse>>, StatusCode> {
     let give = query.give.as_deref().map(parse_asset).transpose()?;
     let want = query.want.as_deref().map(parse_asset).transpose()?;
     let ledger = state.ledger.read().await;
@@ -922,7 +881,10 @@ pub struct SwapOfferResponse {
 }
 
 /// The open swap offers, cheapest first. Filter by chain and token.
-async fn swap_offers_handler(State(state): State<Arc<AppState>>, Query(query): Query<SwapOffersQuery>) -> Result<Json<Vec<SwapOfferResponse>>, StatusCode> {
+async fn swap_offers_handler(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<SwapOffersQuery>,
+) -> Result<Json<Vec<SwapOfferResponse>>, StatusCode> {
     let ledger = state.ledger.read().await;
     let mut book = Vec::new();
     for (outpoint, entry) in ledger.storage.get_swap_offers().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)? {
@@ -955,7 +917,9 @@ async fn token_handler(State(state): State<Arc<AppState>>, Path(id_hex): Path<St
     let id = Hash::from_hex(&id_hex).map_err(|_| StatusCode::BAD_REQUEST)?;
     let ledger = state.ledger.read().await;
     let (token, info) = ledger.token_info(&id).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.ok_or(StatusCode::NOT_FOUND)?;
-    let created = |want_authority: bool| info.tx.outputs.iter().filter_map(|o| o.token.as_ref()).filter(move |t| t.id == id && t.mint_authority == want_authority);
+    let created = |want_authority: bool| {
+        info.tx.outputs.iter().filter_map(|o| o.token.as_ref()).filter(move |t| t.id == id && t.mint_authority == want_authority)
+    };
     Ok(Json(TokenResponse {
         token_id: id.to_hex(),
         name: token.name,
@@ -1014,9 +978,7 @@ async fn history_handler(
         None => None,
     };
     let ledger = state.ledger.read().await;
-    let rows = ledger
-        .address_history(&address, limit, before.as_deref())
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let rows = ledger.address_history(&address, limit, before.as_deref()).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let next = (rows.len() == limit).then(|| rows.last().map(|(row, _)| hex::encode(row.position()))).flatten();
     let items = rows
@@ -1103,31 +1065,13 @@ async fn broadcast_handler(
     match ledger.broadcast_transaction(payload.transaction.clone()) {
         Ok(tx_id) => {
             state.p2p.broadcast_transaction(payload.transaction);
-            (
-                StatusCode::OK,
-                Json(BroadcastTxResponse {
-                    success: true,
-                    tx_id: Some(tx_id.to_hex()),
-                    error: None,
-                }),
-            )
+            (StatusCode::OK, Json(BroadcastTxResponse { success: true, tx_id: Some(tx_id.to_hex()), error: None }))
         }
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(BroadcastTxResponse {
-                success: false,
-                tx_id: None,
-                error: Some(e.to_string()),
-            }),
-        ),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(BroadcastTxResponse { success: false, tx_id: None, error: Some(e.to_string()) })),
     }
 }
 
-
-async fn tx_status_handler(
-    State(state): State<Arc<AppState>>,
-    Path(txid_hex): Path<String>,
-) -> Result<Json<TxStatusResponse>, StatusCode> {
+async fn tx_status_handler(State(state): State<Arc<AppState>>, Path(txid_hex): Path<String>) -> Result<Json<TxStatusResponse>, StatusCode> {
     let tx_hash = Hash::from_hex(&txid_hex).map_err(|_| StatusCode::BAD_REQUEST)?;
     let ledger = state.ledger.read().await;
 
@@ -1257,9 +1201,7 @@ async fn handle_address_socket(mut socket: WebSocket, addr_str: String, state: A
     let address = match Address::decode(&addr_str) {
         Ok(a) => a,
         Err(_) => {
-            let _ = socket
-                .send(WsMessage::Text(r#"{"error":"Invalid address"}"#.to_string()))
-                .await;
+            let _ = socket.send(WsMessage::Text(r#"{"error":"Invalid address"}"#.to_string())).await;
             return;
         }
     };

@@ -17,10 +17,7 @@ pub struct GhostdagParams {
 
 impl Default for GhostdagParams {
     fn default() -> Self {
-        Self {
-            k: GHOSTDAG_K,
-            mergeset_size_limit: 10 * GHOSTDAG_K as usize,
-        }
+        Self { k: GHOSTDAG_K, mergeset_size_limit: 10 * GHOSTDAG_K as usize }
     }
 }
 
@@ -68,13 +65,8 @@ impl GhostdagData {
     /// Every merged block in the order their transactions are applied: the selected parent
     /// first, then the rest by ascending blue work. The flag is true for blue blocks.
     pub fn ordered_mergeset(&self, dag: &Dag) -> Vec<(Hash, bool)> {
-        let mut rest: Vec<(Hash, bool)> = self
-            .mergeset_blues
-            .iter()
-            .skip(1)
-            .map(|h| (*h, true))
-            .chain(self.mergeset_reds.iter().map(|h| (*h, false)))
-            .collect();
+        let mut rest: Vec<(Hash, bool)> =
+            self.mergeset_blues.iter().skip(1).map(|h| (*h, true)).chain(self.mergeset_reds.iter().map(|h| (*h, false))).collect();
         rest.sort_by_key(|(h, _)| dag.sort_key(h));
 
         let mut ordered = Vec::with_capacity(rest.len() + 1);
@@ -113,14 +105,7 @@ impl Decode for GhostdagData {
         for _ in 0..count {
             blues_anticone_sizes.insert(reader.hash()?, reader.u32()?);
         }
-        Ok(Self {
-            selected_parent,
-            mergeset_blues,
-            mergeset_reds,
-            blue_score,
-            blue_work,
-            blues_anticone_sizes,
-        })
+        Ok(Self { selected_parent, mergeset_blues, mergeset_reds, blue_score, blue_work, blues_anticone_sizes })
     }
 }
 
@@ -165,19 +150,12 @@ impl Dag {
 
     /// Runs GHOSTDAG for a block with the given parents, which must already pass `check_parents`.
     pub fn ghostdag(&self, parents: &[Hash]) -> Result<GhostdagData, GhostdagError> {
-        let selected_parent = *parents
-            .iter()
-            .max_by_key(|p| self.sort_key(p))
-            .ok_or(GhostdagError::NoParents)?;
+        let selected_parent = *parents.iter().max_by_key(|p| self.sort_key(p)).ok_or(GhostdagError::NoParents)?;
 
         let mut candidates = self.mergeset_without_selected_parent(&selected_parent, parents)?;
         candidates.sort_by_key(|h| self.sort_key(h));
 
-        let mut data = GhostdagData {
-            selected_parent,
-            mergeset_blues: vec![selected_parent],
-            ..Default::default()
-        };
+        let mut data = GhostdagData { selected_parent, mergeset_blues: vec![selected_parent], ..Default::default() };
         data.blues_anticone_sizes.insert(selected_parent, 0);
 
         for candidate in candidates {
@@ -197,20 +175,13 @@ impl Dag {
         let parent_block = self.get(&selected_parent);
         let parent_data = &parent_block.ghostdag;
         data.blue_score = parent_data.blue_score + data.mergeset_blues.len() as u64;
-        data.blue_work = data
-            .mergeset_blues
-            .iter()
-            .fold(parent_data.blue_work, |work, blue| work.saturating_add(self.get(blue).work));
+        data.blue_work = data.mergeset_blues.iter().fold(parent_data.blue_work, |work, blue| work.saturating_add(self.get(blue).work));
         Ok(data)
     }
 
     /// The blocks in the new block's past that are not in the selected parent's past,
     /// excluding the selected parent itself.
-    fn mergeset_without_selected_parent(
-        &self,
-        selected_parent: &Hash,
-        parents: &[Hash],
-    ) -> Result<Vec<Hash>, GhostdagError> {
+    fn mergeset_without_selected_parent(&self, selected_parent: &Hash, parents: &[Hash]) -> Result<Vec<Hash>, GhostdagError> {
         let mut queue: VecDeque<Hash> = parents.iter().filter(|p| *p != selected_parent).copied().collect();
         let mut mergeset: HashSet<Hash> = queue.iter().copied().collect();
         let mut in_selected_past: HashSet<Hash> = HashSet::new();

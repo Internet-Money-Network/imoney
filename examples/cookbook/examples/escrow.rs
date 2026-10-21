@@ -31,7 +31,8 @@ fn main() -> Result<(), String> {
     println!("Terms to keep:  {}", hex::encode(script.to_bytes()));
 
     // The buyer pays into it, an ordinary payment
-    let fund = Transaction::build_payment(&buyer, NETWORK, &escrow, ATOMS_PER_IMN, FEE_ATOMS, node.spendable_coins(&address_of(&buyer))?, None)?;
+    let fund =
+        Transaction::build_payment(&buyer, NETWORK, &escrow, ATOMS_PER_IMN, FEE_ATOMS, node.spendable_coins(&address_of(&buyer))?, None)?;
     let coin = (Outpoint { transaction_id: fund.id(), index: 0 }, fund.outputs[0].clone());
     println!("Paid into escrow in {}", node.broadcast(&fund)?);
     while node.spendable_coins(&escrow)?.is_empty() {

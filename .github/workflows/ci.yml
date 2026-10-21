@@ -24,7 +24,10 @@ jobs:
         # Keep in step with rust-toolchain.toml.
         uses: dtolnay/rust-toolchain@1.97.1
         with:
-          components: clippy
+          components: clippy, rustfmt
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2

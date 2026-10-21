@@ -15,8 +15,12 @@ pub fn compact_to_u256(compact: u32) -> [u8; 32] {
         let bytes = word.to_be_bytes();
         let start = 32 - size;
         target[start] = bytes[1];
-        if start + 1 < 32 { target[start + 1] = bytes[2]; }
-        if start + 2 < 32 { target[start + 2] = bytes[3]; }
+        if start + 1 < 32 {
+            target[start + 1] = bytes[2];
+        }
+        if start + 2 < 32 {
+            target[start + 2] = bytes[3];
+        }
     }
     target
 }

@@ -212,21 +212,12 @@ impl Mempool {
 
     /// Pending transactions that name `invoice_id`.
     pub fn by_invoice(&self, invoice_id: &str) -> impl Iterator<Item = &Transaction> {
-        self.invoices
-            .get(invoice_id)
-            .into_iter()
-            .flatten()
-            .filter_map(|tx_id| self.entries.get(tx_id).map(|entry| &entry.tx))
+        self.invoices.get(invoice_id).into_iter().flatten().filter_map(|tx_id| self.entries.get(tx_id).map(|entry| &entry.tx))
     }
 
     /// Keeps only the transactions for which `still_valid` returns true.
     pub fn retain(&mut self, mut still_valid: impl FnMut(&Transaction) -> bool) {
-        let stale: Vec<Hash> = self
-            .entries
-            .iter()
-            .filter(|(_, entry)| !still_valid(&entry.tx))
-            .map(|(id, _)| *id)
-            .collect();
+        let stale: Vec<Hash> = self.entries.iter().filter(|(_, entry)| !still_valid(&entry.tx)).map(|(id, _)| *id).collect();
         for id in stale {
             self.remove(&id);
         }

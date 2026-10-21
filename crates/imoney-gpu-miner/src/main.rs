@@ -22,8 +22,8 @@ use opencl3::types::{cl_uint, cl_ulong, CL_BLOCKING};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Read, Write};
-use std::path::PathBuf;
 use std::net::TcpStream;
+use std::path::PathBuf;
 use std::ptr;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -165,8 +165,7 @@ impl GpuSearcher {
             queue.enqueue_write_buffer(&mut dataset, CL_BLOCKING, 0, flat, &[])?;
             let header = Buffer::<cl_uint>::create(&context, CL_MEM_READ_ONLY, 8, ptr::null_mut())?;
             let target = Buffer::<cl_uint>::create(&context, CL_MEM_READ_ONLY, 8, ptr::null_mut())?;
-            let mut results =
-                Buffer::<cl_uint>::create(&context, CL_MEM_READ_WRITE, 1 + 2 * MAX_RESULTS, ptr::null_mut())?;
+            let mut results = Buffer::<cl_uint>::create(&context, CL_MEM_READ_WRITE, 1 + 2 * MAX_RESULTS, ptr::null_mut())?;
             queue.enqueue_write_buffer(&mut results, CL_BLOCKING, 0, &[0; 1 + 2 * MAX_RESULTS], &[])?;
             (dataset, header, target, results)
         };
@@ -348,12 +347,7 @@ fn cache_path(args: &Args, params: PowParams, genesis: &Hash) -> Option<PathBuf>
         // Beside the program: on the drive the user chose to put it on, and easy to find
         None => std::env::current_exe().ok()?.parent()?.join("imoney-cache"),
     };
-    Some(dir.join(format!(
-        "hallmark-{}-{}-{}.dataset",
-        &genesis.to_hex()[..16],
-        params.light_cache_items,
-        params.dataset_items
-    )))
+    Some(dir.join(format!("hallmark-{}-{}-{}.dataset", &genesis.to_hex()[..16], params.light_cache_items, params.dataset_items)))
 }
 
 /// The bytes of a dataset as they are stored: each word little-endian.
@@ -409,7 +403,12 @@ fn load(device: &Device, params: PowParams, genesis: Hash, args: &Args) -> Resul
             gpu.set_power(args.power);
             match check_against_cpu(&mut gpu, &light) {
                 Ok(()) => {
-                    println!("[+] Dataset ({} MB) loaded from {} in {:.1?}; the card matches the CPU", megabytes, path.display(), started.elapsed());
+                    println!(
+                        "[+] Dataset ({} MB) loaded from {} in {:.1?}; the card matches the CPU",
+                        megabytes,
+                        path.display(),
+                        started.elapsed()
+                    );
                     return Ok((gpu, light));
                 }
                 Err(e) => {
@@ -523,10 +522,8 @@ fn mine_stratum(device: &Device, server: &str, args: &Args, batch: usize) -> Res
     send(json!({ "id": 1, "method": "mining.subscribe", "params": [concat!("imoney-gpu-miner/", env!("CARGO_PKG_VERSION"))] }))?;
     let subscribed = read(&mut reader)?;
     let result = &subscribed["result"];
-    let extranonce = result[1]
-        .as_str()
-        .and_then(|hex| u16::from_str_radix(hex, 16).ok())
-        .ok_or("the server did not assign an extranonce")?;
+    let extranonce =
+        result[1].as_str().and_then(|hex| u16::from_str_radix(hex, 16).ok()).ok_or("the server did not assign an extranonce")?;
     let network = &result[3];
     let genesis = Hash::from_hex(network["genesis_hash"].as_str().ok_or("the server did not name its network")?)?;
     let params = PowParams {

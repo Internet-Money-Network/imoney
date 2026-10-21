@@ -79,7 +79,11 @@ impl VaultScript {
         if bytes.len() != VAULT_BYTES {
             return Err(invalid("a vault script is 72 bytes"));
         }
-        Self::new(bytes[..32].try_into().expect("32"), bytes[32..64].try_into().expect("32"), u64::from_be_bytes(bytes[64..].try_into().expect("8")))
+        Self::new(
+            bytes[..32].try_into().expect("32"),
+            bytes[32..64].try_into().expect("32"),
+            u64::from_be_bytes(bytes[64..].try_into().expect("8")),
+        )
     }
 
     pub fn locking_script(&self) -> ScriptPublicKey {
@@ -126,7 +130,13 @@ impl PendingWithdrawal {
 impl Transaction {
     /// Checks the signature, timing and destination of an input spending a vault coin or a
     /// pending withdrawal, in a block of the given blue score. `spent` is the coin it spends.
-    pub(crate) fn verify_vault_input(&self, network: Network, input_index: usize, spent: &ScriptPublicKey, spending_blue_score: u64) -> Result<(), TransactionError> {
+    pub(crate) fn verify_vault_input(
+        &self,
+        network: Network,
+        input_index: usize,
+        spent: &ScriptPublicKey,
+        spending_blue_score: u64,
+    ) -> Result<(), TransactionError> {
         let bytes = &self.inputs.get(input_index).ok_or(TransactionError::EmptyInputs)?.signature_script;
         if spent.version == SCRIPT_VERSION_VAULT {
             if bytes.len() < VAULT_BYTES + 65 {
@@ -230,7 +240,11 @@ impl Transaction {
             return Err("That is not the vault's everyday key".to_string());
         }
         // A few blocks of margin, so the transaction stays valid if it lands a little later
-        let pending = PendingWithdrawal { destination: ScriptPublicKey::pay_to_address(to), unlock_at: now.saturating_add(vault.delay).saturating_add(10), backup: vault.backup };
+        let pending = PendingWithdrawal {
+            destination: ScriptPublicKey::pay_to_address(to),
+            unlock_at: now.saturating_add(vault.delay).saturating_add(10),
+            backup: vault.backup,
+        };
         let (outpoint, held) = coin;
         let value = held.value_atoms.checked_sub(fee_atoms).ok_or("The fee is more than the vault coin holds")?;
         let mut tx = Transaction {
@@ -242,7 +256,8 @@ impl Transaction {
             issue: None,
         };
         let signature = everyday.sign(tx.sig_hash(network, 0).as_bytes());
-        tx.inputs[0].signature_script = [vault.to_bytes(), vec![MAIN], signature.to_bytes().to_vec(), pending.to_bytes(), 0u16.to_be_bytes().to_vec()].concat();
+        tx.inputs[0].signature_script =
+            [vault.to_bytes(), vec![MAIN], signature.to_bytes().to_vec(), pending.to_bytes(), 0u16.to_be_bytes().to_vec()].concat();
         Ok((tx, pending))
     }
 
@@ -335,7 +350,8 @@ mod tests {
 
         // Completing to anywhere else is refused, even with no signature to forge
         let mut diverted = complete.clone();
-        diverted.outputs[0].script_public_key = ScriptPublicKey::pay_to_address(&Address::from_public_key(NET, AddressType::PubKeyHash, &[6u8; 32]));
+        diverted.outputs[0].script_public_key =
+            ScriptPublicKey::pay_to_address(&Address::from_public_key(NET, AddressType::PubKeyHash, &[6u8; 32]));
         assert!(valid(&diverted, &pending_coin.1, pending.unlock_at).is_err());
     }
 
@@ -361,7 +377,11 @@ mod tests {
         assert!(valid(&resign(short), &coin.1, 50).is_err());
         // A pending output someone else's backup key controls
         let mut other = start.clone();
-        let theirs = PendingWithdrawal { destination: ScriptPublicKey::pay_to_address(&shop), unlock_at: 500, backup: key(5).verifying_key().to_bytes() };
+        let theirs = PendingWithdrawal {
+            destination: ScriptPublicKey::pay_to_address(&shop),
+            unlock_at: 500,
+            backup: key(5).verifying_key().to_bytes(),
+        };
         other.outputs[0].script_public_key = theirs.locking_script();
         let end = other.inputs[0].signature_script.len();
         other.inputs[0].signature_script[VAULT_BYTES + 65..end - 2].copy_from_slice(&theirs.to_bytes());

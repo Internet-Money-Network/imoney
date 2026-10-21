@@ -205,7 +205,8 @@ impl Transaction {
                         return Err(invalid("an output may hold the rest of only one subscription"));
                     }
                     named.push(i);
-                    let output = self.outputs.get(i as usize).ok_or_else(|| invalid("the collection names an output that does not exist"))?;
+                    let output =
+                        self.outputs.get(i as usize).ok_or_else(|| invalid("the collection names an output that does not exist"))?;
                     let next = script.next()?;
                     if output.script_public_key != next.locking_script() {
                         return Err(invalid("the rest must stay in the subscription, due one period later"));
@@ -253,7 +254,8 @@ impl Transaction {
             issue: None,
         };
         let signature = merchant.sign(tx.sig_hash(network, 0).as_bytes());
-        tx.inputs[0].signature_script = [script.to_bytes(), vec![COLLECT], signature.to_bytes().to_vec(), rest.to_be_bytes().to_vec()].concat();
+        tx.inputs[0].signature_script =
+            [script.to_bytes(), vec![COLLECT], signature.to_bytes().to_vec(), rest.to_be_bytes().to_vec()].concat();
         Ok(tx)
     }
 

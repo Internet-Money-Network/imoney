@@ -156,11 +156,7 @@ impl PoolRuntime {
     }
 
     fn get(&self, path: &str) -> Result<Value, String> {
-        ureq::get(&format!("{}{}", self.node, path))
-            .call()
-            .map_err(|e| e.to_string())?
-            .into_json()
-            .map_err(|e| e.to_string())
+        ureq::get(&format!("{}{}", self.node, path)).call().map_err(|e| e.to_string())?.into_json().map_err(|e| e.to_string())
     }
 
     /// Credits matured rewards, follows up on the last payout, and sends the next one.
@@ -269,10 +265,7 @@ impl PoolRuntime {
                     break;
                 }
                 let transaction_id = Hash::from_hex(&coin.transaction_id).map_err(|e| e.to_string())?;
-                inputs.push(TxInput {
-                    previous_outpoint: Outpoint { transaction_id, index: coin.index },
-                    signature_script: Vec::new(),
-                });
+                inputs.push(TxInput { previous_outpoint: Outpoint { transaction_id, index: coin.index }, signature_script: Vec::new() });
                 gathered += coin.value_atoms;
             }
             if gathered < total + fee {
@@ -282,7 +275,8 @@ impl PoolRuntime {
             if gathered > total + fee {
                 tx_outputs.push(TxOutput { value_atoms: gathered - total - fee, script_public_key: pool_script.clone(), token: None });
             }
-            let mut tx = Transaction { version: 1, inputs, outputs: tx_outputs, payload: b"pool payout".to_vec(), service: None, issue: None };
+            let mut tx =
+                Transaction { version: 1, inputs, outputs: tx_outputs, payload: b"pool payout".to_vec(), service: None, issue: None };
             for index in 0..tx.inputs.len() {
                 tx.sign_input(self.network, index, &self.key).map_err(|e| e.to_string())?;
             }
@@ -393,9 +387,7 @@ impl PoolRuntime {
             "/" => ("200 OK", "text/html; charset=utf-8", POOL_PAGE.to_string()),
             "/api/stats" => ("200 OK", "application/json", self.stats().to_string()),
             other => match other.strip_prefix("/api/miner/").map(percent_decode) {
-                Some(address) if Address::decode(&address).is_ok() => {
-                    ("200 OK", "application/json", self.miner(&address).to_string())
-                }
+                Some(address) if Address::decode(&address).is_ok() => ("200 OK", "application/json", self.miner(&address).to_string()),
                 _ => ("404 Not Found", "text/plain", "Not found".to_string()),
             },
         };
