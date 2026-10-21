@@ -146,6 +146,12 @@ impl Transaction {
                 if secret_hash(secret) != script.hash {
                     return Err(invalid("the secret does not match the lock"));
                 }
+                // Claim and refund never overlap. Otherwise a swap buyer could wait until both
+                // deadlines pass, take back their payment on the other chain, and still claim
+                // here if the seller had not refunded in time.
+                if spending_blue_score >= script.refund_after {
+                    return Err(invalid("the claim period is over; only a refund is possible"));
+                }
                 (script, script.recipient)
             }
             HashLockSpend::Refund { script } => {
@@ -247,10 +253,13 @@ mod tests {
     }
 
     #[test]
-    fn the_recipient_claims_with_the_secret_at_any_time() {
+    fn the_recipient_claims_with_the_secret_until_the_refund_time() {
         let (recipient, _, secret, script, to) = setup();
         let tx = Transaction::spend_hashlock(&script, Network::Testnet, coin(), &to, 1_000, &recipient, Some(secret)).unwrap();
         assert!(tx.verify_input_at(Network::Testnet, 0, &locked(&script), 0).is_ok());
+        assert!(tx.verify_input_at(Network::Testnet, 0, &locked(&script), 99).is_ok());
+        // From the refund time on, only the refunder can move the coins
+        assert!(tx.verify_input_at(Network::Testnet, 0, &locked(&script), 100).is_err());
         assert_eq!(tx.revealed_secret(0), Some(secret));
         assert_eq!(tx.outputs[0].value_atoms, 999_000);
         // The same claim is not valid on another network

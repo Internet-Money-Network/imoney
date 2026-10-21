@@ -193,6 +193,18 @@ impl Transaction {
     /// Checks that the coins of every escrow this transaction spends go where the signer's role
     /// allows. `spent` holds the outputs the transaction spends, in input order.
     pub fn check_escrow_destinations(&self, network: Network, spent: &[&TxOutput]) -> Result<(), TransactionError> {
+        self.check_escrow_destinations_except(network, spent, &std::collections::BTreeSet::new())
+    }
+
+    /// `check_escrow_destinations`, not counting the outputs in `claimed`: those another contract
+    /// in the transaction already counts (an offer's payment, a vault withdrawal). Without this,
+    /// one output could settle an escrow and that other contract at once.
+    pub fn check_escrow_destinations_except(
+        &self,
+        network: Network,
+        spent: &[&TxOutput],
+        claimed: &std::collections::BTreeSet<u16>,
+    ) -> Result<(), TransactionError> {
         let escrows: Vec<usize> =
             spent.iter().enumerate().filter(|(_, o)| o.script_public_key.version == SCRIPT_VERSION_ESCROW).map(|(i, _)| i).collect();
         let Some(&index) = escrows.first() else { return Ok(()) };
@@ -203,7 +215,8 @@ impl Transaction {
         let (_, allowed) = script.role_terms(role, network);
         let escrowed = spent[index];
 
-        let to_allowed = self.outputs.iter().filter(|o| allowed.contains(&o.script_public_key));
+        let free = |(i, _): &(usize, &TxOutput)| !claimed.contains(&(*i as u16));
+        let to_allowed = self.outputs.iter().enumerate().filter(free).map(|(_, o)| o).filter(|o| allowed.contains(&o.script_public_key));
         let atoms: u64 = to_allowed.clone().fold(0u64, |sum, o| sum.saturating_add(o.value_atoms));
         if atoms.saturating_add(MAX_ESCROW_FEE_ATOMS) < escrowed.value_atoms {
             return Err(invalid("the escrowed coins must go to the party this signer may pay"));
@@ -212,8 +225,9 @@ impl Transaction {
         let elsewhere: u64 = self
             .outputs
             .iter()
-            .filter(|o| !allowed.contains(&o.script_public_key))
-            .fold(0u64, |sum, o| sum.saturating_add(o.value_atoms));
+            .enumerate()
+            .filter(|(i, o)| claimed.contains(&(*i as u16)) || !allowed.contains(&o.script_public_key))
+            .fold(0u64, |sum, (_, o)| sum.saturating_add(o.value_atoms));
         let other_inputs: u64 =
             spent.iter().enumerate().filter(|(i, _)| *i != index).fold(0u64, |sum, (_, o)| sum.saturating_add(o.value_atoms));
         if elsewhere > other_inputs {

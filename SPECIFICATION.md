@@ -183,7 +183,7 @@ An address of type `HashLock` (type byte 3) locks coins to the hash of a 104-byt
 
 An input spending such a coin carries the script, one branch byte, a 64-byte signature over the ordinary signing hash of that input, and for a claim a 32-byte secret:
 
-- **Claim** (branch 0): signed by the recipient, and `SHA-256(secret)` equals the hash in the script. Valid at any time.
+- **Claim** (branch 0): signed by the recipient, and `SHA-256(secret)` equals the hash in the script. Valid only in blocks whose blue score is below `refund_after`, so a claim and a refund are never both possible.
 - **Refund** (branch 1): signed by the refunder. Valid only when the blue score of the block that accepts the transaction is at least the script's.
 
 Two parties who lock coins for each other under one hash, here and on another chain, can exchange them without a third party: claiming either side publishes the secret that claims the other, and an unclaimed lock returns to its owner after its deadline. The refund deadline on the chain where the secret is revealed second must be the later of the two, with enough margin for the other party to act.
@@ -236,5 +236,8 @@ An input spending a swap offer carries only a 64-byte signature by the maker ove
 
 The other chain's side is the `ImnSwap` contract. A buyer calls `lockForImn`, which locks the payment for the maker's payment address under the SHA-256 hash of the buyer's secret and records the buyer's IMN key and the blue score from which the maker may take back the IMN lock. Both sides derive the IMN lock's address from the buyer's key, the maker's key, the hash and that blue score. The buyer's refund time on the other chain must be later than the IMN lock's by a margin the maker chooses, so the maker can always claim the payment after the buyer claims the IMN and so reveals the secret.
 
-### 8.10 Keys
+### 8.10 One output, one contract
+Within one transaction, an output named by an offer take (as payment or rest), a vault withdrawal or a subscription collection may be named by no other of these, and does not count towards an escrow's allowed destinations (it counts as paid elsewhere). Otherwise one payment could settle two contracts: an offer "paid" with its maker's own vault withdrawal, which anyone may complete, or an escrow released with the seller's own money.
+
+### 8.11 Keys
 Nodes do not create, store or receive private keys. Wallets sign locally; the reference wallet uses a WebAssembly build of the same transaction code the node runs. A wallet's key is derived from a 12-word BIP-39 recovery phrase as `Blake3-derive-key("IMN 2026 wallet key 0", BIP-39 seed)`.

@@ -178,7 +178,9 @@ impl Transaction {
     /// Checks every offer this transaction takes: the maker is paid at least the price for what
     /// is taken, and a partial take puts the rest back in an identical offer. `spent` holds the
     /// outputs the transaction spends, in input order.
-    pub fn check_offer_takes(&self, network: Network, spent: &[&TxOutput]) -> Result<(), TransactionError> {
+    /// Returns the outputs the takes claim (payments and rests), which no other contract in the
+    /// transaction may count.
+    pub fn check_offer_takes(&self, network: Network, spent: &[&TxOutput]) -> Result<BTreeSet<u16>, TransactionError> {
         let mut named: BTreeSet<u16> = BTreeSet::new();
         for (index, coin) in spent.iter().enumerate() {
             if coin.script_public_key.version != SCRIPT_VERSION_OFFER {
@@ -233,7 +235,7 @@ impl Transaction {
                 }
             }
         }
-        Ok(())
+        Ok(named)
     }
 
     /// Creates an offer: `give_amount` of `give` locked for anyone to take at the price, paying

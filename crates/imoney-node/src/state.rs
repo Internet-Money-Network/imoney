@@ -39,6 +39,9 @@ const MAX_INVOICE_PAYMENTS: usize = 1_000;
 /// Most tips tried as extra parents of the virtual block; each try runs GHOSTDAG.
 const MAX_VIRTUAL_PARENT_CANDIDATES: usize = 2 * MAX_BLOCK_PARENTS;
 
+/// How a failed signature (or script) check starts its error message.
+pub const BAD_SIGNATURE: &str = "Signature check failed";
+
 pub const NETWORK_ALERT_WINDOW_MS: u64 = 30 * 60 * 1000;
 
 /// A selected-chain switch that undoes at least this many blocks is recorded as a warning sign.
@@ -632,7 +635,7 @@ impl DagLedger {
 
             // Verify signature against public key and address hash
             tx.verify_input_at(self.network, i, &utxo.output.script_public_key, spending_blue_score)
-                .map_err(|e| StateError::Transaction(format!("Signature check failed on input {}: {}", i, e)))?;
+                .map_err(|e| StateError::Transaction(format!("{} on input {}: {}", BAD_SIGNATURE, i, e)))?;
 
             total_input_atoms = total_input_atoms
                 .checked_add(utxo.output.value_atoms)
@@ -644,10 +647,7 @@ impl DagLedger {
         // escrowed coins go only where the signer's role allows
         let spent_refs: Vec<&TxOutput> = spent_outputs.iter().collect();
         tx.check_tokens(&spent_refs).map_err(|e| StateError::Transaction(e.to_string()))?;
-        tx.check_escrow_destinations(self.network, &spent_refs).map_err(|e| StateError::Transaction(e.to_string()))?;
-        tx.check_offer_takes(self.network, &spent_refs).map_err(|e| StateError::Transaction(e.to_string()))?;
-        tx.check_subscription_collections(&spent_refs).map_err(|e| StateError::Transaction(e.to_string()))?;
-        tx.check_vault_withdrawals(&spent_refs).map_err(|e| StateError::Transaction(e.to_string()))?;
+        tx.check_contracts(self.network, &spent_refs).map_err(|e| StateError::Transaction(e.to_string()))?;
 
         let total_output_atoms = tx
             .outputs

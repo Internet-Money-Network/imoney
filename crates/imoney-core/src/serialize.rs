@@ -129,7 +129,10 @@ impl<'a> Reader<'a> {
         if len > self.remaining() {
             return Err(DecodeError::UnexpectedEof);
         }
-        let mut items = Vec::with_capacity(len);
+        // Reserve for at most a few items up front: an item can be far larger in memory than
+        // the one byte it may take on the wire, so a count of millions in a 4 MB message must
+        // not reserve gigabytes before the items turn out not to be there
+        let mut items = Vec::with_capacity(len.min(64));
         for _ in 0..len {
             items.push(T::decode(self)?);
         }

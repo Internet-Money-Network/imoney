@@ -26,6 +26,9 @@ pub struct AppState {
     /// Mining templates and block submissions each cost real work, so both are rate-limited.
     pub template_limit: RateLimit,
     pub submit_limit: RateLimit,
+    /// Broadcasts stay open to any website (checkout pages need them) but each one takes the
+    /// ledger's write lock, so their total rate is capped well above real use.
+    pub broadcast_limit: RateLimit,
     /// Open address WebSockets, each holding a task and a ledger subscription.
     pub sockets_open: std::sync::atomic::AtomicUsize,
     /// Websites allowed to call the API from a browser; empty means any.
@@ -419,6 +422,7 @@ pub fn create_router(
         stats_cache: std::sync::Mutex::new(None),
         template_limit: RateLimit::new(20.0, 100.0),
         submit_limit: RateLimit::new(50.0, 200.0),
+        broadcast_limit: RateLimit::new(100.0, 500.0),
         sockets_open: std::sync::atomic::AtomicUsize::new(0),
         allowed_origins,
     });
@@ -432,7 +436,10 @@ pub fn create_router(
         .route("/api/v1/stats", get(stats_handler))
         .route("/api/v1/blocks", get(blocks_handler))
         .route("/api/v1/block/:hash", get(block_handler))
-        .route("/api/v1/tx/broadcast", post(broadcast_handler))
+        .route(
+            "/api/v1/tx/broadcast",
+            post(broadcast_handler).layer(middleware::from_fn_with_state(state.clone(), limit_broadcasts)),
+        )
         .route("/api/v1/tx/:txid", get(tx_status_handler))
         .route("/api/v1/address/:addr/balance", get(balance_handler))
         .route("/api/v1/address/:addr/utxos", get(utxos_handler))
@@ -473,6 +480,13 @@ pub fn create_router(
 
 async fn limit_templates(State(state): State<Arc<AppState>>, request: Request, next: Next) -> Response {
     if !state.template_limit.allow() {
+        return StatusCode::TOO_MANY_REQUESTS.into_response();
+    }
+    next.run(request).await
+}
+
+async fn limit_broadcasts(State(state): State<Arc<AppState>>, request: Request, next: Next) -> Response {
+    if !state.broadcast_limit.allow() {
         return StatusCode::TOO_MANY_REQUESTS.into_response();
     }
     next.run(request).await

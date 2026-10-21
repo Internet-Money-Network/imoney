@@ -172,7 +172,8 @@ impl Transaction {
     /// Checks where a withdrawal's coins go: starting one moves everything into the pending
     /// output it names, and completing one pays everything to its destination. A capped fee
     /// may come out each time. `spent` holds the outputs spent, in input order.
-    pub fn check_vault_withdrawals(&self, spent: &[&TxOutput]) -> Result<(), TransactionError> {
+    /// Returns the outputs the withdrawals claim.
+    pub fn check_vault_withdrawals(&self, spent: &[&TxOutput]) -> Result<Vec<u16>, TransactionError> {
         let mut named: Vec<u16> = Vec::new();
         for (index, coin) in spent.iter().enumerate() {
             let version = coin.script_public_key.version;
@@ -209,7 +210,7 @@ impl Transaction {
                 return Err(invalid("a withdrawal's coins go only where it says"));
             }
         }
-        Ok(())
+        Ok(named)
     }
 
     /// Starts a withdrawal of a vault coin to `to`, with the everyday key. It completes after the
@@ -315,7 +316,7 @@ mod tests {
 
     fn valid(tx: &Transaction, spent: &TxOutput, blue_score: u64) -> Result<(), String> {
         tx.verify_input_at(NET, 0, &spent.script_public_key, blue_score).map_err(|e| e.to_string())?;
-        tx.check_vault_withdrawals(&[spent]).map_err(|e| e.to_string())
+        tx.check_vault_withdrawals(&[spent]).map(|_| ()).map_err(|e| e.to_string())
     }
 
     #[test]

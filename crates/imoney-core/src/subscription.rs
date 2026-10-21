@@ -182,7 +182,8 @@ impl Transaction {
 
     /// Checks every collection this transaction makes: at most the amount per period (and a
     /// capped fee) leaves, and the rest goes back into the subscription, due one period later.
-    pub fn check_subscription_collections(&self, spent: &[&TxOutput]) -> Result<(), TransactionError> {
+    /// Returns the outputs the collections claim (their rests).
+    pub fn check_subscription_collections(&self, spent: &[&TxOutput]) -> Result<Vec<u16>, TransactionError> {
         let mut named: Vec<u16> = Vec::new();
         for (index, coin) in spent.iter().enumerate() {
             if coin.script_public_key.version != SCRIPT_VERSION_SUBSCRIPTION {
@@ -215,7 +216,7 @@ impl Transaction {
                 }
             }
         }
-        Ok(())
+        Ok(named)
     }
 
     /// Collects one period's amount from a subscription coin, as the merchant. The rest goes
@@ -312,7 +313,7 @@ mod tests {
 
     fn valid(tx: &Transaction, coin: &TxOutput, blue_score: u64) -> Result<(), String> {
         tx.verify_input_at(NET, 0, &coin.script_public_key, blue_score).map_err(|e| e.to_string())?;
-        tx.check_subscription_collections(&[coin]).map_err(|e| e.to_string())
+        tx.check_subscription_collections(&[coin]).map(|_| ()).map_err(|e| e.to_string())
     }
 
     #[test]

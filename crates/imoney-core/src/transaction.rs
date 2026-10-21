@@ -238,6 +238,22 @@ impl Transaction {
         Ok(())
     }
 
+    /// Checks where the coins of every contract this transaction spends may go: offers, vault
+    /// withdrawals, subscription collections and escrow. Each output can settle only one of
+    /// them, so a payment one contract demands can never be counted towards another (an offer
+    /// "paid" with the maker's own vault withdrawal, say). `spent` holds the outputs spent, in
+    /// input order.
+    pub fn check_contracts(&self, network: Network, spent: &[&TxOutput]) -> Result<(), TransactionError> {
+        let mut claimed = self.check_offer_takes(network, spent)?;
+        let others = self.check_vault_withdrawals(spent)?.into_iter().chain(self.check_subscription_collections(spent)?);
+        for output in others {
+            if !claimed.insert(output) {
+                return Err(TransactionError::InvalidOffer("an output may settle only one contract".to_string()));
+            }
+        }
+        self.check_escrow_destinations_except(network, spent, &claimed)
+    }
+
     /// Verifies the signature of an input against the script of the UTXO it spends.
     pub fn verify_input(
         &self,
@@ -789,5 +805,83 @@ mod tests {
         assert!(tx.verify_input(Network::Testnet, 0, &script).is_ok());
         tx.payload = [INVOICE_TAG, b"INV-9999"].concat();
         assert!(tx.verify_input(Network::Testnet, 0, &script).is_err());
+    }
+
+    /// One output paid to a maker who also has a pending vault withdrawal unlocking, and an
+    /// offer: an attacker completes the withdrawal (no signature needed) and names its output
+    /// as the offer's payment, taking the offer with the maker's own money.
+    #[test]
+    fn a_vault_withdrawal_cannot_pay_for_an_offer() {
+        use crate::offer::OfferTerms;
+        use crate::vault::PendingWithdrawal;
+        let net = Network::Testnet;
+        let maker = SigningKey::generate(&mut OsRng).verifying_key().to_bytes();
+        let token = Hash([5u8; 32]);
+        let terms = OfferTerms::new(maker, Some(token), None, 1, 1).unwrap();
+        let offer_coin = TxOutput { value_atoms: 0, script_public_key: terms.script(), token: Some(crate::TokenAmount { id: token, amount: 1_000, mint_authority: false }) };
+        let pending = PendingWithdrawal { destination: terms.maker_script(net), unlock_at: 10, backup: [9u8; 32] };
+        let vault_coin = TxOutput::new(1_000, pending.locking_script());
+
+        let thief = ScriptPublicKey::pay_to_address(&Address::from_public_key(net, AddressType::PubKeyHash, &[3u8; 32]));
+        let take = TxInput { previous_outpoint: Outpoint { transaction_id: Hash([1u8; 32]), index: 0 }, signature_script: vec![0, 0, 0, 0xff, 0xff] };
+        let complete = TxInput {
+            previous_outpoint: Outpoint { transaction_id: Hash([2u8; 32]), index: 0 },
+            signature_script: [pending.to_bytes(), vec![0, 0, 0]].concat(),
+        };
+        let tx = Transaction {
+            version: 1,
+            inputs: vec![take, complete],
+            outputs: vec![
+                TxOutput::new(1_000, terms.maker_script(net)),
+                TxOutput { value_atoms: 0, script_public_key: thief, token: Some(crate::TokenAmount { id: token, amount: 1_000, mint_authority: false }) },
+            ],
+            payload: Vec::new(),
+            service: None,
+            issue: None,
+        };
+        let spent = [&offer_coin, &vault_coin];
+        // Each check alone is satisfied; together they must not be
+        assert!(tx.check_offer_takes(net, &spent).is_ok());
+        assert!(tx.check_vault_withdrawals(&spent).is_ok());
+        assert!(tx.check_contracts(net, &spent).is_err());
+    }
+
+    /// An escrow buyer completes the seller's pending vault withdrawal in the same transaction
+    /// and pays the escrowed coins to themselves: the seller's own money must not count as the
+    /// release.
+    #[test]
+    fn a_vault_withdrawal_cannot_stand_in_for_an_escrow_release() {
+        use crate::escrow::{EscrowRole, EscrowScript};
+        use crate::vault::PendingWithdrawal;
+        let net = Network::Testnet;
+        let key = || SigningKey::generate(&mut OsRng).verifying_key().to_bytes();
+        let (buyer, seller, arbiter) = (key(), key(), key());
+        let escrow = EscrowScript::new(buyer, seller, arbiter, 1_000, true).unwrap();
+        let seller_script = ScriptPublicKey::pay_to_address(&Address::from_public_key(net, AddressType::PubKeyHash, &seller));
+        let buyer_script = ScriptPublicKey::pay_to_address(&Address::from_public_key(net, AddressType::PubKeyHash, &buyer));
+        let escrow_coin = TxOutput::new(50_000_000, ScriptPublicKey::pay_to_address(&escrow.address(net)));
+        let pending = PendingWithdrawal { destination: seller_script.clone(), unlock_at: 10, backup: [9u8; 32] };
+        let vault_coin = TxOutput::new(50_000_000, pending.locking_script());
+
+        let release = TxInput {
+            previous_outpoint: Outpoint { transaction_id: Hash([1u8; 32]), index: 0 },
+            signature_script: [escrow.to_bytes(), vec![EscrowRole::Buyer as u8], vec![0u8; 64]].concat(),
+        };
+        let complete = TxInput {
+            previous_outpoint: Outpoint { transaction_id: Hash([2u8; 32]), index: 0 },
+            signature_script: [pending.to_bytes(), vec![0, 0, 0]].concat(),
+        };
+        let tx = Transaction {
+            version: 1,
+            inputs: vec![release, complete],
+            outputs: vec![TxOutput::new(50_000_000, seller_script), TxOutput::new(49_000_000, buyer_script)],
+            payload: Vec::new(),
+            service: None,
+            issue: None,
+        };
+        let spent = [&escrow_coin, &vault_coin];
+        assert!(tx.check_escrow_destinations(net, &spent).is_ok());
+        assert!(tx.check_vault_withdrawals(&spent).is_ok());
+        assert!(tx.check_contracts(net, &spent).is_err());
     }
 }
