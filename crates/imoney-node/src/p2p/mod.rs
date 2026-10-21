@@ -24,9 +24,6 @@ const MAX_ORPHAN_BLOCKS: usize = 1_000;
 const MAX_ORPHANS_PER_PEER: usize = 200;
 /// A block whose parents have not arrived in this long is dropped.
 const ORPHAN_TTL: Duration = Duration::from_secs(10 * 60);
-/// Orphans older than this no longer hold back "synced": a peer cannot keep the node from
-/// mining by sending blocks whose parents never come.
-const ORPHAN_SYNC_GRACE: Duration = Duration::from_secs(2 * 60);
 
 /// A block waiting for its parents, who sent it and when.
 struct Orphan {
@@ -560,8 +557,12 @@ impl PeerManager {
         self.orphans.lock().unwrap().contains_key(hash)
     }
 
-    fn mark_synced_if_caught_up(&self) {
-        if self.orphans.lock().unwrap().values().all(|o| o.at.elapsed() >= ORPHAN_SYNC_GRACE) {
+    /// Called when `peer_addr` reports tips this node already has. Only a peer this node dialed
+    /// (a configured seed or one it chose) counts: an inbound stranger could otherwise claim the
+    /// node is caught up while it is behind. Orphans play no part, so a peer sending blocks whose
+    /// parents never come cannot keep the node from ever counting as synced.
+    fn mark_synced_by(&self, peer_addr: SocketAddr) {
+        if self.peers.lock().unwrap().get(&peer_addr).is_some_and(|p| p.outbound) {
             self.synced.store(true, Ordering::SeqCst);
         }
     }
@@ -674,9 +675,6 @@ impl PeerManager {
         for hash in &connected {
             self.announce(Message::InvBlock(*hash), Some(peer_addr));
         }
-        if !connected.is_empty() {
-            self.mark_synced_if_caught_up();
-        }
     }
 
     /// Dispatches inbound peer messages after the handshake.
@@ -694,7 +692,7 @@ impl PeerManager {
                     tips.into_iter().filter(|t| !ledger.has_block(t)).collect()
                 };
                 if unknown.is_empty() {
-                    self.mark_synced_if_caught_up();
+                    self.mark_synced_by(peer_addr);
                 } else if self.orphans.lock().unwrap().len() >= ORPHANS_BEFORE_RESYNC {
                     // Far behind on a link that stayed up: catch up in batches
                     let locator = self.ledger.read().await.locator();

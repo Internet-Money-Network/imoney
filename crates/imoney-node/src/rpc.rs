@@ -27,7 +27,7 @@ pub struct AppState {
     pub template_limit: RateLimit,
     pub submit_limit: RateLimit,
     /// Broadcasts stay open to any website (checkout pages need them) but each one takes the
-    /// ledger's write lock, so their total rate is capped well above real use.
+    /// ledger's write lock, so each client's rate is capped well above real use.
     pub broadcast_limit: RateLimit,
     /// Open address WebSockets, each holding a task and a ledger subscription.
     pub sockets_open: std::sync::atomic::AtomicUsize,
@@ -38,28 +38,42 @@ pub struct AppState {
 /// Most address WebSockets open at once.
 const MAX_SOCKETS: usize = 1_024;
 
-/// A token bucket: `rate` requests per second on average, up to `burst` at once.
+/// Token buckets per client IP: `rate` requests per second on average, up to `burst` at once,
+/// for each address. Per address, so one client using up its share leaves the others theirs.
+/// Requests from this machine (a Stratum bridge or wallet beside the node) are not limited.
 pub struct RateLimit {
     rate: f64,
     burst: f64,
-    bucket: std::sync::Mutex<(f64, std::time::Instant)>,
+    buckets: std::sync::Mutex<std::collections::HashMap<std::net::IpAddr, (f64, std::time::Instant)>>,
 }
+
+/// Most client addresses tracked; beyond this, idle ones are forgotten.
+const MAX_TRACKED_CLIENTS: usize = 10_000;
 
 impl RateLimit {
     pub fn new(rate: f64, burst: f64) -> Self {
-        RateLimit { rate, burst, bucket: std::sync::Mutex::new((burst, std::time::Instant::now())) }
+        RateLimit { rate, burst, buckets: std::sync::Mutex::new(std::collections::HashMap::new()) }
     }
 
-    /// Takes one request from the bucket; false when it is empty.
-    pub fn allow(&self) -> bool {
-        let mut bucket = self.bucket.lock().unwrap();
+    /// Takes one request from `ip`'s bucket; false when it is empty.
+    pub fn allow(&self, ip: std::net::IpAddr) -> bool {
+        if ip.is_loopback() {
+            return true;
+        }
+        let mut buckets = self.buckets.lock().unwrap();
         let now = std::time::Instant::now();
-        bucket.0 = (bucket.0 + now.duration_since(bucket.1).as_secs_f64() * self.rate).min(self.burst);
-        bucket.1 = now;
-        if bucket.0 < 1.0 {
+        if buckets.len() >= MAX_TRACKED_CLIENTS {
+            // A full bucket is the same as no entry: forget those
+            let (rate, burst) = (self.rate, self.burst);
+            buckets.retain(|_, (tokens, at)| *tokens + now.duration_since(*at).as_secs_f64() * rate < burst);
+        }
+        let (tokens, at) = buckets.entry(ip).or_insert((self.burst, now));
+        *tokens = (*tokens + now.duration_since(*at).as_secs_f64() * self.rate).min(self.burst);
+        *at = now;
+        if *tokens < 1.0 {
             return false;
         }
-        bucket.0 -= 1.0;
+        *tokens -= 1.0;
         true
     }
 }
@@ -422,7 +436,7 @@ pub fn create_router(
         stats_cache: std::sync::Mutex::new(None),
         template_limit: RateLimit::new(20.0, 100.0),
         submit_limit: RateLimit::new(50.0, 200.0),
-        broadcast_limit: RateLimit::new(100.0, 500.0),
+        broadcast_limit: RateLimit::new(20.0, 100.0),
         sockets_open: std::sync::atomic::AtomicUsize::new(0),
         allowed_origins,
     });
@@ -478,22 +492,37 @@ pub fn create_router(
         .with_state(state)
 }
 
-async fn limit_templates(State(state): State<Arc<AppState>>, request: Request, next: Next) -> Response {
-    if !state.template_limit.allow() {
+async fn limit_templates(
+    State(state): State<Arc<AppState>>,
+    axum::extract::ConnectInfo(client): axum::extract::ConnectInfo<std::net::SocketAddr>,
+    request: Request,
+    next: Next,
+) -> Response {
+    if !state.template_limit.allow(client.ip()) {
         return StatusCode::TOO_MANY_REQUESTS.into_response();
     }
     next.run(request).await
 }
 
-async fn limit_broadcasts(State(state): State<Arc<AppState>>, request: Request, next: Next) -> Response {
-    if !state.broadcast_limit.allow() {
+async fn limit_broadcasts(
+    State(state): State<Arc<AppState>>,
+    axum::extract::ConnectInfo(client): axum::extract::ConnectInfo<std::net::SocketAddr>,
+    request: Request,
+    next: Next,
+) -> Response {
+    if !state.broadcast_limit.allow(client.ip()) {
         return StatusCode::TOO_MANY_REQUESTS.into_response();
     }
     next.run(request).await
 }
 
-async fn limit_submits(State(state): State<Arc<AppState>>, request: Request, next: Next) -> Response {
-    if !state.submit_limit.allow() {
+async fn limit_submits(
+    State(state): State<Arc<AppState>>,
+    axum::extract::ConnectInfo(client): axum::extract::ConnectInfo<std::net::SocketAddr>,
+    request: Request,
+    next: Next,
+) -> Response {
+    if !state.submit_limit.allow(client.ip()) {
         return StatusCode::TOO_MANY_REQUESTS.into_response();
     }
     next.run(request).await

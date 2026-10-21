@@ -21,7 +21,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{BufRead, BufReader, Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::{IpAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -47,6 +47,15 @@ const SUBMIT_BURST: f64 = 100.0;
 const SEEN_PER_JOB: usize = 50_000;
 /// Shares that fail the target before a miner is disconnected.
 const MAX_BAD_SHARES: u32 = 200;
+/// Submits checked per second for all the miners at one IP address together. Kept across
+/// reconnects, so opening new connections does not buy more hashing from the bridge. Enough
+/// for hundreds of rigs behind one address at the usual share rate.
+const SUBMITS_PER_SECOND_PER_IP: f64 = 100.0;
+const SUBMIT_BURST_PER_IP: f64 = 500.0;
+/// Most connections from one IP address.
+const MAX_MINERS_PER_IP: usize = 256;
+/// How long an address is refused after one of its miners is dropped for bad shares.
+const BAD_SHARE_BAN: Duration = Duration::from_secs(10 * 60);
 
 const ERR_OTHER: i64 = 20;
 const ERR_STALE: i64 = 21;
@@ -131,6 +140,7 @@ struct Job {
 /// One connected miner.
 struct Miner {
     id: u64,
+    ip: IpAddr,
     /// The top two bytes of every nonce this miner may use, so miners never repeat each other.
     extranonce: u16,
     writer: Mutex<TcpStream>,
@@ -175,6 +185,10 @@ struct Bridge {
     next_job: AtomicU64,
     blocks_found: AtomicU64,
     pool: Option<Arc<runtime::PoolRuntime>>,
+    /// Submit budget per IP address: tokens left and when last refilled.
+    ip_budgets: Mutex<HashMap<IpAddr, (f64, Instant)>>,
+    /// Addresses refused until the given time.
+    banned: Mutex<HashMap<IpAddr, Instant>>,
 }
 
 /// `target` made `shift` bits easier, stopping at the largest possible target.
@@ -405,6 +419,17 @@ impl Bridge {
             }
             state.submit_budget -= 1.0;
         }
+        {
+            let mut budgets = self.ip_budgets.lock().unwrap();
+            let now = Instant::now();
+            let (tokens, refilled) = budgets.entry(miner.ip).or_insert((SUBMIT_BURST_PER_IP, now));
+            *tokens = (*tokens + now.duration_since(*refilled).as_secs_f64() * SUBMITS_PER_SECOND_PER_IP).min(SUBMIT_BURST_PER_IP);
+            *refilled = now;
+            if *tokens < 1.0 {
+                return Err((ERR_OTHER, "too many submits from this address"));
+            }
+            *tokens -= 1.0;
+        }
         if job.seen.lock().unwrap().contains(&nonce) {
             return Err((ERR_DUPLICATE, "duplicate share"));
         }
@@ -522,6 +547,7 @@ impl Bridge {
                 break;
             }
             if reply["error"][1] == "too many bad shares" {
+                self.banned.lock().unwrap().insert(miner.ip, Instant::now() + BAD_SHARE_BAN);
                 break;
             }
 
@@ -620,6 +646,8 @@ fn main() {
         next_job: AtomicU64::new(1),
         blocks_found: AtomicU64::new(0),
         pool,
+        ip_budgets: Mutex::new(HashMap::new()),
+        banned: Mutex::new(HashMap::new()),
     });
     {
         let bridge = bridge.clone();
@@ -633,9 +661,21 @@ fn main() {
         // A miner that says nothing for ten minutes is gone
         let _ = stream.set_read_timeout(Some(Duration::from_secs(600)));
 
+        let Ok(peer) = stream.peer_addr() else { continue };
+        let ip = peer.ip();
+        {
+            let now = Instant::now();
+            let mut banned = bridge.banned.lock().unwrap();
+            banned.retain(|_, until| *until > now);
+            if banned.contains_key(&ip) {
+                continue; // Dropping the stream closes it
+            }
+            // Forget the budgets of addresses that have been quiet for a while
+            bridge.ip_budgets.lock().unwrap().retain(|_, (_, refilled)| now.duration_since(*refilled) < Duration::from_secs(600));
+        }
         let mut miners = bridge.miners.lock().unwrap();
-        if miners.len() >= bridge.args.max_miners {
-            continue; // Dropping the stream closes it
+        if miners.len() >= bridge.args.max_miners || miners.values().filter(|m| m.ip == ip).count() >= MAX_MINERS_PER_IP {
+            continue;
         }
         // An extranonce no connected miner is using
         let in_use: HashSet<u16> = miners.values().map(|m| m.extranonce).collect();
@@ -645,6 +685,7 @@ fn main() {
         }
         let miner = Arc::new(Miner {
             id: next_id,
+            ip,
             extranonce,
             writer: Mutex::new(writer),
             state: Mutex::new(MinerState {

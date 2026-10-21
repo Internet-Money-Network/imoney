@@ -441,3 +441,42 @@ async fn learned_peer_addresses_survive_a_restart() {
     second.manager.use_peer_store(path);
     assert!(second.manager.known_addrs.lock().unwrap().contains(&learned));
 }
+
+/// An inbound peer can neither keep a syncing node from counting as synced (by sending blocks
+/// whose parents never come) nor make it count as synced early (by reporting tips it has).
+#[tokio::test(flavor = "multi_thread")]
+async fn an_inbound_peer_can_neither_hold_back_nor_fake_sync() {
+    let miner = address_of(&SigningKey::from_bytes(&[6u8; 32]));
+    let a = TestNode::start("pin-a").await;
+    let b = TestNode::start("pin-b").await;
+    a.manager.require_initial_sync();
+
+    let mut stream = TcpStream::connect(a.addr).await.unwrap();
+    let genesis = a.ledger.read().await.genesis_hash;
+    let version = Message::Version {
+        protocol: PROTOCOL_VERSION,
+        network: Network::Testnet.id(),
+        genesis,
+        node_id: 777,
+        listen_port: 0,
+        user_agent: "/test/".to_string(),
+        archival: true,
+    };
+    write_frame(&mut stream, MAGIC, &version).await.unwrap();
+    eventually!("handshake completes", a.peer_count().await == 1);
+
+    // "I have nothing you lack", plus a properly mined block whose parent does not exist
+    write_frame(&mut stream, MAGIC, &Message::Tips(vec![genesis])).await.unwrap();
+    let mut orphan = a.ledger.read().await.get_mining_template(Some(&miner)).block;
+    orphan.header.parents = vec![Hash([7u8; 32])];
+    let pre_pow_hash = orphan.header.pre_pow_hash().unwrap();
+    orphan.header.nonce =
+        a.pow.mine(&pre_pow_hash, orphan.header.bits, 0, 1_000_000, Arc::new(AtomicBool::new(false))).unwrap().0;
+    write_frame(&mut stream, MAGIC, &Message::Block(orphan)).await.unwrap();
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert!(!a.manager.is_synced(), "an inbound peer's word is not enough");
+
+    // The fresh orphan does not stop the peer the node dialed from confirming it is caught up
+    a.connect(&b);
+    eventually!("A syncs through the peer it dialed", a.manager.is_synced());
+}

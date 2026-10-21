@@ -291,7 +291,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // On Ctrl-C: stop taking requests and save what has been learned about peers. The ledger
     // needs no special handling: every block is written in one atomic database transaction.
-    axum::serve(listener, app)
+    // Clients' addresses are needed for per-client rate limits
+    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
         .with_graceful_shutdown(async {
             let _ = tokio::signal::ctrl_c().await;
             println!("[*] Shutting down...");
