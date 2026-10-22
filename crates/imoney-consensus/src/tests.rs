@@ -416,3 +416,62 @@ fn ghostdag_does_not_depend_on_the_order_blocks_arrive_in() {
         }
     }
 }
+
+/// Round 3, H2 (investigation): a miner with `share` of the hashrate stamps its blocks as far
+/// ahead as nodes accept (30 s) or, with `low`, as far back as the median rule allows. Returns
+/// the mean block time and mean work per block over the last half, for comparison with an
+/// honest run at the same total hashrate.
+fn simulate_gamed(hashrate: f64, share: f64, low: bool, blocks: usize, seed: u64) -> (f64, f64) {
+    let params = DaaParams::new(EASY_BITS);
+    let mut rng = Lcg(seed);
+    let mut dag = Dag::new(GhostdagParams { k: 8, mergeset_size_limit: 80 });
+    let hash = |i: usize| {
+        let mut bytes = [0u8; 32];
+        bytes[..8].copy_from_slice(&(i as u64).to_be_bytes());
+        Hash(bytes)
+    };
+    dag.insert_genesis(hash(0), 0, EASY_BITS);
+    let mut now_ms = 1_000_000f64;
+    let (mut times, mut works) = (Vec::new(), Vec::new());
+    for i in 1..=blocks {
+        let parents = vec![hash(i - 1)];
+        let ghostdag = dag.ghostdag(&parents).unwrap();
+        let bits = dag.expected_bits(&ghostdag, &params);
+        let work = work_from_bits(bits) as f64;
+        let uniform = (rng.next(1_000_000) as f64 + 0.5) / 1_000_000.0;
+        now_ms += -uniform.ln() * work / hashrate * 1000.0;
+        let median = dag.past_median_time(&ghostdag);
+        let gamer = (rng.next(1_000_000) as f64) < share * 1_000_000.0;
+        let stamp = if !gamer {
+            (now_ms as u64).max(median + 1)
+        } else if low {
+            median + 1
+        } else {
+            now_ms as u64 + 30_000
+        };
+        let daa_score = dag.daa_score(&ghostdag);
+        dag.insert(hash(i), parents, stamp, bits, daa_score, ghostdag);
+        times.push(now_ms / 1000.0);
+        works.push(work);
+    }
+    let half = blocks / 2;
+    let mean_time = (times[blocks - 1] - times[half]) / (blocks - 1 - half) as f64;
+    let mean_work = works[half..].iter().sum::<f64>() / (blocks - half) as f64;
+    (mean_time, mean_work)
+}
+
+/// Round 3, H2: a miner with almost half the hashrate cannot move the block time by stamping
+/// its blocks as far ahead, or as far back, as nodes accept. Before the effective-time window,
+/// backdating with 30% of the hashrate slowed blocks to 7.7 seconds, and with 49% to 14.6.
+#[test]
+fn gamed_timestamps_do_not_move_the_block_time() {
+    for hashrate in [1_000.0, 50_000.0] {
+        let (honest, _) = simulate_gamed(hashrate, 0.0, false, 6_000, 3);
+        for share in [0.3, 0.49] {
+            for low in [false, true] {
+                let (time, _) = simulate_gamed(hashrate, share, low, 6_000, 3);
+                assert!((time - honest).abs() < 0.25, "share {} low {}: {:.2}s against {:.2}s", share, low, time, honest);
+            }
+        }
+    }
+}

@@ -42,6 +42,10 @@ pub const FLOOR_SUBSIDY_ATOMS: u64 = ATOMS_PER_IMN * 5 / 16;
 /// Maximum canonical-encoded size of a single transaction, in bytes.
 pub const MAX_TX_BYTES: usize = 50_000;
 
+/// Smallest plain IMN output worth making: about what spending it would cost at the default
+/// fee. Nodes refuse to relay smaller ones (dust); builders add smaller change to the fee.
+pub const MIN_OUTPUT_ATOMS: u64 = 100_000;
+
 /// Maximum canonical-encoded size of a block (header plus transactions), in bytes.
 /// At one block every 5 seconds this caps chain growth at about 1.7 GB a day.
 pub const MAX_BLOCK_BYTES: usize = 100_000;

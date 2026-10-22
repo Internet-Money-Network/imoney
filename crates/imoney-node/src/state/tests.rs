@@ -1876,3 +1876,72 @@ fn balances_come_from_running_holdings_that_match_the_coins() {
     assert_eq!(balance(&reopened, &dust), 5_000);
     assert_supply_total_is_exact(&reopened);
 }
+
+/// Round 3, H1: after a reorganisation only the pending transactions it could have affected
+/// are checked again. One whose coin the reorganisation removed goes; one it left untouched
+/// stays.
+#[test]
+fn a_reorganisation_keeps_untouched_pending_payments_and_drops_undone_ones() {
+    let mut params = test_params();
+    params.finality_depth = 50;
+    let mut ledger = DagLedger::open_with_params(fresh_db("reorg-mempool"), None, params).unwrap();
+    ledger.mempool = test_mempool();
+    let pow = test_pow();
+    let (old_miner, losing_miner, winning_miner) = (key(150), key(151), key(152));
+    let shop = address_of(&key(153));
+
+    let genesis = ledger.genesis_hash;
+    let base = extend(&mut ledger, &pow, genesis, 4, &address_of(&old_miner));
+    let base = extend(&mut ledger, &pow, base, MATURITY as usize + 2, &address_of(&key(154)));
+    let losing_tip = extend(&mut ledger, &pow, base, MATURITY as usize + 2, &address_of(&losing_miner));
+    assert_eq!(ledger.virtual_selected_parent, losing_tip);
+
+    // One payment from a reward both branches share, one from a reward only the losing branch has
+    let shared = ledger.get_spendable_utxos(&address_of(&old_miner)).unwrap();
+    let untouched = Transaction::build_payment(&old_miner, Network::Testnet, &shop, 1_000, 1_000, shared, None).unwrap();
+    let doomed_coins = ledger.get_spendable_utxos(&address_of(&losing_miner)).unwrap();
+    assert!(!doomed_coins.is_empty());
+    let doomed = Transaction::build_payment(&losing_miner, Network::Testnet, &shop, 1_000, 1_000, doomed_coins, None).unwrap();
+    ledger.broadcast_transaction(untouched.clone()).unwrap();
+    ledger.broadcast_transaction(doomed.clone()).unwrap();
+
+    let winning_tip = extend(&mut ledger, &pow, base, MATURITY as usize + 4, &address_of(&winning_miner));
+    assert_eq!(ledger.virtual_selected_parent, winning_tip);
+    assert!(ledger.mempool.contains(&untouched.id()), "an untouched payment must stay");
+    assert!(!ledger.mempool.contains(&doomed.id()), "a payment from an undone reward must go");
+    assert_supply_total_is_exact(&ledger);
+}
+
+/// Round 3, M7: a contract input that is malformed (invalid at every blue score) is reported as
+/// a bad signature, so the peer that sent it is penalised; one that is only early is not.
+#[test]
+fn malformed_contract_inputs_count_as_bad_signatures() {
+    use imoney_core::{secret_hash, HashLockScript};
+    let owner = key(160);
+    let (mut ledger, pow) = funded_ledger("malformed-contract", &owner);
+    let me = address_of(&owner);
+    let lock = HashLockScript::new(
+        owner.verifying_key().to_bytes(),
+        owner.verifying_key().to_bytes(),
+        secret_hash(&[7u8; 32]),
+        ledger.virtual_blue_score + 1_000,
+    )
+    .unwrap();
+    let coins = ledger.get_spendable_utxos(&me).unwrap();
+    let fund =
+        Transaction::build_payment(&owner, Network::Testnet, &lock.address(Network::Testnet), 5_000_000, 1_000, coins, None).unwrap();
+    let locked = (Outpoint { transaction_id: fund.id(), index: 0 }, fund.outputs[0].clone());
+    ledger.broadcast_transaction(fund).unwrap();
+    mine_tip(&mut ledger, &pow, &me);
+
+    // A refund before its deadline: only early
+    let early = Transaction::spend_hashlock(&lock, Network::Testnet, locked.clone(), &me, 1_000_000, &owner, None).unwrap();
+    let err = ledger.broadcast_transaction(early.clone()).unwrap_err().to_string();
+    assert!(!err.contains(BAD_SIGNATURE), "{}", err);
+
+    // The same spend with a mangled witness: invalid whatever the time
+    let mut mangled = early;
+    mangled.inputs[0].signature_script.truncate(10);
+    let err = ledger.broadcast_transaction(mangled).unwrap_err().to_string();
+    assert!(err.contains(BAD_SIGNATURE), "{}", err);
+}

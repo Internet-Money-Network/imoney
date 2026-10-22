@@ -1034,9 +1034,9 @@ mod tests {
             &me.private_key_hex,
             true,
             &shop.address,
-            60_000,
+            6_000_000,
             1_000,
-            &utxos(&[50_000, 50_000]),
+            &utxos(&[5_000_000, 5_000_000]),
             Some(&node.address),
             Some("INV-7"),
         )
@@ -1045,8 +1045,8 @@ mod tests {
         assert_eq!(signed.inputs_used, 2);
         assert_eq!(signed.tx_id, tx.id().to_hex());
         assert_eq!(tx.invoice_id(), Some("INV-7"));
-        assert_eq!(tx.outputs[0].value_atoms, 60_000);
-        assert_eq!(tx.outputs[1].value_atoms, 39_000); // change
+        assert_eq!(tx.outputs[0].value_atoms, 6_000_000);
+        assert_eq!(tx.outputs[1].value_atoms, 3_999_000); // change
         assert!(tx.service.is_some());
 
         let my_script = ScriptPublicKey::pay_to_address(&Address::decode(&me.address).unwrap());

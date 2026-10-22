@@ -430,7 +430,7 @@ pub(crate) fn fund(
         return Err(format!("Not enough IMN: need {} atoms including the fee", imn_out));
     }
     outputs.extend(change);
-    if imn_in > imn_out {
+    if imn_in - imn_out >= crate::constants::MIN_OUTPUT_ATOMS {
         outputs.push(TxOutput::new(imn_in - imn_out, change_script));
     }
     Ok(Transaction { version: 1, inputs, outputs, payload: Vec::new(), service: None, issue: None })

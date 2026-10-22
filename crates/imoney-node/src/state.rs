@@ -10,7 +10,6 @@ use imoney_core::constants::{
 };
 use imoney_core::serialize::tagged_hash;
 use imoney_core::subscription::SCRIPT_VERSION_SUBSCRIPTION;
-use imoney_core::transaction::TransactionError;
 use imoney_core::{
     Address, Block, BlockError, BlockHeader, Decode, Encode, Hash, Network, Outpoint, ScriptPublicKey, TokenInfo, Transaction, TxOutput,
 };
@@ -35,7 +34,7 @@ const MIN_LEVELS_IN_MEMORY: u64 = 2_000;
 pub const DEFAULT_FINAL_CONFIRMATIONS: u64 = 60;
 /// How long after a reorganisation the node keeps warning that the network is unsettled.
 /// Most payments listed for one invoice at one address.
-const MAX_INVOICE_PAYMENTS: usize = 1_000;
+const MAX_INVOICE_PAYMENTS: usize = 100;
 /// Most tips tried as extra parents of the virtual block; each try runs GHOSTDAG.
 const MAX_VIRTUAL_PARENT_CANDIDATES: usize = 2 * MAX_BLOCK_PARENTS;
 
@@ -646,14 +645,13 @@ impl DagLedger {
             // Only a failure that holds at every blue score is marked as a bad signature. A
             // deadline (hash-lock, vault, subscription, escrow) passes at different moments on
             // nodes a block apart, and an honest peer relaying across one must not be punished.
+            // Whether a failure holds at every blue score is found by trying the two extremes: a
+            // deadline that is the only problem passes at one of them, a forged signature or a
+            // malformed contract input at neither.
             tx.verify_input_at(self.network, i, &utxo.output.script_public_key, spending_blue_score).map_err(|e| {
-                let always_invalid = matches!(
-                    e,
-                    TransactionError::InvalidSignature(_)
-                        | TransactionError::PublicKeyAddressMismatch
-                        | TransactionError::InvalidSignatureScript(_)
-                        | TransactionError::UnsupportedScriptVersion(_)
-                );
+                let script = &utxo.output.script_public_key;
+                let always_invalid = tx.verify_input_at(self.network, i, script, 0).is_err()
+                    && tx.verify_input_at(self.network, i, script, u64::MAX).is_err();
                 if always_invalid {
                     StateError::Transaction(format!("{} on input {}: {}", BAD_SIGNATURE, i, e))
                 } else {
@@ -1176,6 +1174,7 @@ impl DagLedger {
         self.level_index.insert((meta.level, block_hash));
         self.block_count += 1;
         let reorganised = virtual_state.reorg_depth > 0;
+        let score_before = self.virtual_blue_score;
         self.set_virtual(virtual_state);
 
         // Drop pending transactions that were accepted or can no longer be spent: those
@@ -1190,13 +1189,34 @@ impl DagLedger {
         for tx in block.transactions.iter().skip(1) {
             self.mempool.remove(&tx.id());
         }
-        // A reorganisation can lower the blue score and bring back or remove coins: check
-        // everything still pending against the new state. Rare, so the cost is acceptable.
+        // A reorganisation can lower the blue score and bring coins back changed. Coins it
+        // removed were dealt with above. Only the pending transactions it could have affected
+        // are checked again: those spending a coin that was put back (perhaps at another blue
+        // score), those funding a subscription (one may hold a coin now), and, when the score
+        // went down, those whose inputs depend on it. Checking the whole pool on every
+        // reorganisation, under the ledger lock, let anyone who can cause reorganisations stall
+        // the node.
         if reorganised {
-            let spending_score = self.virtual_blue_score;
+            let lowered = self.virtual_blue_score < score_before;
             let storage = self.storage.clone();
-            let mut pending: Vec<Transaction> = self.mempool.transactions().cloned().collect();
-            pending.retain(|tx| {
+            let mut suspects: Vec<Transaction> = Vec::new();
+            for tx in self.mempool.transactions() {
+                let touched = tx.inputs.iter().any(|input| view.batch.utxo_puts.contains_key(&input.previous_outpoint));
+                let funds_subscription = tx.outputs.iter().any(|o| o.script_public_key.version == SCRIPT_VERSION_SUBSCRIPTION);
+                let depends_on_score = lowered
+                    && tx.inputs.iter().any(|input| {
+                        storage
+                            .get_utxo(&input.previous_outpoint)
+                            .ok()
+                            .flatten()
+                            .is_none_or(|entry| entry.is_coinbase || score_dependent(entry.output.script_public_key.version))
+                    });
+                if touched || funds_subscription || depends_on_score {
+                    suspects.push(tx.clone());
+                }
+            }
+            let spending_score = self.virtual_blue_score;
+            suspects.retain(|tx| {
                 self.check_spend(
                     tx,
                     |outpoint| storage.get_utxo(outpoint),
@@ -1205,7 +1225,7 @@ impl DagLedger {
                 )
                 .is_err()
             });
-            for tx in pending {
+            for tx in suspects {
                 self.mempool.remove(&tx.id());
             }
         }
@@ -1309,6 +1329,22 @@ impl DagLedger {
 
         // A conflict is found from memory; the spend checks below read the database and verify signatures
         self.mempool.check_conflicts(&tx)?;
+        // Relay policy (fee, size, dust) first, from the coins' values alone: it costs a few
+        // reads, while the spend checks below verify every signature under the ledger lock
+        let mut inputs_value: u64 = 0;
+        for input in &tx.inputs {
+            let coin = self
+                .storage
+                .get_utxo(&input.previous_outpoint)?
+                .ok_or_else(|| StateError::Transaction(format!("UTXO not found: {:?}", input.previous_outpoint)))?;
+            inputs_value = inputs_value.saturating_add(coin.output.value_atoms);
+        }
+        let outputs_value = tx
+            .outputs
+            .iter()
+            .try_fold(0u64, |sum, o| sum.checked_add(o.value_atoms))
+            .ok_or_else(|| StateError::Transaction("Output total overflows".to_string()))?;
+        self.mempool.check_policy(&tx, inputs_value.saturating_sub(outputs_value))?;
         let fee = self.check_spend(
             &tx,
             |outpoint| self.storage.get_utxo(outpoint),
@@ -1483,14 +1519,24 @@ impl DagLedger {
                 payer: tx.input_address(self.network, 0),
             })
             .collect();
+        // Each block is read once, however many of the payments it carries: anyone can pay an
+        // invoice, and this lookup is open to anyone
         let key = crate::storage::invoice_payee_key(invoice_id, &script);
+        let mut by_block: HashMap<Hash, Vec<(Hash, TxRecord)>> = HashMap::new();
         for tx_id in self.storage.get_invoice_tx_ids(&key, MAX_INVOICE_PAYMENTS)? {
-            if let Some(info) = self.get_transaction(&tx_id)? {
+            if let Some(record) = self.storage.get_tx_record(&tx_id)? {
+                by_block.entry(record.block_hash).or_default().push((tx_id, record));
+            }
+        }
+        for (block_hash, records) in by_block {
+            let block = self.storage.get_block(&block_hash)?.ok_or(StorageError::MissingBlock(block_hash))?;
+            for (tx_id, record) in records {
+                let Some(tx) = block.transactions.get(record.tx_index as usize) else { continue };
                 payments.push(InvoicePayment {
                     tx_id,
-                    amount_atoms: paid_to_address(&info.tx),
-                    confirmations: info.confirmations,
-                    payer: info.tx.input_address(self.network, 0),
+                    amount_atoms: paid_to_address(tx),
+                    confirmations: self.virtual_blue_score.saturating_sub(record.accepting_blue_score) + 1,
+                    payer: tx.input_address(self.network, 0),
                 });
             }
         }
@@ -1700,6 +1746,14 @@ impl DagLedger {
 }
 
 /// What the consensus index keeps about a stored block.
+/// True for locking scripts whose spend can be valid at one blue score and not another.
+fn score_dependent(version: u8) -> bool {
+    use imoney_core::{escrow::SCRIPT_VERSION_ESCROW, hashlock::SCRIPT_VERSION_HASHLOCK, vault};
+    matches!(version, SCRIPT_VERSION_ESCROW | SCRIPT_VERSION_HASHLOCK | SCRIPT_VERSION_SUBSCRIPTION)
+        || version == vault::SCRIPT_VERSION_VAULT
+        || version == vault::SCRIPT_VERSION_VAULT_PENDING
+}
+
 /// Why a payment into a subscription that already holds a coin is refused.
 pub const SUBSCRIPTION_HOLDS_ONE_COIN: &str = "This subscription already holds money: cancel it and start a new one to add more";
 

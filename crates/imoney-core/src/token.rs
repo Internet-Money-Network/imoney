@@ -256,7 +256,7 @@ impl Transaction {
         if mintable {
             outputs.push(TxOutput::mint_authority(id, script.clone()));
         }
-        if change > 0 {
+        if change >= crate::constants::MIN_OUTPUT_ATOMS {
             outputs.push(TxOutput::new(change, script));
         }
         sign_all(Transaction { version: 1, inputs, outputs, payload: Vec::new(), service: None, issue: Some(info) }, network, key)
@@ -332,7 +332,7 @@ impl Transaction {
         if gathered > amount {
             outputs.push(TxOutput::token(id, gathered - amount, script.clone()));
         }
-        if imn_change > 0 {
+        if imn_change >= crate::constants::MIN_OUTPUT_ATOMS {
             outputs.push(TxOutput::new(imn_change, script));
         }
         let payload = invoice_payload(invoice_id)?;
@@ -370,7 +370,7 @@ impl Transaction {
         if !give_up_authority {
             outputs.push(TxOutput::mint_authority(id, script.clone()));
         }
-        if change > 0 {
+        if change >= crate::constants::MIN_OUTPUT_ATOMS {
             outputs.push(TxOutput::new(change, script));
         }
         if outputs.is_empty() {

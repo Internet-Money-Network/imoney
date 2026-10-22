@@ -69,16 +69,7 @@ fn socket_origin_allowed(origin: Option<&str>, host: Option<&str>, allowed: &[St
         return true;
     }
     let Some(host) = host else { return false };
-    let names_the_node = |authority: &str| {
-        let name = match authority.rsplit_once(':') {
-            // "[::1]:18556", "127.0.0.1:18556", "localhost:18556"
-            Some((name, port)) if port.bytes().all(|b| b.is_ascii_digit()) => name,
-            _ => authority,
-        };
-        let name = name.trim_start_matches('[').trim_end_matches(']');
-        name.eq_ignore_ascii_case("localhost") || name.parse::<std::net::IpAddr>().is_ok()
-    };
-    origin.split_once("://").is_some_and(|(_, rest)| rest == host) && names_the_node(host)
+    origin.split_once("://").is_some_and(|(_, rest)| rest == host) && host_names_this_machine(host)
 }
 
 /// The client an address belongs to for limiting. One IPv6 subscriber usually holds a whole
@@ -535,7 +526,42 @@ pub fn create_router(
         .merge(public)
         .merge(restricted)
         .merge(mining)
+        .layer(middleware::from_fn(refuse_rebound_hosts))
         .with_state(state)
+}
+
+/// Refuses a request from this machine or the local network that names the node by a host name
+/// other than `localhost`. A web page cannot read a node's API from another site, unless DNS
+/// rebinding points the page's own name at the node: then the browser sends that name as Host.
+/// Local programs use an IP address or `localhost`. Private addresses count as local because a
+/// node in Docker sees this machine's requests come from the Docker network, not 127.0.0.1.
+/// Requests from the internet (a reverse proxy such as Cloudflare) are not affected.
+async fn refuse_rebound_hosts(
+    axum::extract::ConnectInfo(client): axum::extract::ConnectInfo<std::net::SocketAddr>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let local = match client.ip() {
+        std::net::IpAddr::V4(ip) => ip.is_loopback() || ip.is_private() || ip.is_link_local(),
+        std::net::IpAddr::V6(ip) => ip.is_loopback() || ip.is_unique_local() || ip.is_unicast_link_local(),
+    };
+    if local {
+        let host = request.headers().get(axum::http::header::HOST).and_then(|h| h.to_str().ok());
+        if host.is_some_and(|h| !host_names_this_machine(h)) {
+            return StatusCode::FORBIDDEN.into_response();
+        }
+    }
+    next.run(request).await
+}
+
+/// True for `localhost` or an IP address, with or without a port.
+fn host_names_this_machine(authority: &str) -> bool {
+    let name = match authority.rsplit_once(':') {
+        Some((name, port)) if port.bytes().all(|b| b.is_ascii_digit()) => name,
+        _ => authority,
+    };
+    let name = name.trim_start_matches('[').trim_end_matches(']');
+    name.eq_ignore_ascii_case("localhost") || name.parse::<std::net::IpAddr>().is_ok()
 }
 
 async fn limit_templates(
@@ -771,6 +797,20 @@ async fn submit_handler(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<SubmitBlockRequest>,
 ) -> (StatusCode, Json<SubmitBlockResponse>) {
+    // The proof of work is checked before the ledger is locked: it costs a memory-hard hash,
+    // and a block without valid work must not hold up everything else while it is refused
+    let refuse =
+        |error: String| (StatusCode::BAD_REQUEST, Json(SubmitBlockResponse { success: false, block_hash: None, error: Some(error) }));
+    let max_target_bits = state.ledger.read().await.params.daa.max_target_bits;
+    let header = &payload.block.header;
+    if imoney_pow::compact_to_u256(header.bits) > imoney_pow::compact_to_u256(max_target_bits) {
+        return refuse("Difficulty is easier than the network allows".to_string());
+    }
+    match header.pre_pow_hash() {
+        Ok(pre_pow_hash) if imoney_pow::is_valid_pow(&state.pow.calculate_hash(&pre_pow_hash, header.nonce), header.bits) => {}
+        Ok(_) => return refuse(format!("Invalid proof of work for block: {}", header.hash())),
+        Err(e) => return refuse(e.to_string()),
+    }
     let mut ledger = state.ledger.write().await;
     match ledger.add_block(payload.block.clone(), &state.pow) {
         Ok(hash) => {
@@ -1327,6 +1367,17 @@ mod tests {
         let shop = vec!["https://shop.example".to_string()];
         assert!(socket_origin_allowed(Some("https://shop.example"), host, &shop));
         assert!(!socket_origin_allowed(Some("https://other.example"), host, &shop));
+    }
+
+    /// Round 3, M6: only `localhost` and IP addresses name this machine; a rebound name does not.
+    #[test]
+    fn only_localhost_and_addresses_name_this_machine() {
+        for good in ["127.0.0.1:18556", "localhost:18556", "LOCALHOST", "[::1]:18556", "192.168.1.69:18556"] {
+            assert!(host_names_this_machine(good), "{}", good);
+        }
+        for bad in ["rebind.example:18556", "evil.example", "localhost.evil.example:18556"] {
+            assert!(!host_names_this_machine(bad), "{}", bad);
+        }
     }
 
     /// Addresses within one IPv6 /64 share a bucket.

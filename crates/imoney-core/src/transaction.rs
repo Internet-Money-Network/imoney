@@ -405,7 +405,8 @@ impl Transaction {
         let mut outputs =
             vec![TxOutput { value_atoms: amount_atoms, script_public_key: ScriptPublicKey::pay_to_address(recipient_addr), token: None }];
 
-        if change_atoms > 0 {
+        // Change too small to be worth spending goes to the fee instead
+        if change_atoms >= crate::constants::MIN_OUTPUT_ATOMS {
             outputs.push(TxOutput {
                 value_atoms: change_atoms,
                 script_public_key: ScriptPublicKey::pay_to_address(&sender_addr),
@@ -651,7 +652,7 @@ mod tests {
         let key = SigningKey::from_bytes(&[5u8; 32]);
         let me = Address::from_public_key(Network::Testnet, AddressType::PubKeyHash, key.verifying_key().as_bytes());
         let node = Address::from_public_key(Network::Testnet, AddressType::PubKeyHash, &[9u8; 32]);
-        let utxo = TxOutput { value_atoms: 50_000, script_public_key: ScriptPublicKey::pay_to_address(&me), token: None };
+        let utxo = TxOutput { value_atoms: 5_000_000, script_public_key: ScriptPublicKey::pay_to_address(&me), token: None };
         let outpoint = Outpoint { transaction_id: Hash([7u8; 32]), index: 0 };
         let mut with_service =
             Transaction::build_payment(&key, Network::Testnet, &sender_addr, 10_000, 1_001, vec![(outpoint, utxo)], Some(&node)).unwrap();
