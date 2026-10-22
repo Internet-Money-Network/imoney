@@ -483,3 +483,16 @@ async fn inbound_peers_alone_do_not_hold_back_the_miner_forever() {
     eventually!("handshake completes", a.peer_count().await == 1);
     eventually!("A stops waiting", a.manager.is_synced());
 }
+
+/// GHSA-6fx8-5qp5-3qrh: misbehaviour counts against the address, so reconnecting (a new port,
+/// a new connection) does not wipe the record.
+#[tokio::test(flavor = "multi_thread")]
+async fn reconnecting_does_not_reset_the_misbehaviour_score() {
+    let a = TestNode::start("score-a").await;
+    let ip: std::net::IpAddr = "203.0.113.7".parse().unwrap();
+    a.manager.misbehave(SocketAddr::new(ip, 40_001), 90);
+    assert!(!a.manager.is_banned(&ip));
+    // The same address on a fresh connection
+    a.manager.misbehave(SocketAddr::new(ip, 40_002), 20);
+    assert!(a.manager.is_banned(&ip));
+}

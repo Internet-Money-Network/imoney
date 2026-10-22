@@ -56,10 +56,27 @@ const MAX_TRACKED_CLIENTS: usize = 10_000;
 
 /// Whether a WebSocket from `origin` may open: no Origin (not a browser), the node's own pages,
 /// or a website the operator named.
+///
+/// A page counts as the node's own only when it was loaded by IP address or as `localhost`.
+/// Under DNS rebinding a hostile site points its own name at the node, and the browser then
+/// sends that name as both Host and Origin, so a match between the two proves nothing unless
+/// the name is one no outside site can control.
 fn socket_origin_allowed(origin: Option<&str>, host: Option<&str>, allowed: &[String]) -> bool {
     let Some(origin) = origin else { return true };
-    let same_site = host.is_some_and(|h| origin.split_once("://").is_some_and(|(_, rest)| rest == h));
-    same_site || allowed.iter().any(|a| a == origin)
+    if allowed.iter().any(|a| a == origin) {
+        return true;
+    }
+    let Some(host) = host else { return false };
+    let names_the_node = |authority: &str| {
+        let name = match authority.rsplit_once(':') {
+            // "[::1]:18556", "127.0.0.1:18556", "localhost:18556"
+            Some((name, port)) if port.bytes().all(|b| b.is_ascii_digit()) => name,
+            _ => authority,
+        };
+        let name = name.trim_start_matches('[').trim_end_matches(']');
+        name.eq_ignore_ascii_case("localhost") || name.parse::<std::net::IpAddr>().is_ok()
+    };
+    origin.split_once("://").is_some_and(|(_, rest)| rest == host) && names_the_node(host)
 }
 
 /// The client an address belongs to for limiting. One IPv6 subscriber usually holds a whole
@@ -1306,6 +1323,10 @@ mod tests {
         assert!(socket_origin_allowed(None, host, &none));
         assert!(socket_origin_allowed(Some("http://127.0.0.1:18556"), host, &none));
         assert!(!socket_origin_allowed(Some("http://evil.example"), host, &none));
+        // DNS rebinding: a hostile name pointed at the node, sent as both Host and Origin
+        assert!(!socket_origin_allowed(Some("http://rebind.example:18556"), Some("rebind.example:18556"), &none));
+        assert!(socket_origin_allowed(Some("http://localhost:18556"), Some("localhost:18556"), &none));
+        assert!(socket_origin_allowed(Some("http://[::1]:18556"), Some("[::1]:18556"), &none));
         let shop = vec!["https://shop.example".to_string()];
         assert!(socket_origin_allowed(Some("https://shop.example"), host, &shop));
         assert!(!socket_origin_allowed(Some("https://other.example"), host, &shop));

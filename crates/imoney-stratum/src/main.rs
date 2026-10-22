@@ -60,6 +60,8 @@ const BAD_SHARE_BAN: Duration = Duration::from_secs(10 * 60);
 /// Banned payout addresses at one IP at which the whole IP is refused: someone switching
 /// addresses to dodge the ban.
 const BANNED_LOGINS_PER_IP: usize = 3;
+/// Longest a write to one miner may block before the miner is dropped.
+const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 
 const ERR_OTHER: i64 = 20;
 const ERR_STALE: i64 = 21;
@@ -175,10 +177,18 @@ struct MinerState {
 }
 
 impl Miner {
+    /// Writes one message. A miner that does not read within `WRITE_TIMEOUT` is cut off: its
+    /// socket is shut down, so later writes fail at once instead of stalling the work loop, and
+    /// its connection's thread sees the close and removes it.
     fn send(&self, message: &Value) -> bool {
         let mut line = message.to_string();
         line.push('\n');
-        self.writer.lock().unwrap().write_all(line.as_bytes()).is_ok()
+        let mut writer = self.writer.lock().unwrap();
+        let sent = writer.write_all(line.as_bytes()).is_ok();
+        if !sent {
+            let _ = writer.shutdown(std::net::Shutdown::Both);
+        }
+        sent
     }
 }
 
@@ -662,6 +672,8 @@ fn main() {
         let _ = stream.set_nodelay(true);
         // A miner that says nothing for ten minutes is gone
         let _ = stream.set_read_timeout(Some(Duration::from_secs(600)));
+        // One miner that stops reading must not hold up work and payouts for everyone
+        let _ = stream.set_write_timeout(Some(WRITE_TIMEOUT));
 
         let Ok(peer) = stream.peer_addr() else { continue };
         let ip = peer.ip();
@@ -717,6 +729,44 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// GHSA-9wf9-25fw-5cmh: a miner that never reads is cut off within the write timeout, and
+    /// every later send to it fails at once instead of blocking.
+    #[test]
+    fn a_miner_that_never_reads_cannot_stall_sending() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let _silent = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (stream, _) = listener.accept().unwrap();
+        stream.set_write_timeout(Some(Duration::from_millis(200))).unwrap();
+        let miner = Miner {
+            id: 1,
+            ip: "127.0.0.1".parse().unwrap(),
+            extranonce: 0,
+            writer: Mutex::new(stream),
+            state: Mutex::new(MinerState {
+                address: None,
+                work_address: None,
+                shift: 12,
+                shares_since_retarget: 0,
+                last_retarget: Instant::now(),
+                accepted: 0,
+                work: 0.0,
+                connected: Instant::now(),
+                submit_budget: SUBMIT_BURST,
+                budget_refilled: Instant::now(),
+                bad_shares: 0,
+            }),
+        };
+        let big = json!({ "id": null, "method": "mining.notify", "params": ["x".repeat(64 * 1024)] });
+        let started = Instant::now();
+        // Fill the socket buffers until a write times out
+        while miner.send(&big) {
+            assert!(started.elapsed() < Duration::from_secs(30), "writes never timed out");
+        }
+        let after_cutoff = Instant::now();
+        assert!(!miner.send(&big));
+        assert!(after_cutoff.elapsed() < Duration::from_millis(100), "a send after the cut-off blocked");
+    }
 
     #[test]
     fn shifting_a_target_multiplies_it_by_a_power_of_two() {
