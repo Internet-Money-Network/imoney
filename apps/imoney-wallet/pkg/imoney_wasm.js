@@ -659,6 +659,43 @@ export function subscription_collect(private_key_hex, testnet, terms_hex, coin_j
 }
 
 /**
+ * Puts the money into a new subscription: one payment of `amount_atoms` from the wallet's
+ * coins, paying for its own size. Refused when the node reports the address already holds a
+ * coin (`held_atoms` above zero): a subscription holds exactly one.
+ * @param {string} private_key_hex
+ * @param {boolean} testnet
+ * @param {string} terms_hex
+ * @param {bigint} amount_atoms
+ * @param {bigint} held_atoms
+ * @param {string} utxos_json
+ * @returns {string}
+ */
+export function subscription_fund(private_key_hex, testnet, terms_hex, amount_atoms, held_atoms, utxos_json) {
+    let deferred5_0;
+    let deferred5_1;
+    try {
+        const ptr0 = passStringToWasm0(private_key_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(terms_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passStringToWasm0(utxos_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ret = wasm.subscription_fund(ptr0, len0, testnet, ptr1, len1, amount_atoms, held_atoms, ptr2, len2);
+        var ptr4 = ret[0];
+        var len4 = ret[1];
+        if (ret[3]) {
+            ptr4 = 0; len4 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred5_0 = ptr4;
+        deferred5_1 = len4;
+        return getStringFromWasm0(ptr4, len4);
+    } finally {
+        wasm.__wbindgen_free(deferred5_0, deferred5_1, 1);
+    }
+}
+
+/**
  * Subscription terms. `first_due` is the blue score of the first collection; a period is in
  * blue score too (about 17,280 a day). `reference` is any text the merchant chooses.
  * @param {string} customer_code

@@ -9,6 +9,7 @@ use imoney_core::constants::{
     ATOMS_PER_IMN, BLOCKS_PER_HALVING_ERA, BLOCKS_PER_YEAR, MAX_BLOCK_BYTES, MAX_BLOCK_PARENTS, MAX_TX_BYTES, TARGET_TIME_PER_BLOCK_MS,
 };
 use imoney_core::serialize::tagged_hash;
+use imoney_core::subscription::SCRIPT_VERSION_SUBSCRIPTION;
 use imoney_core::transaction::TransactionError;
 use imoney_core::{
     Address, Block, BlockError, BlockHeader, Decode, Encode, Hash, Network, Outpoint, ScriptPublicKey, TokenInfo, Transaction, TxOutput,
@@ -285,6 +286,19 @@ impl LedgerView {
             return Ok(None);
         }
         self.storage.get_utxo(outpoint)
+    }
+
+    /// True when an unspent output other than those in `ignore` is locked to exactly `script`.
+    fn script_occupied(&self, script: &ScriptPublicKey, ignore: &[Outpoint]) -> Result<bool, StorageError> {
+        if self.batch.utxo_puts.iter().any(|(outpoint, entry)| &entry.output.script_public_key == script && !ignore.contains(outpoint)) {
+            return Ok(true);
+        }
+        for outpoint in self.storage.outpoints_at_script(script, usize::MAX)? {
+            if !self.batch.utxo_deletes.contains(&outpoint) && !ignore.contains(&outpoint) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     fn create(&mut self, outpoint: Outpoint, entry: UtxoEntry) {
@@ -581,6 +595,7 @@ impl DagLedger {
         &self,
         tx: &Transaction,
         lookup: impl Fn(&Outpoint) -> Result<Option<UtxoEntry>, StorageError>,
+        occupied: impl Fn(&ScriptPublicKey, &[Outpoint]) -> Result<bool, StorageError>,
         spending_blue_score: u64,
     ) -> Result<u64, StateError> {
         if tx.inputs.is_empty() {
@@ -588,6 +603,20 @@ impl DagLedger {
         }
         if tx.outputs.is_empty() {
             return Err(StateError::Transaction("Transaction has no outputs".to_string()));
+        }
+
+        // A subscription address holds at most one unspent coin. Its per-period limit is checked
+        // coin by coin, so two coins due together would let the merchant collect twice.
+        if tx.service.as_ref().is_some_and(|s| s.version == SCRIPT_VERSION_SUBSCRIPTION) {
+            return Err(StateError::Transaction("A subscription cannot be named as the service".to_string()));
+        }
+        let spending: Vec<Outpoint> = tx.inputs.iter().map(|input| input.previous_outpoint.clone()).collect();
+        let mut funded: Vec<&ScriptPublicKey> = Vec::new();
+        for script in tx.outputs.iter().map(|o| &o.script_public_key).filter(|s| s.version == SCRIPT_VERSION_SUBSCRIPTION) {
+            if funded.contains(&script) || occupied(script, &spending)? {
+                return Err(StateError::Transaction(SUBSCRIPTION_HOLDS_ONE_COIN.to_string()));
+            }
+            funded.push(script);
         }
         let size = tx.to_bytes().len();
         if size > MAX_TX_BYTES {
@@ -680,7 +709,12 @@ impl DagLedger {
             let mut fees: u64 = 0;
 
             for (index, tx) in block.transactions.iter().enumerate().skip(1) {
-                let fee = match self.check_spend(tx, |outpoint| view.get(outpoint), blue_score) {
+                let fee = match self.check_spend(
+                    tx,
+                    |outpoint| view.get(outpoint),
+                    |script, ignore| view.script_occupied(script, ignore),
+                    blue_score,
+                ) {
                     Ok(fee) => fee,
                     Err(StateError::Transaction(_)) => continue, // Not spendable here: skip it
                     Err(e) => return Err(e),
@@ -1099,6 +1133,9 @@ impl DagLedger {
         if coinbase.outputs.len() != 1 {
             return Err(StateError::Coinbase("must have exactly one output".to_string()));
         }
+        if coinbase.outputs.iter().any(|o| o.script_public_key.version == SCRIPT_VERSION_SUBSCRIPTION) {
+            return Err(StateError::Coinbase("a block reward cannot pay into a subscription".to_string()));
+        }
         if coinbase.issue.is_some() || coinbase.outputs.iter().any(|o| o.token.is_some()) {
             return Err(StateError::Coinbase("a block reward cannot create tokens".to_string()));
         }
@@ -1159,7 +1196,15 @@ impl DagLedger {
             let spending_score = self.virtual_blue_score;
             let storage = self.storage.clone();
             let mut pending: Vec<Transaction> = self.mempool.transactions().cloned().collect();
-            pending.retain(|tx| self.check_spend(tx, |outpoint| storage.get_utxo(outpoint), spending_score).is_err());
+            pending.retain(|tx| {
+                self.check_spend(
+                    tx,
+                    |outpoint| storage.get_utxo(outpoint),
+                    |script, ignore| stored_occupied(&storage, script, ignore),
+                    spending_score,
+                )
+                .is_err()
+            });
             for tx in pending {
                 self.mempool.remove(&tx.id());
             }
@@ -1264,7 +1309,21 @@ impl DagLedger {
 
         // A conflict is found from memory; the spend checks below read the database and verify signatures
         self.mempool.check_conflicts(&tx)?;
-        let fee = self.check_spend(&tx, |outpoint| self.storage.get_utxo(outpoint), self.virtual_blue_score)?;
+        let fee = self.check_spend(
+            &tx,
+            |outpoint| self.storage.get_utxo(outpoint),
+            |script, ignore| stored_occupied(&self.storage, script, ignore),
+            self.virtual_blue_score,
+        )?;
+
+        // A pending payment may already be funding the same subscription
+        let pays_pending_subscription =
+            tx.outputs.iter().filter(|o| o.script_public_key.version == SCRIPT_VERSION_SUBSCRIPTION).any(|o| {
+                self.mempool.transactions().any(|pending| pending.outputs.iter().any(|p| p.script_public_key == o.script_public_key))
+            });
+        if pays_pending_subscription {
+            return Err(StateError::Transaction(SUBSCRIPTION_HOLDS_ONE_COIN.to_string()));
+        }
 
         // The mempool applies relay policy: minimum fee, no conflicting spends, size cap
         let outputs = tx.outputs.clone();
@@ -1641,6 +1700,14 @@ impl DagLedger {
 }
 
 /// What the consensus index keeps about a stored block.
+/// Why a payment into a subscription that already holds a coin is refused.
+pub const SUBSCRIPTION_HOLDS_ONE_COIN: &str = "This subscription already holds money: cancel it and start a new one to add more";
+
+/// `LedgerView::script_occupied` for the committed ledger alone.
+fn stored_occupied(storage: &Storage, script: &ScriptPublicKey, ignore: &[Outpoint]) -> Result<bool, StorageError> {
+    Ok(storage.outpoints_at_script(script, ignore.len() + 1)?.iter().any(|outpoint| !ignore.contains(outpoint)))
+}
+
 fn dag_block(header: &BlockHeader, meta: BlockMeta) -> DagBlock {
     DagBlock {
         parents: header.parents.clone(),

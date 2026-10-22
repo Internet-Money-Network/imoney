@@ -155,6 +155,29 @@ pub fn subscription_terms(
     })())
 }
 
+/// Puts the money into a new subscription: one payment of `amount_atoms` from the wallet's
+/// coins, paying for its own size. Refused when the node reports the address already holds a
+/// coin (`held_atoms` above zero): a subscription holds exactly one.
+#[wasm_bindgen]
+pub fn subscription_fund(
+    private_key_hex: &str,
+    testnet: bool,
+    terms_hex: &str,
+    amount_atoms: u64,
+    held_atoms: u64,
+    utxos_json: &str,
+) -> Result<String, JsError> {
+    to_js((|| {
+        if held_atoms > 0 {
+            return Err("This subscription already holds money: cancel it and start a new one to add more.".to_string());
+        }
+        let script = SubscriptionScript::from_bytes(&hex::decode(terms_hex).map_err(|_| "Bad subscription terms".to_string())?)
+            .map_err(|e| e.to_string())?;
+        let address = script.address(network(testnet)).to_string();
+        crate::wallet::build_payment_to(private_key_hex, testnet, &address, amount_atoms, 0, utxos_json, None, None, true)
+    })())
+}
+
 /// The same subscription `periods` periods later: where its money sits after that many
 /// collections. A wallet looks for the money at each in turn.
 #[wasm_bindgen]

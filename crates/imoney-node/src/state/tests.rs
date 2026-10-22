@@ -1796,3 +1796,51 @@ fn a_vault_withdrawal_waits_and_a_stolen_key_is_stopped_by_the_backup() {
     assert_eq!(balance(&ledger, &shop), 1_998_000);
     assert_supply_total_is_exact(&ledger);
 }
+
+/// GHSA-7p7c-5846-822f: a subscription address holds at most one unspent coin, so no two coins
+/// of one subscription can come due together. A second payment is refused by the mempool, both
+/// while the first is pending and once it is in a block, and skipped when a block carries it.
+#[test]
+fn a_subscription_address_holds_only_one_coin() {
+    use imoney_core::SubscriptionScript;
+    let customer = key(37);
+    let merchant = key(38);
+    let (mut ledger, pow) = funded_ledger("subscription-one-coin", &customer);
+    let miner = address_of(&key(39));
+    let due = ledger.virtual_blue_score + 50;
+    let script =
+        SubscriptionScript::new(customer.verifying_key().to_bytes(), merchant.verifying_key().to_bytes(), 1_000_000, 4, due, [2u8; 32])
+            .unwrap();
+    let to = script.address(Network::Testnet);
+    // Two coins to pay from: split one by paying ourselves
+    let me = address_of(&customer);
+    let coins = ledger.get_spendable_utxos(&me).unwrap();
+    let split = Transaction::build_payment(&customer, Network::Testnet, &me, 10_000_000, 1_000, coins, None).unwrap();
+    ledger.broadcast_transaction(split).unwrap();
+    mine_tip(&mut ledger, &pow, &miner);
+    let coins = ledger.get_spendable_utxos(&me).unwrap();
+    let (first_coin, second_coin) = (vec![coins[0].clone()], vec![coins[1].clone()]);
+    let first = Transaction::build_payment(&customer, Network::Testnet, &to, 3_000_000, 1_000, first_coin, None).unwrap();
+    let second = Transaction::build_payment(&customer, Network::Testnet, &to, 3_000_000, 1_000, second_coin, None).unwrap();
+
+    // Two outputs to it in one transaction
+    let mut doubled = first.clone();
+    doubled.outputs.push(doubled.outputs[0].clone());
+    doubled.outputs[0].value_atoms -= 1_000_000;
+    doubled.outputs[2].value_atoms = 1_000_000;
+    assert!(ledger.broadcast_transaction(doubled).is_err());
+
+    // A second payment while the first is pending, then once it is in a block
+    ledger.broadcast_transaction(first).unwrap();
+    assert!(ledger.broadcast_transaction(second.clone()).is_err());
+    mine_tip(&mut ledger, &pow, &miner);
+    assert_eq!(balance(&ledger, &to), 3_000_000);
+    assert!(ledger.broadcast_transaction(second.clone()).is_err());
+
+    // A block that carries it anyway: the ledger skips it
+    let tips: Vec<Hash> = ledger.tips.iter().copied().collect();
+    let block = mine_on(&ledger, &pow, &tips, &miner, vec![second]);
+    ledger.add_block(block, &pow).unwrap();
+    assert_eq!(balance(&ledger, &to), 3_000_000);
+    assert_supply_total_is_exact(&ledger);
+}

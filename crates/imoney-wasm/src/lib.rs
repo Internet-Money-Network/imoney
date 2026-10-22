@@ -329,8 +329,29 @@ pub mod wallet {
         service_address: Option<&str>,
         invoice_id: Option<&str>,
     ) -> Result<SignedTransaction, String> {
+        build_payment_to(private_key_hex, testnet, recipient, amount_atoms, fee_atoms, utxos_json, service_address, invoice_id, false)
+    }
+
+    /// `build_payment`, and with `funding_subscription` set, also to a subscription address. A
+    /// subscription holds exactly one coin, put there when it is created; an ordinary payment
+    /// to one is refused here rather than by the network.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn build_payment_to(
+        private_key_hex: &str,
+        testnet: bool,
+        recipient: &str,
+        amount_atoms: u64,
+        fee_atoms: u64,
+        utxos_json: &str,
+        service_address: Option<&str>,
+        invoice_id: Option<&str>,
+        funding_subscription: bool,
+    ) -> Result<SignedTransaction, String> {
         let key = signing_key(private_key_hex)?;
         let recipient = parse_address(recipient, testnet, "recipient")?;
+        if recipient.address_type == imoney_core::AddressType::Subscription && !funding_subscription {
+            return Err("That is a subscription's address. Money goes into a subscription only when it is set up; to add more, cancel it and start a new one.".to_string());
+        }
         let service = service_address.map(|a| parse_address(a, testnet, "service")).transpose()?;
         let utxos = spendable_utxos(utxos_json, &address_of(&key, testnet))?;
         let build = |fee: u64| {
@@ -869,6 +890,30 @@ mod tests {
     use imoney_core::{Address, Encode, Network, ScriptPublicKey, Transaction};
 
     const PHRASE: &str = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+
+    /// A subscription holds one coin, put there when it is set up: a plain payment to its
+    /// address is refused, and funding it again once it holds money is refused too.
+    #[test]
+    fn a_subscription_is_funded_once_and_never_paid_like_an_address() {
+        let me = keys_from_mnemonic(PHRASE, true).unwrap();
+        let shop = keys_from_private_key(&"22".repeat(32), true).unwrap();
+        let script = imoney_core::SubscriptionScript::new(
+            hex::decode(&me.public_key_hex).unwrap().try_into().unwrap(),
+            hex::decode(&shop.public_key_hex).unwrap().try_into().unwrap(),
+            1_000_000,
+            100,
+            1_000,
+            [3u8; 32],
+        )
+        .unwrap();
+        let address = script.address(Network::Testnet).to_string();
+        let coins = utxos(&[50_000_000]);
+        let plain = build_payment(&me.private_key_hex, true, &address, 3_000_000, 0, &coins, None, None);
+        assert!(plain.unwrap_err().contains("subscription"));
+        assert!(build_payment_to(&me.private_key_hex, true, &address, 3_000_000, 0, &coins, None, None, true).is_ok());
+        let terms = hex::encode(script.to_bytes());
+        assert!(crate::programs::subscription_fund(&me.private_key_hex, true, &terms, 3_000_000, 0, &coins).is_ok());
+    }
 
     fn utxos(values: &[u64]) -> String {
         let items: Vec<String> = values

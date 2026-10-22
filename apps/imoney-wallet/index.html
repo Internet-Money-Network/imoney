@@ -1672,7 +1672,9 @@
         const now = await blueScore();
         const program = JSON.parse(wasm.subscription_terms(wallet.public_key_hex, needCode('sub-shop'), BigInt(amount), BigInt(days * 24 * BLOCKS_PER_HOUR), BigInt(now), `${wallet.address}:${now}`, TESTNET));
         await refreshBalance();
-        await broadcast(wasm.build_payment(wallet.private_key_hex, TESTNET, program.address, BigInt(amount * periods), 0n, JSON.stringify(spendable), undefined, undefined));
+        // A subscription holds exactly one coin: check the address is still empty first
+        const held = await (await fetch(`${nodeUrl()}/api/v1/address/${program.address}/balance`)).json();
+        await broadcast(wasm.subscription_fund(wallet.private_key_hex, TESTNET, program.terms_hex, BigInt(amount * periods), BigInt(held.balance_atoms || 0), JSON.stringify(spendable)));
         addDeal({ kind: 'subscription', terms_hex: program.terms_hex });
         show($('deals-status'), 'Subscribed. Press Share on it and send the code to the shop.', true);
         setTimeout(renderDeals, 6000);

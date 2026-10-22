@@ -834,6 +834,21 @@ impl Storage {
         self.get_utxos_page(address, None, usize::MAX)
     }
 
+    /// Up to `limit` of the unspent outputs locked to exactly this script, as stored.
+    pub fn outpoints_at_script(&self, script: &ScriptPublicKey, limit: usize) -> Result<Vec<Outpoint>, StorageError> {
+        let read_tx = self.db.begin_read()?;
+        let script_table = read_tx.open_table(SCRIPT_UTXO_TABLE)?;
+        let prefix = script_index_prefix(script);
+        let mut end = prefix.clone();
+        end.extend_from_slice(&[0xff; 36]);
+        let mut found = Vec::new();
+        for item in script_table.range::<&[u8]>(prefix.as_slice()..=end.as_slice())?.take(limit) {
+            let (key, _) = item?;
+            found.push(Outpoint::from_bytes(&key.value()[prefix.len()..])?);
+        }
+        Ok(found)
+    }
+
     /// Up to `limit` of an address's UTXOs, in index order, starting after `after`.
     pub fn get_utxos_page(
         &self,
