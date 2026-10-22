@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Features · Internet Money (IMN)</title>
+  <meta name="description" content="One coin for three jobs: spend it, save it, build on it. Tokens, trading, escrow, subscriptions and theft-resistant savings are built into Internet Money itself, with no apps or smart contracts in between.">
+  <link rel="canonical" href="https://internetmoneynetwork.org/features">
+  <meta property="og:title" content="Internet Money (IMN): spend it, save it, build on it">
+  <meta property="og:description" content="Tokens, trading, escrow, subscriptions and theft-resistant savings, built into the coin itself.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://internetmoneynetwork.org/features">
+  <meta property="og:image" content="https://internetmoneynetwork.org/banner.png">
+  <meta name="theme-color" content="#0f2e23" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#06140f" media="(prefers-color-scheme: dark)">
+  <link rel="icon" type="image/svg+xml" href="icon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    /* Banknote: engraver's green on note paper, a band across the head of the page,
+       wave-line borders as on printed money. The explorer and wallet share it. */
+    :root {
+      --paper: #eef0e6;
+      --paper-raised: #f6f7ef;
+      --ink: #0f2e23;
+      --ink-soft: #3d6652;
+      --rule: #0f2e23;
+      --rule-soft: #a9b89a;
+      --accent: #0b7a4b;
+      --dot: #6fe0a6;
+      --band: #0f2e23;
+      --band-ink: #eef0e6;
+      --band-soft: #b9c9a4;
+      --wave: #1f5a43;
+      --wave-bed: #dfe5d2;
+      --code-bg: #0f2e23;
+      --code-ink: #eef0e6;
+      --code-dim: #9db39a;
+      --serif: "Fraunces", "Iowan Old Style", Georgia, serif;
+      --sans: "Fraunces", "Iowan Old Style", Georgia, serif;
+      --mono: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --paper: #0b1f18;
+        --paper-raised: #12291f;
+        --ink: #e9eddc;
+        --ink-soft: #9db39a;
+        --rule: #e9eddc;
+        --rule-soft: #2c4a3b;
+        --accent: #6fe0a6;
+        --dot: #6fe0a6;
+        --band: #06140f;
+        --band-ink: #e9eddc;
+        --band-soft: #9db39a;
+        --wave: #3f7a5f;
+        --wave-bed: #0e261d;
+        --code-bg: #06140f;
+        --code-ink: #e9eddc;
+        --code-dim: #7f9a84;
+      }
+    }
+
+    * { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: var(--sans);
+      font-size: 17px;
+      line-height: 1.55;
+    }
+    a { color: inherit; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+    a:hover { color: var(--accent); }
+    code, .mono { font-family: var(--mono); font-size: 0.86em; }
+
+    .wrap { max-width: 1180px; margin: 0 auto; padding: 0 28px; }
+
+    /* Masthead */
+    .band { background: var(--band); color: var(--band-ink); }
+    .guilloche { display: block; color: var(--wave); background: var(--wave-bed); }
+    .masthead { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; padding: 16px 0; gap: 10px 16px; }
+    .wordmark { display: flex; align-items: center; gap: 12px; text-decoration: none; font-size: 24px; line-height: 1; color: var(--band-ink); }
+    .wordmark:hover { color: var(--band-ink); }
+    .wordmark svg { width: 30px; height: 30px; display: block; }
+    .masthead nav { display: flex; gap: 22px; font-family: var(--mono); font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; }
+    .masthead nav a { text-decoration: none; color: var(--band-soft); }
+    .masthead nav a:hover { color: var(--band-ink); }
+    .strapline {
+      border-bottom: 1px solid var(--rule);
+      font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase;
+      display: flex; flex-wrap: wrap; gap: 6px 26px; padding: 9px 0;
+    }
+    .strapline .live::before {
+      content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+      background: var(--dot); margin-right: 8px; vertical-align: 1px;
+    }
+
+    /* Hero */
+    .hero { display: grid; grid-template-columns: 7fr 5fr; gap: 56px; padding: 72px 0 84px; align-items: start; }
+    h1 {
+      font-family: var(--serif); font-weight: 600; font-size: clamp(42px, 6.4vw, 84px);
+      line-height: 1.0; letter-spacing: -0.02em; margin: 0 0 28px;
+    }
+    h1 em { font-style: italic; font-weight: 400; color: var(--accent); }
+    .lede { font-size: 20px; line-height: 1.5; max-width: 34em; margin: 0 0 30px; }
+    .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 26px; }
+    .button {
+      display: inline-block; background: var(--ink); color: var(--paper); text-decoration: none;
+      padding: 14px 22px; font-family: var(--mono); font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase;
+    }
+    .button:hover { background: var(--accent); color: var(--paper); }
+    .textlink { font-family: var(--mono); font-size: 14px; }
+    .textlink::after { content: " \2192"; }
+
+    /* Receipt */
+    .receipt-holder { padding-top: 10px; }
+    .receipt {
+      background: var(--paper-raised); color: var(--ink);
+      font-family: var(--mono); font-size: 13px; line-height: 1.7;
+      padding: 26px 24px 34px; max-width: 370px; margin-left: auto;
+      transform: rotate(1.4deg);
+      box-shadow: 0 1px 0 var(--rule-soft), 0 18px 40px -22px rgba(0, 0, 0, 0.45);
+      /* torn bottom edge */
+      --tooth: 12px;
+      -webkit-mask: conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) bottom / var(--tooth) 51% repeat-x,
+                    linear-gradient(#000 0 0) top / 100% calc(100% - var(--tooth) / 2) no-repeat;
+              mask: conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) bottom / var(--tooth) 51% repeat-x,
+                    linear-gradient(#000 0 0) top / 100% calc(100% - var(--tooth) / 2) no-repeat;
+    }
+    .receipt .center { text-align: center; }
+    .receipt .title { letter-spacing: 0.22em; font-weight: 500; }
+    .receipt hr { border: 0; border-top: 1px dashed var(--ink-soft); margin: 12px 0; }
+    .receipt .row { display: flex; justify-content: space-between; gap: 12px; }
+    .receipt .row span:last-child { text-align: right; }
+    .receipt .total { font-size: 24px; font-weight: 500; letter-spacing: -0.01em; }
+    .receipt .state b { font-weight: 500; }
+    .receipt .state .on { color: var(--accent); }
+    .receipt .small { font-size: 11px; color: var(--ink-soft); line-height: 1.5; }
+    .caption { font-family: var(--mono); font-size: 12px; color: var(--ink-soft); max-width: 370px; margin: 20px 0 0 auto; }
+
+    /* Sections */
+    section.block { display: grid; grid-template-columns: 3fr 9fr; gap: 40px; padding: 60px 0; border-top: 1px solid var(--rule); }
+    section.block > *, .split > *, .hero > * { min-width: 0; }
+    .label { font-family: var(--mono); font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; }
+    .label .num { display: block; color: var(--ink-soft); margin-bottom: 6px; }
+    h2 { font-family: var(--serif); font-weight: 600; font-size: clamp(30px, 3.6vw, 44px); line-height: 1.05; letter-spacing: -0.01em; margin: 0 0 22px; max-width: 18em; }
+    .body p { max-width: 40em; margin: 0 0 16px; }
+    .body p.note { color: var(--ink-soft); font-size: 15px; }
+    details.more { margin-top: 26px; border-top: 1px solid var(--rule-soft); padding-top: 14px; }
+    details.more summary { cursor: pointer; font-family: var(--mono); font-size: 13px; letter-spacing: 0.04em; color: var(--ink-soft); }
+    details.more summary:hover { color: var(--ink); }
+
+    /* Figures */
+    .figures { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--rule-soft); border-left: 1px solid var(--rule-soft); margin: 0; }
+    .figures div { border-right: 1px solid var(--rule-soft); border-bottom: 1px solid var(--rule-soft); padding: 20px 20px 18px; }
+    .figures dt { font-family: var(--mono); font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-soft); }
+    .figures dd { margin: 8px 0 0; font-family: var(--mono); font-size: 26px; letter-spacing: -0.02em; }
+    .figures dd small { font-size: 13px; letter-spacing: 0; color: var(--ink-soft); margin-left: 4px; }
+
+    /* Arguments */
+    .arguments { list-style: none; margin: 0; padding: 0; counter-reset: arg; }
+    .arguments li { display: grid; grid-template-columns: 64px 1fr; gap: 0 12px; padding: 22px 0; border-top: 1px solid var(--rule-soft); counter-increment: arg; }
+    .arguments li:first-child { border-top: 0; padding-top: 0; }
+    .arguments li::before { content: counter(arg, decimal-leading-zero); font-family: var(--mono); font-size: 13px; color: var(--ink-soft); padding-top: 9px; }
+    .arguments h3 { font-family: var(--serif); font-weight: 600; font-size: 25px; line-height: 1.15; margin: 0 0 8px; }
+    .arguments p { margin: 0; max-width: 38em; }
+
+    /* Code */
+    .split { display: grid; grid-template-columns: 1fr 1fr; gap: 36px; align-items: start; }
+    pre {
+      background: var(--code-bg); color: var(--code-ink); margin: 0; padding: 22px 22px 24px;
+      font-family: var(--mono); font-size: 13px; line-height: 1.65; overflow-x: auto;
+    }
+    pre .c { color: var(--code-dim); }
+    pre .s { color: #6fe0a6; }
+    .filetab { font-family: var(--mono); font-size: 12px; background: var(--code-bg); color: var(--code-dim); padding: 10px 22px 0; display: flex; justify-content: space-between; }
+    ul.plain { list-style: none; padding: 0; margin: 20px 0 0; }
+    ul.plain li { padding: 10px 0 10px 22px; border-top: 1px solid var(--rule-soft); position: relative; }
+    ul.plain li::before { content: ""; position: absolute; left: 0; top: 19px; width: 9px; height: 9px; background: var(--ink); }
+
+    /* Supply */
+    table { width: 100%; border-collapse: collapse; font-size: 15px; }
+    th, td { text-align: left; padding: 11px 14px 11px 0; border-bottom: 1px solid var(--rule-soft); white-space: nowrap; }
+    th { font-family: var(--mono); font-size: 12px; font-weight: 400; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-soft); border-bottom-color: var(--rule); }
+    td.n, th.n { text-align: right; font-family: var(--mono); padding-right: 0; }
+    td.n, th.n { padding-left: 20px; }
+    td.n { font-size: 14px; }
+    .table-scroll { overflow-x: auto; }
+    .chart { margin: 0 0 30px; }
+    .chart svg { width: 100%; height: auto; display: block; }
+    .chart .axis { stroke: var(--rule-soft); stroke-width: 1; }
+    .chart .step { fill: none; stroke: var(--accent); stroke-width: 2.5; }
+    .chart .fill { fill: var(--accent); opacity: 0.1; }
+    .chart text { font-family: var(--mono); font-size: 11px; fill: var(--ink-soft); }
+
+    /* Status */
+    .status { display: grid; grid-template-columns: repeat(3, 1fr); gap: 30px; }
+    .status h3 { font-family: var(--mono); font-size: 13px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.06em; margin: 0 0 6px; padding-bottom: 10px; border-bottom: 1px solid var(--rule); display: flex; align-items: center; gap: 10px; }
+    .status h3 i { width: 11px; height: 11px; border: 1.5px solid var(--ink); display: inline-block; }
+    .status .done h3 i { background: var(--ink); }
+    .status .doing h3 i { background: linear-gradient(90deg, var(--ink) 50%, transparent 50%); }
+    .status ul { list-style: none; margin: 0; padding: 0; font-size: 15.5px; }
+    .status li { padding: 9px 0; border-bottom: 1px solid var(--rule-soft); }
+
+    footer { border-top: 1px solid var(--rule); margin-top: 20px; padding: 26px 0 50px; font-family: var(--mono); font-size: 12.5px; color: var(--ink-soft); display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px 30px; }
+    footer p { margin: 0; max-width: 52em; }
+
+    @media (max-width: 900px) {
+      .hero { grid-template-columns: 1fr; gap: 44px; padding: 48px 0 60px; }
+      .receipt, .caption { margin-left: 0; }
+      section.block { grid-template-columns: 1fr; gap: 18px; padding: 46px 0; }
+      .split { grid-template-columns: 1fr; }
+      .status { grid-template-columns: 1fr; }
+      .figures { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 520px) {
+      body { font-size: 16px; }
+      .wrap { padding: 0 18px; }
+      .masthead nav a.optional { display: none; }
+      .lede { font-size: 18px; }
+      .figures dd { font-size: 21px; }
+      .arguments li { grid-template-columns: 40px 1fr; }
+    }
+
+    /* Three jobs */
+    .jobs { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--rule); }
+    .jobs > div { padding: 26px 26px 30px 0; }
+    .jobs > div + div { padding-left: 26px; border-left: 1px solid var(--rule-soft); }
+    .jobs .kicker { font-family: var(--mono); font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-soft); }
+    .jobs h3 { font-family: var(--serif); font-weight: 600; font-size: 30px; line-height: 1.05; margin: 8px 0 12px; }
+    .jobs p { margin: 0; font-size: 16px; }
+    .jobs a.textlink { display: inline-block; margin-top: 14px; }
+
+    /* Feature lists */
+    .features { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 0 36px; }
+    .features li { padding: 18px 0 20px; border-top: 1px solid var(--rule-soft); }
+    .features h3 { font-family: var(--serif); font-weight: 600; font-size: 21px; line-height: 1.2; margin: 0 0 6px; }
+    .features p { margin: 0; font-size: 16px; }
+    .features .only { font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); margin-left: 8px; white-space: nowrap; vertical-align: 2px; }
+
+    /* Comparison */
+    table.compare td, table.compare th { white-space: normal; vertical-align: top; }
+    table.compare th:first-child { width: 26%; }
+    table.compare th.us, table.compare td.us { background: var(--paper-raised); padding-left: 12px; padding-right: 12px; }
+    table.compare th.us { color: var(--ink); font-weight: 500; }
+    table.compare td { font-size: 14.5px; }
+    table.compare td small { display: block; color: var(--ink-soft); font-size: 12.5px; margin-top: 2px; }
+    .yes::before { content: "\25A0  "; color: var(--accent); }
+    .part::before { content: "\25E7  "; color: var(--ink-soft); }
+    .no::before { content: "\25A1  "; color: var(--ink-soft); }
+
+    .honest { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; }
+    .honest h3 { font-family: var(--mono); font-size: 13px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.06em; margin: 0 0 6px; padding-bottom: 10px; border-bottom: 1px solid var(--rule); }
+    .honest ul { list-style: none; margin: 0; padding: 0; font-size: 15.5px; }
+    .honest li { padding: 10px 0; border-bottom: 1px solid var(--rule-soft); }
+
+    @media (max-width: 900px) {
+      .jobs { grid-template-columns: 1fr; }
+      .jobs > div, .jobs > div + div { padding: 22px 0 24px; border-left: 0; border-top: 1px solid var(--rule-soft); }
+      .features { grid-template-columns: 1fr; }
+      .honest { grid-template-columns: 1fr; }
+      table.compare { min-width: 640px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="band">
+    <div class="wrap">
+      <header class="masthead">
+        <a class="wordmark" href="/">
+          <svg viewBox="0 0 512 512" aria-hidden="true">
+            <rect width="512" height="512" fill="#eef0e6"/>
+            <rect x="30" y="30" width="452" height="452" fill="none" stroke="#3d6652" stroke-width="5"/>
+            <rect x="86" y="128" width="56" height="256" fill="#0f2e23"/>
+            <path d="M182 384 L182 232 L242 128 L298 128 L238 232 L238 384 Z" fill="#0f2e23"/>
+            <path d="M310 384 L310 232 L370 128 L426 128 L366 232 L366 384 Z" fill="#0f2e23"/>
+            <circle cx="114" cy="94" r="16" fill="#0b7a4b"/>
+          </svg>
+          Internet Money
+        </a>
+        <nav>
+          <a href="/features">Features</a>
+          <a href="/explorer">Explorer</a>
+          <a href="/wallet">Wallet</a>
+          <a href="/pool/">Pool</a>
+          <a class="optional" href="#compare">Compare</a>
+          <a href="/#status">Status</a>
+          <a href="https://github.com/Internet-Money-Network/imoney">GitHub</a>
+        </nav>
+      </header>
+    </div>
+  </div>
+  <svg class="guilloche" height="14" width="100%" aria-hidden="true">
+    <defs>
+      <pattern id="guilloche-wave" width="34" height="14" patternUnits="userSpaceOnUse">
+        <path d="M0 7 Q8.5 -3 17 7 T34 7" fill="none" stroke="currentColor" stroke-width="1"/>
+        <path d="M0 7 Q8.5 17 17 7 T34 7" fill="none" stroke="currentColor" stroke-width="1"/>
+      </pattern>
+    </defs>
+    <rect width="100%" height="14" fill="url(#guilloche-wave)"/>
+  </svg>
+  <div class="wrap">
+    <div class="strapline">
+      <span class="live">Testnet running</span>
+      <span>Spend it</span>
+      <span>Save it</span>
+      <span>Build on it</span>
+    </div>
+
+    <main>
+      <div class="hero" style="grid-template-columns: 1fr;">
+        <div>
+          <h1>One coin. <em>Three jobs.</em> Nothing bolted on.</h1>
+          <p class="lede">
+            Most coins do one thing well and leave the rest to outside apps. Internet Money builds the
+            whole toolkit into the coin itself: paying, saving safely, making tokens and trading them.
+            Every computer on the network checks the same short rulebook, so there is no app in between
+            to trust, and no company holding your money.
+          </p>
+          <div class="actions">
+            <a class="button" href="/wallet">Try it on the test network</a>
+            <a class="textlink" href="#compare">How we compare</a>
+          </div>
+        </div>
+      </div>
+
+      <section class="block" id="jobs">
+        <div class="label"><span class="num">§1</span>The idea</div>
+        <div class="body">
+          <h2>Money you can spend, keep and build on.</h2>
+          <div class="jobs">
+            <div>
+              <span class="kicker">Spend it</span>
+              <h3>Payments a shop can check itself</h3>
+              <p>Paid in about five seconds for less than a cent. Order numbers, refunds, escrow and subscriptions come built in.</p>
+              <a class="textlink" href="#spend">What's included</a>
+            </div>
+            <div>
+              <span class="kicker">Save it</span>
+              <h3>Savings a thief can't empty</h3>
+              <p>A vault makes every withdrawal wait, and a backup key can cancel it. A schedule nobody can change, and no coins made in advance.</p>
+              <a class="textlink" href="#save">What's included</a>
+            </div>
+            <div>
+              <span class="kicker">Build on it</span>
+              <h3>Tokens and trading, no code to write</h3>
+              <p>Make a token in a minute and trade it with anyone, in one step where nobody can cheat. Swap with Ethereum, no exchange needed.</p>
+              <a class="textlink" href="#build">What's included</a>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="block" id="spend">
+        <div class="label"><span class="num">§2</span>Spend it</div>
+        <div class="body">
+          <h2>Everything a shop needs, with nobody taking a cut.</h2>
+          <ul class="features">
+            <li><h3>Fast and cheap</h3><p>A new block every five seconds. A payment costs a fraction of a cent, whatever its size.</p></li>
+            <li><h3>Order numbers on every payment</h3><p>Each payment can carry the order it pays for, signed by the customer, so a shop always knows which order was paid.</p></li>
+            <li><h3>Check payments yourself</h3><p>A full node runs on a cheap server. A shop sees its money arrive with its own eyes, instead of trusting a payment company.</p></li>
+            <li><h3>Refunds, not chargebacks</h3><p>Payments can't be pulled back by a third party. Giving money back is the shop's choice, and the refund is linked to the order.</p></li>
+            <li><h3>Escrow with a referee <span class="only">built in</span></h3><p>The buyer pays into escrow and releases it when the goods arrive. In a dispute, a referee decides, and can only ever pay the buyer or the seller.</p></li>
+            <li><h3>Subscriptions <span class="only">built in</span></h3><p>A customer allows a shop to collect a set amount once a period, and can cancel at any time. The shop can never take more.</p></li>
+            <li><h3>Run a node, earn a share <span class="only">built in</span></h3><p>A wallet or shop that runs its own node can be named on a payment and receives half its fee. Running the network pays.</p></li>
+            <li><h3>Plugs into your shop</h3><p>A WooCommerce plugin for WordPress, and a few lines of JavaScript for any other site.</p></li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="block" id="save">
+        <div class="label"><span class="num">§3</span>Save it</div>
+        <div class="body">
+          <h2>Built to hold value, and to keep it yours.</h2>
+          <ul class="features">
+            <li><h3>Savings vaults <span class="only">built in</span></h3><p>Money in a vault can only leave after a waiting period you choose. If someone steals your phone and starts a withdrawal, your backup key cancels it.</p></li>
+            <li><h3>Shared wallets</h3><p>A wallet that needs two of three people (or any number you choose) to approve each payment. Good for families, partners and companies.</p></li>
+            <li><h3>No coins made in advance</h3><p>Every coin is mined. No premine, no sale to insiders, no share for the developers.</p></li>
+            <li><h3>A schedule nobody can change</h3><p>The reward halves every four years, four times, then stays small forever. After year sixteen, new coins add less than 1% a year, and that share keeps falling.</p></li>
+            <li><h3>Security that doesn't run out</h3><p>Because a small reward continues, miners are always paid to protect the network, even when fees are low. A fixed cap leaves that to fees alone.</p></li>
+            <li><h3>Final after twelve hours</h3><p>A payment older than twelve hours can never be undone, however much computing power someone brings.</p></li>
+            <li><h3>Mined on ordinary graphics cards</h3><p>Mining reads randomly across gigabytes of memory, which keeps it open to anyone with a gaming card rather than a few specialist chip makers.</p></li>
+            <li><h3>Open and checkable</h3><p>All the code is open source, and anyone can run a node and check every coin from the first block.</p></li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="block" id="build">
+        <div class="label"><span class="num">§4</span>Build on it</div>
+        <div class="body">
+          <h2>Tokens and trading, with nothing to write or audit.</h2>
+          <ul class="features">
+            <li><h3>Your own token <span class="only">built in</span></h3><p>Loyalty points, a game currency, a community coin. Give it a name and an amount, and it exists. You decide whether more can ever be made.</p></li>
+            <li><h3>A built-in market <span class="only">built in</span></h3><p>Put coins or tokens up at your price, and anyone can buy some or all of them. You get paid, or nothing happens: no exchange holds your money.</p></li>
+            <li><h3>Swaps with Ethereum</h3><p>Trade IMN for coins on Ethereum and similar chains directly with another person. Either both sides happen or neither does.</p></li>
+            <li><h3>No smart contracts to break</h3><p>Tokens, trading, escrow and the rest are fixed rules every node checks, not programs anyone can deploy. There is far less code for anything to go wrong in.</p></li>
+            <li><h3>No bridges, no wrapped coins</h3><p>Tokens live on Internet Money itself, and swaps happen chain to chain. Nothing is locked up with a middleman to make it work.</p></li>
+            <li><h3>Tools for developers</h3><p>A JavaScript SDK, a browser wallet library, a cookbook of examples, and a node with a plain web API.</p></li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="block" id="compare">
+        <div class="label"><span class="num">§5</span>How we compare</div>
+        <div class="body">
+          <h2>Others do one or two of these well. We put all three in the coin.</h2>
+          <p>
+            Bitcoin is the strongest store of value. Ethereum can do almost anything, through programs anyone can
+            write, and the risks that come with them. Kaspa is very fast. Internet Money's bet is that most people
+            need a short list of things done well, built in and checked by everyone.
+          </p>
+          <div class="table-scroll">
+            <table class="compare">
+              <thead>
+                <tr><th></th><th class="us">Internet Money</th><th>Bitcoin</th><th>Ethereum</th><th>Kaspa</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>New block about every</td><td class="us">5 seconds</td><td>10 minutes</td><td>12 seconds</td><td>under a second</td></tr>
+                <tr><td>Secured by</td><td class="us">Mining on graphics cards</td><td>Mining on specialist chips</td><td>Staked coins</td><td>Mining, mostly on specialist chips</td></tr>
+                <tr><td>Coins made before launch</td><td class="us"><span class="yes">None</span></td><td><span class="yes">None</span></td><td><span class="no">Yes</span><small>sold in a 2014 crowdsale</small></td><td><span class="yes">None</span></td></tr>
+                <tr><td>Supply</td><td class="us">Halves four times, then under 1% a year</td><td>Capped at 21 million</td><td>No cap; changes with use</td><td>Capped</td></tr>
+                <tr><td>Your own tokens</td><td class="us"><span class="yes">Built in</span></td><td><span class="part">Through add-on protocols</span></td><td><span class="yes">Through smart contracts</span></td><td><span class="part">Through add-on protocols</span></td></tr>
+                <tr><td>Trading without an exchange</td><td class="us"><span class="yes">Built in</span></td><td><span class="no">No</span></td><td><span class="yes">Through apps</span><small>run by smart contracts</small></td><td><span class="no">No</span></td></tr>
+                <tr><td>Escrow with a referee</td><td class="us"><span class="yes">Built in</span></td><td><span class="part">With scripts</span><small>not in common wallets</small></td><td><span class="yes">Through smart contracts</span></td><td><span class="part">With scripts</span></td></tr>
+                <tr><td>Subscriptions</td><td class="us"><span class="yes">Built in</span></td><td><span class="no">No</span></td><td><span class="yes">Through smart contracts</span></td><td><span class="no">No</span></td></tr>
+                <tr><td>Theft-resistant savings</td><td class="us"><span class="yes">Built in</span><small>delay plus a backup key</small></td><td><span class="part">With scripts</span><small>not in common wallets</small></td><td><span class="part">Through smart contracts</span></td><td><span class="no">No</span></td></tr>
+                <tr><td>Order numbers on payments</td><td class="us"><span class="yes">Built in</span></td><td><span class="no">No</span></td><td><span class="no">No</span></td><td><span class="no">No</span></td></tr>
+                <tr><td>Nodes paid for serving users</td><td class="us"><span class="yes">Half the fee</span></td><td><span class="no">No</span></td><td><span class="no">No</span></td><td><span class="no">No</span></td></tr>
+                <tr><td>Where it stands</td><td class="us">Test network</td><td>Since 2009</td><td>Since 2015</td><td>Since 2021</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="note" style="margin-top: 16px;">
+            Comparisons are our own summary of each network's base layer as of October 2026, in plain terms. "With
+            scripts" means the network can do it but ordinary wallets don't offer it. Corrections are welcome
+            on <a href="https://github.com/Internet-Money-Network/imoney/issues">GitHub</a>.
+          </p>
+        </div>
+      </section>
+
+      <section class="block" id="honest">
+        <div class="label"><span class="num">§6</span>The honest part</div>
+        <div class="body">
+          <h2>Where we're strong, and where we're not yet.</h2>
+          <div class="honest">
+            <div>
+              <h3>Why choose us</h3>
+              <ul>
+                <li>The everyday tools of money in one coin, checked by every node</li>
+                <li>Far less code to go wrong than an open smart-contract platform</li>
+                <li>A fair start: every coin mined, none set aside</li>
+                <li>Mining open to anyone with a graphics card</li>
+                <li>People who run nodes for others get paid for it</li>
+              </ul>
+            </div>
+            <div>
+              <h3>What to weigh</h3>
+              <ul>
+                <li>It's a test network: test coins have no value, and there's nothing to buy yet</li>
+                <li>Young and small next to networks that have run for years</li>
+                <li>An outside test of its security has started; a full independent audit hasn't</li>
+                <li>Built-in features mean a fixed toolkit, not anything you can program</li>
+                <li>Some features reach the public test network with its next update</li>
+              </ul>
+            </div>
+          </div>
+          <div class="actions" style="margin-top: 34px;">
+            <a class="button" href="/wallet">Open the wallet</a>
+            <a class="textlink" href="/#supply">See the supply schedule</a>
+            <a class="textlink" href="https://github.com/Internet-Money-Network/imoney/blob/main/SPECIFICATION.md">Read the specification</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <p>Internet Money (IMN) is open-source software under the MIT or Apache-2.0 license, provided without warranty. Nothing on this page is financial advice.</p>
+      <p><a href="https://github.com/Internet-Money-Network">github.com/Internet-Money-Network</a></p>
+    </footer>
+  </div>
+</body>
+</html>

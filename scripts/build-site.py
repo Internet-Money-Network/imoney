@@ -88,7 +88,7 @@ def main():
     parser.add_argument("--apps-from", metavar="REF", help="take the explorer, wallet and pool pages from this git tag")
     ref = parser.parse_args().apps_from
     shutil.rmtree(OUT, ignore_errors=True)
-    for name in ("index.html", "icon.svg", "banner.png"):
+    for name in ("index.html", "features.html", "icon.svg", "banner.png"):
         copy(os.path.join("apps", "imoney-website", name), name)
     copy(os.path.join("apps", "imoney-explorer", "index.html"), os.path.join("explorer", "index.html"), ref)
     copy(os.path.join("apps", "imoney-wallet", "index.html"), os.path.join("wallet", "index.html"), ref)
