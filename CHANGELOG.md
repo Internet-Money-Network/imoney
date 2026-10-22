@@ -6,6 +6,12 @@ Notable changes to Internet Money. Nothing has been released yet: everything bel
 ## Unreleased
 
 ### Added
+- **The public test network was restarted as testnet-4**, because the difficulty rule now
+  takes a block's time as the latest stamp among it and the ten selected-chain blocks before
+  it (a miner backdating its blocks could otherwise slow the chain), and with the pen-test
+  fixes of October 2026: a subscription address holds one coin, mint authorities are counted,
+  dust is not relayed. New genesis block: delete the data directory except `miner-key.hex`
+  before upgrading. See `deploy/TESTNET-4-RESET.md`.
 - **The public test network was restarted as testnet-3**, carrying the consensus changes
   below (tokens, offers, swap offers, escrow, subscriptions, vaults) and the October 2026
   security fixes, including a past median time taken from the selected chain. It has a new

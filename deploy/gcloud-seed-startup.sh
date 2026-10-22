@@ -56,8 +56,19 @@ if ! docker ps -a --format '{{.Names}}' | grep -q '^imoney-node$'; then
   ORIGINS=${ORIGINS:-https://internetmoneynetwork.org}
   API_BIND=127.0.0.1
   if [ "$(metadata imn-api-public)" = "1" ]; then API_BIND=0.0.0.0; fi
+  # The token goes to the node as a file, not on its command line, where the process list
+  # and the container's settings would show it. The directory is root's alone.
+  TOKEN_ARGS=()
+  if [ -n "$TOKEN" ]; then
+    install -d -m 700 /opt/imn
+    printf '%s' "$TOKEN" > /opt/imn/rpc-token
+    chmod 444 /opt/imn/rpc-token
+    TOKEN_ARGS=(-v /opt/imn/rpc-token:/run/imn/rpc-token:ro)
+  fi
   docker run -d --name imoney-node --restart unless-stopped --memory 1500m \
-    -v imoney-data:/data -p 18555:18555 -p "$API_BIND:18556:18556" \
-    imoney:latest ${PEERS:+--peers "$PEERS"} ${TOKEN:+--rpc-bind 0.0.0.0:18556 --rpc-token "$TOKEN" --allowed-origins "$ORIGINS"}
+    --label com.centurylinklabs.watchtower.enable=false \
+    -v imoney-data:/data "${TOKEN_ARGS[@]}" -p 18555:18555 -p "$API_BIND:18556:18556" \
+    imoney:latest ${PEERS:+--peers "$PEERS"} \
+    ${TOKEN:+--rpc-bind 0.0.0.0:18556 --rpc-token-file /run/imn/rpc-token --allowed-origins "$ORIGINS"}
 fi
 echo "imn-seed: ready"

@@ -62,6 +62,11 @@ struct Args {
     #[arg(long)]
     rpc_token: Option<String>,
 
+    /// Read the bearer token from this file instead, so it does not appear in the process
+    /// list or the container's settings
+    #[arg(long, conflicts_with = "rpc_token")]
+    rpc_token_file: Option<std::path::PathBuf>,
+
     /// Websites allowed to use this node's API from a browser, comma-separated
     /// (e.g. https://shop.example). Default: any website for the HTTP API; the address
     /// WebSocket always accepts only the node's own pages and the websites named here.
@@ -102,7 +107,11 @@ fn load_or_create_miner_key(data_dir: &Path, network: Network) -> Result<(Addres
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args = Args::parse();
+    let mut args = Args::parse();
+    if let Some(path) = &args.rpc_token_file {
+        let token = std::fs::read_to_string(path).map_err(|e| format!("Could not read {}: {}", path.display(), e))?;
+        args.rpc_token = Some(token.trim().to_string()).filter(|t| !t.is_empty());
+    }
 
     println!("============================================================");
     println!("  {} ({}) - Full Node Daemon [TESTNET]", CURRENCY_NAME, TICKER);

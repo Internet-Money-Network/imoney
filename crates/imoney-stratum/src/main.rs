@@ -84,6 +84,11 @@ struct Args {
     #[arg(long)]
     rpc_token: Option<String>,
 
+    /// Read the bearer token from this file instead, so it does not appear in the process
+    /// list or the container's settings
+    #[arg(long, conflicts_with = "rpc_token")]
+    rpc_token_file: Option<std::path::PathBuf>,
+
     /// Seconds between shares each miner is steered towards
     #[arg(long, default_value_t = 5)]
     share_interval: u64,
@@ -584,6 +589,13 @@ impl Bridge {
 
 fn main() {
     let mut args = Args::parse();
+    if let Some(path) = &args.rpc_token_file {
+        let token = std::fs::read_to_string(path).unwrap_or_else(|e| {
+            eprintln!("[-] Could not read {}: {}", path.display(), e);
+            std::process::exit(1);
+        });
+        args.rpc_token = Some(token.trim().to_string()).filter(|t| !t.is_empty());
+    }
     args.node = args.node.trim_end_matches('/').to_string();
 
     // The node's genesis hash seeds the proof of work for its network, and it reports the
