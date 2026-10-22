@@ -607,7 +607,10 @@ fn main() {
         std::process::exit(1);
     };
     let params = match (info["pow_light_cache_items"].as_u64(), info["pow_dataset_items"].as_u64()) {
-        (Some(cache), Some(dataset)) => PowParams { light_cache_items: cache as u32, dataset_items: dataset as u32 },
+        (Some(cache), Some(dataset)) => PowParams::known(cache, dataset).unwrap_or_else(|| {
+            eprintln!("[-] The node reports a dataset of unknown size ({} cache items, {} dataset items)", cache, dataset);
+            std::process::exit(1);
+        }),
         _ => PowParams::dev(),
     };
     println!("[*] Building the verification cache...");

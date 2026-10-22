@@ -35,6 +35,15 @@ impl PowParams {
     pub const fn tiny() -> Self {
         Self { light_cache_items: 257, dataset_items: 1_031 }
     }
+
+    /// The sizes a node or pool reports, if they are ones a network uses. Miners take the sizes
+    /// from whatever server they connect to, and a pool is often someone else's: any size it
+    /// liked could make a miner try to build hundreds of gigabytes, or crash it with zero.
+    pub fn known(light_cache_items: u64, dataset_items: u64) -> Option<Self> {
+        [Self::mainnet(), Self::dev()]
+            .into_iter()
+            .find(|known| known.light_cache_items as u64 == light_cache_items && known.dataset_items as u64 == dataset_items)
+    }
 }
 
 /// Whether to hold the full dataset in memory or compute items from the cache on demand.
