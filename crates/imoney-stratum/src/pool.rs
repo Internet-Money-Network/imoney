@@ -95,23 +95,41 @@ pub struct Accounting {
     pub state: PoolState,
     /// Fee in hundredths of a percent: 150 is 1.5%.
     fee_basis_points: u64,
-    /// Recent shares, oldest first: who, and the work each proves.
-    window: VecDeque<(String, f64)>,
+    /// Recent work, oldest first, in buckets of about `bucket_work` each: who did how much of
+    /// it. Grouping keeps the window's size bounded by the number of miners, however small
+    /// each share is; one entry per share could grow to many millions.
+    window: VecDeque<(BTreeMap<String, f64>, f64)>,
+    /// Total work in `window`.
+    window_work: f64,
 }
+
+/// Buckets the kept window is divided into: the precision of the window's edge.
+const WINDOW_BUCKETS: f64 = 1_000.0;
+/// Margin of history kept beyond the window, as difficulty moves.
+const KEEP_FACTOR: f64 = 4.0;
 
 impl Accounting {
     pub fn new(state: PoolState, fee_basis_points: u64) -> Self {
-        Self { state, fee_basis_points: fee_basis_points.min(10_000), window: VecDeque::new() }
+        Self { state, fee_basis_points: fee_basis_points.min(10_000), window: VecDeque::new(), window_work: 0.0 }
     }
 
     /// Records an accepted share. `block_work` bounds how much history is worth keeping.
     pub fn record_share(&mut self, address: &str, work: f64, block_work: f64) {
-        self.window.push_back((address.to_string(), work));
-        // Keep a margin beyond the window, as difficulty moves
-        let keep = block_work * WINDOW_BLOCKS * 4.0;
-        let mut total: f64 = self.window.iter().map(|(_, w)| w).sum();
-        while self.window.len() > 1 && total - self.window[0].1 >= keep {
-            total -= self.window.pop_front().expect("not empty").1;
+        if !(work > 0.0 && work.is_finite()) {
+            return;
+        }
+        let keep = block_work * WINDOW_BLOCKS * KEEP_FACTOR;
+        let bucket_work = keep / WINDOW_BUCKETS;
+        match self.window.back_mut() {
+            Some((by_address, total)) if *total < bucket_work => {
+                *by_address.entry(address.to_string()).or_default() += work;
+                *total += work;
+            }
+            _ => self.window.push_back((BTreeMap::from([(address.to_string(), work)]), work)),
+        }
+        self.window_work += work;
+        while self.window.len() > 1 && self.window_work - self.window[0].1 >= keep {
+            self.window_work -= self.window.pop_front().expect("not empty").1;
         }
     }
 
@@ -120,13 +138,17 @@ impl Accounting {
     fn shares_for_block(&self, block_work: f64) -> Vec<(String, f64)> {
         let mut left = block_work * WINDOW_BLOCKS;
         let mut by_address: BTreeMap<&str, f64> = BTreeMap::new();
-        for (address, work) in self.window.iter().rev() {
+        for (bucket, total) in self.window.iter().rev() {
             if left <= 0.0 {
                 break;
             }
-            let counted = work.min(left);
-            *by_address.entry(address).or_default() += counted;
-            left -= counted;
+            // The oldest bucket counted may straddle the window's edge: everyone in it is
+            // counted in the same proportion
+            let fraction = (left / total).min(1.0);
+            for (address, work) in bucket {
+                *by_address.entry(address).or_default() += work * fraction;
+            }
+            left -= total.min(left);
         }
         by_address.into_iter().map(|(address, work)| (address.to_string(), work)).collect()
     }
@@ -263,6 +285,24 @@ mod tests {
         assert!(credits.iter().all(|(_, v)| *v == 328));
         // Nobody to pay: the pool keeps the reward rather than inventing a payee
         assert_eq!(split(REWARD, 150, &[]), (Vec::new(), REWARD));
+    }
+
+    /// N-6: miners sending the smallest shares the pool allows, in turn, cannot grow the
+    /// window without bound, and the split stays in proportion to the work.
+    #[test]
+    fn tiny_shares_keep_the_window_small_and_the_split_fair() {
+        let mut pool = Accounting::new(PoolState::default(), 150);
+        let tiny = BLOCK_WORK / (1u64 << 24) as f64;
+        // Many blocks' worth of the tiniest shares, alternating between two miners
+        for i in 0..2_000_000u32 {
+            pool.record_share(if i % 4 == 0 { "bob" } else { "alice" }, tiny * 128.0, BLOCK_WORK);
+        }
+        assert!(pool.window.len() <= WINDOW_BUCKETS as usize + 2, "{} buckets", pool.window.len());
+        let shares = pool.shares_for_block(BLOCK_WORK);
+        let work = |who: &str| shares.iter().find(|(a, _)| a == who).unwrap().1;
+        let total = work("alice") + work("bob");
+        assert!((total - BLOCK_WORK * WINDOW_BLOCKS).abs() < 1e-6 * total);
+        assert!((work("alice") / work("bob") - 3.0).abs() < 0.01);
     }
 
     #[test]

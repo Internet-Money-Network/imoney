@@ -91,6 +91,9 @@ fn balance(ledger: &DagLedger, address: &Address) -> u64 {
 /// The running supply total must always equal an actual count of every coin.
 fn assert_supply_total_is_exact(ledger: &DagLedger) {
     assert_eq!(ledger.storage.total_utxo_atoms().unwrap(), ledger.storage.scan_utxo_atoms().unwrap());
+    // Every address's running holdings (IMN and tokens) match a count of its coins
+    let (stored, recount) = ledger.storage.holdings_and_recount().unwrap();
+    assert_eq!(stored, recount, "running holdings drifted from the coins");
 }
 
 /// An address's whole history, newest first.
@@ -1843,4 +1846,33 @@ fn a_subscription_address_holds_only_one_coin() {
     ledger.add_block(block, &pow).unwrap();
     assert_eq!(balance(&ledger, &to), 3_000_000);
     assert_supply_total_is_exact(&ledger);
+}
+
+/// N-5: a balance is read from running holdings, which must agree with the coins themselves
+/// however many there are, and be rebuilt for a database from before they existed.
+#[test]
+fn balances_come_from_running_holdings_that_match_the_coins() {
+    let owner = key(41);
+    let (mut ledger, pow) = funded_ledger("holdings", &owner);
+    let me = address_of(&owner);
+    let dust = address_of(&key(42));
+    // Many small coins to one address
+    for _ in 0..5 {
+        let coins = ledger.get_spendable_utxos(&me).unwrap();
+        let tx = Transaction::build_payment(&owner, Network::Testnet, &dust, 1_000, 1_000, coins, None).unwrap();
+        ledger.broadcast_transaction(tx).unwrap();
+        mine_tip(&mut ledger, &pow, &me);
+    }
+    let summed: u64 = ledger.get_utxos(&dust).unwrap().iter().map(|(_, o)| o.value_atoms).sum();
+    assert_eq!(summed, 5_000);
+    assert_eq!(balance(&ledger, &dust), summed);
+    assert_supply_total_is_exact(&ledger);
+
+    // An older database: holdings rebuilt on opening
+    let path = std::env::temp_dir().join("imoney-test-holdings.redb");
+    ledger.storage.forget_holdings().unwrap();
+    drop(ledger);
+    let reopened = DagLedger::open_with_params(path, None, test_params()).unwrap();
+    assert_eq!(balance(&reopened, &dust), 5_000);
+    assert_supply_total_is_exact(&reopened);
 }

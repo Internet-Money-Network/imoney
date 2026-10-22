@@ -1798,7 +1798,13 @@
     // Shows what the proposal in the box does, as checked against this wallet's own node
     function showSummary(proposalJson, coins) {
       const summary = JSON.parse(wasm.shared_summary(proposalJson, JSON.stringify(coins)));
-      const rows = summary.payments.map((p) => ['Pays', `${formatImn(p.amount_atoms)} IMN to ${p.address || 'an unknown kind of address'}`]);
+      const rows = summary.payments.map((p) => {
+        const to = p.address || 'an unknown kind of address';
+        if (!p.token_id) return ['Pays', `${formatImn(p.amount_atoms)} IMN to ${to}`];
+        // Tokens are shown as plainly as IMN: a 0 IMN output can still move them all
+        const token = p.mint_authority ? `the right to create more of token ${p.token_id.slice(0, 12)}…` : `${p.token_amount} of token ${p.token_id.slice(0, 12)}…`;
+        return ['Pays', `${token}${p.amount_atoms ? ` and ${formatImn(p.amount_atoms)} IMN` : ''} to ${to}`];
+      });
       rows.push(['Fee', `${formatImn(summary.fee_atoms)} IMN`]);
       if (summary.change_atoms) rows.push(['Returns to the shared wallet', `${formatImn(summary.change_atoms)} IMN`]);
       if (summary.invoice_id) rows.push(['Invoice', summary.invoice_id]);

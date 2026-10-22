@@ -39,6 +39,8 @@ pub struct AppState {
 
 /// Most address WebSockets open at once.
 const MAX_SOCKETS: usize = 1_024;
+/// Most tokens listed for one address.
+const MAX_TOKENS_LISTED: usize = 1_000;
 /// Most address WebSockets one client may hold open at once.
 const MAX_SOCKETS_PER_CLIENT: usize = 16;
 
@@ -958,16 +960,11 @@ async fn token_balances_handler(
 ) -> Result<Json<Vec<TokenBalanceResponse>>, StatusCode> {
     let address = Address::decode(&addr_str).map_err(|_| StatusCode::BAD_REQUEST)?;
     let ledger = state.ledger.read().await;
-    let mut held: std::collections::BTreeMap<Hash, (u64, bool)> = std::collections::BTreeMap::new();
-    for (_, output) in ledger.get_utxos(&address).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)? {
-        if let Some(token) = output.token {
-            let entry = held.entry(token.id).or_default();
-            entry.0 = entry.0.saturating_add(token.amount);
-            entry.1 |= token.mint_authority;
-        }
-    }
+    // From the running holdings, not the address's coins: anyone can send an address many
+    // tiny coins, but each token listed had to be issued. The list is capped all the same.
+    let held = ledger.storage.get_token_holdings(&address).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let mut balances = Vec::new();
-    for (id, (amount, mint_authority)) in held {
+    for (id, amount, mint_authority) in held.into_iter().take(MAX_TOKENS_LISTED) {
         let info = ledger.token_info(&id).ok().flatten().map(|(info, _)| info);
         balances.push(TokenBalanceResponse {
             token_id: id.to_hex(),

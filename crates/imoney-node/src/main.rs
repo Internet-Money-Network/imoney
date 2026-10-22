@@ -189,8 +189,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // what it resolves to can change, so names are looked up again from time to time. A lookup
     // that fails at startup (the network may not be up yet) is simply tried again.
     let peer_names: Vec<String> = args.peers.iter().map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect();
+    p2p_manager.require_initial_sync_if_networked(!peer_names.is_empty());
     if !peer_names.is_empty() {
-        p2p_manager.require_initial_sync();
         let manager = p2p_manager.clone();
         tokio::spawn(async move {
             let mut warned = false;

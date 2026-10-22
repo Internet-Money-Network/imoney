@@ -518,8 +518,8 @@ impl Bridge {
             "mining.authorize" => {
                 // "address" or "address.worker"; the worker name is only a label
                 let login = params.first().and_then(Value::as_str).ok_or((ERR_OTHER, "missing address"))?;
-                let address = login.split('.').next().unwrap_or(login);
-                Address::decode(address).map_err(|_| (ERR_UNAUTHORIZED, "the login must be a payout address"))?;
+                let address = canonical_login(login).ok_or((ERR_UNAUTHORIZED, "the login must be a payout address"))?;
+                let address = address.as_str();
                 if self.banned.lock().unwrap().get(&(miner.ip, address.to_string())).is_some_and(|until| *until > Instant::now()) {
                     return Err((ERR_UNAUTHORIZED, "this address is refused for a while after too many bad shares"));
                 }
@@ -726,9 +726,28 @@ fn main() {
     }
 }
 
+/// The payout address a login names, in its one standard spelling. Addresses are
+/// case-insensitive, so bans and earnings are keyed on this form: the same address in capitals
+/// is the same miner.
+fn canonical_login(login: &str) -> Option<String> {
+    let address = login.split('.').next().unwrap_or(login);
+    Address::decode(address).ok().map(|a| a.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// N-7: a banned address cannot come back spelled in capitals.
+    #[test]
+    fn a_login_is_keyed_on_its_standard_spelling() {
+        let address =
+            Address::new(imoney_core::Network::Testnet, imoney_core::AddressType::PubKeyHash, imoney_core::Hash([5u8; 32])).to_string();
+        let upper = address.to_uppercase();
+        assert_eq!(canonical_login(&upper), Some(address.clone()));
+        assert_eq!(canonical_login(&format!("{}.rig7", upper)), Some(address.clone()));
+        assert_eq!(canonical_login("not-an-address"), None);
+    }
 
     /// GHSA-9wf9-25fw-5cmh: a miner that never reads is cut off within the write timeout, and
     /// every later send to it fails at once instead of blocking.

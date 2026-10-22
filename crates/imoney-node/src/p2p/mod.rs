@@ -69,6 +69,9 @@ const SYNC_BATCH_BYTES: usize = 2_000_000;
 const DIAL_INTERVAL: Duration = Duration::from_secs(1);
 const DIAL_TIMEOUT: Duration = Duration::from_secs(5);
 const PING_INTERVAL: Duration = Duration::from_secs(30);
+/// How long a new connection may hold a slot before completing the handshake. Without it, a
+/// stranger could fill every inbound slot with connections that never say anything.
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 const IDLE_TIMEOUT: Duration = Duration::from_secs(90);
 /// Messages queued for one peer before further ones are dropped.
 const PEER_QUEUE: usize = 2_048;
@@ -202,6 +205,15 @@ impl PeerManager {
             }
         }
         *self.peer_store.lock().unwrap() = Some(path);
+    }
+
+    /// Holds the miner back until the node has caught up, when there is any network to catch up
+    /// with: peers given on the command line, or ones remembered from earlier runs. A node with
+    /// neither is the first of its network and starts at once.
+    pub fn require_initial_sync_if_networked(&self, peers_configured: bool) {
+        if peers_configured || !self.known_addrs.lock().unwrap().is_empty() {
+            self.require_initial_sync();
+        }
     }
 
     /// Writes the known peer addresses to the peer store, if one is configured.
@@ -423,8 +435,12 @@ impl PeerManager {
         let mut tip_poll = tokio::time::interval(self.tip_poll_interval);
         let mut last_heard = Instant::now();
         let mut handshaken = false;
+        // A connection that has not introduced itself by then gives up its slot
+        let handshake_deadline = tokio::time::sleep(HANDSHAKE_TIMEOUT);
+        tokio::pin!(handshake_deadline);
         loop {
             tokio::select! {
+                _ = &mut handshake_deadline, if !handshaken => break,
                 result = frames.read(&mut reader, magic) => {
                     match result {
                         Ok(Some(message)) => {

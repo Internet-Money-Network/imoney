@@ -42,6 +42,50 @@ const INVOICE_TABLE: TableDefinition<&[u8], ()> = TableDefinition::new("v5/invoi
 /// What each locking script received and sent, oldest first: key is
 /// `script key ++ accepting blue score ++ transaction id`.
 const HISTORY_TABLE: TableDefinition<&[u8], &[u8]> = TableDefinition::new("v4/script_history");
+/// What each locking script holds, kept up to date as coins come and go, so a balance is one
+/// read however many coins make it up. Key: `script key ++ 0x00` for IMN, `script key ++ 0x01 ++
+/// token id` for a token. Value: amount (8 bytes) ++ mint authorities held (8 bytes).
+const HOLDINGS_TABLE: TableDefinition<&[u8], &[u8]> = TableDefinition::new("v1/holdings");
+const HOLDING_IMN: u8 = 0;
+const HOLDING_TOKEN: u8 = 1;
+
+/// Raw rows of the holdings table, key and value, for comparing.
+pub type HoldingRows = Vec<(Vec<u8>, Vec<u8>)>;
+
+/// Adds (`add`) or removes one coin's worth from the holdings of its script.
+fn adjust_holdings(table: &mut redb::Table<&[u8], &[u8]>, output: &TxOutput, add: bool) -> Result<(), StorageError> {
+    let prefix = script_index_prefix(&output.script_public_key);
+    let mut changes: Vec<(Vec<u8>, u64, u64)> = vec![([prefix.as_slice(), &[HOLDING_IMN]].concat(), output.value_atoms, 0)];
+    if let Some(token) = &output.token {
+        changes.push(([prefix.as_slice(), &[HOLDING_TOKEN], &token.id.0].concat(), token.amount, u64::from(token.mint_authority)));
+    }
+    for (key, amount, authorities) in changes {
+        if amount == 0 && authorities == 0 {
+            continue;
+        }
+        let (mut held, mut held_authorities) = match table.get(key.as_slice())? {
+            Some(bytes) => {
+                let v = bytes.value();
+                (u64::from_be_bytes(v[..8].try_into().unwrap_or([0; 8])), u64::from_be_bytes(v[8..16].try_into().unwrap_or([0; 8])))
+            }
+            None => (0, 0),
+        };
+        if add {
+            held = held.saturating_add(amount);
+            held_authorities = held_authorities.saturating_add(authorities);
+        } else {
+            held = held.saturating_sub(amount);
+            held_authorities = held_authorities.saturating_sub(authorities);
+        }
+        if held == 0 && held_authorities == 0 {
+            table.remove(key.as_slice())?;
+        } else {
+            table.insert(key.as_slice(), [held.to_be_bytes(), held_authorities.to_be_bytes()].concat().as_slice())?;
+        }
+    }
+    Ok(())
+}
+
 /// Memory the database may use to keep recently read pages at hand.
 const DATABASE_CACHE_BYTES: usize = 256 * 1024 * 1024;
 
@@ -144,6 +188,8 @@ fn history_key(script: &ScriptPublicKey, blue_score: u64, id: &Hash) -> Vec<u8> 
 pub const META_SINK: &str = "sink";
 /// Metadata key: running total of every unspent output, in atoms (u128, big-endian).
 const META_SUPPLY: &str = "supply_atoms";
+/// Present once `HOLDINGS_TABLE` covers every coin.
+const META_HOLDINGS: &str = "holdings_v1";
 /// Metadata key: selected-chain blocks at or below this blue score have been pruned.
 pub const META_PRUNED_FLOOR: &str = "pruned_floor";
 /// The last deep reorganisation: its depth and when it happened, so the alert survives a restart.
@@ -507,12 +553,28 @@ impl Storage {
             let _ = write_tx.open_table(INVOICE_TABLE)?;
             let _ = write_tx.open_table(HISTORY_TABLE)?;
             let _ = write_tx.open_table(LEVEL_TABLE)?;
+            let _ = write_tx.open_table(HOLDINGS_TABLE)?;
         }
         write_tx.commit()?;
 
         let storage = Self { db: Arc::new(db), deferring: Arc::new(std::sync::atomic::AtomicUsize::new(0)) };
         storage.build_level_index_if_missing()?;
         // A database from before the running total existed: count once and remember
+        // A database from before holdings were kept: add them up once from the coins
+        if storage.get_metadata(META_HOLDINGS)?.is_none() {
+            let write_tx = storage.db.begin_write()?;
+            {
+                let utxo_table = write_tx.open_table(UTXO_TABLE)?;
+                let mut holdings = write_tx.open_table(HOLDINGS_TABLE)?;
+                for entry in utxo_table.iter()? {
+                    let (_, val) = entry?;
+                    adjust_holdings(&mut holdings, &UtxoEntry::from_bytes(val.value())?.output, true)?;
+                }
+                let mut metadata_table = write_tx.open_table(METADATA_TABLE)?;
+                metadata_table.insert(META_HOLDINGS, [1u8].as_slice())?;
+            }
+            write_tx.commit()?;
+        }
         if storage.get_metadata(META_SUPPLY)?.is_none() {
             let total = storage.scan_utxo_atoms()?;
             let write_tx = storage.db.begin_write()?;
@@ -583,6 +645,7 @@ impl Storage {
             let mut removed_total: u128 = 0;
             let mut utxo_table = write_tx.open_table(UTXO_TABLE)?;
             let mut script_table = write_tx.open_table(SCRIPT_UTXO_TABLE)?;
+            let mut holdings = write_tx.open_table(HOLDINGS_TABLE)?;
             for outpoint in &batch.utxo_deletes {
                 let removed = match utxo_table.remove(outpoint.to_bytes().as_slice())? {
                     Some(old) => Some(UtxoEntry::from_bytes(old.value())?),
@@ -591,6 +654,7 @@ impl Storage {
                 if let Some(entry) = removed {
                     removed_total += entry.output.value_atoms as u128;
                     script_table.remove(script_index_key(&entry.output.script_public_key, outpoint).as_slice())?;
+                    adjust_holdings(&mut holdings, &entry.output, false)?;
                 }
             }
             for (outpoint, entry) in &batch.utxo_puts {
@@ -601,9 +665,11 @@ impl Storage {
                 if let Some(old) = replaced {
                     removed_total += old.output.value_atoms as u128;
                     script_table.remove(script_index_key(&old.output.script_public_key, outpoint).as_slice())?;
+                    adjust_holdings(&mut holdings, &old.output, false)?;
                 }
                 added += entry.output.value_atoms as u128;
                 script_table.insert(script_index_key(&entry.output.script_public_key, outpoint).as_slice(), ())?;
+                adjust_holdings(&mut holdings, &entry.output, true)?;
             }
             if added != removed_total {
                 let current = match metadata_table.get(META_SUPPLY)? {
@@ -791,8 +857,31 @@ impl Storage {
     }
 
     /// Queries the balance of an address (summing atomic units), including immature rewards.
+    /// The IMN an address holds: one read from the running holdings, not a walk over its coins.
     pub fn get_balance(&self, address: &Address) -> Result<u64, StorageError> {
-        Ok(self.get_utxos(address)?.iter().fold(0u64, |total, (_, entry)| total.saturating_add(entry.output.value_atoms)))
+        let read_tx = self.db.begin_read()?;
+        let holdings = read_tx.open_table(HOLDINGS_TABLE)?;
+        let key = [script_index_prefix(&ScriptPublicKey::pay_to_address(address)).as_slice(), &[HOLDING_IMN]].concat();
+        Ok(holdings.get(key.as_slice())?.map_or(0, |v| u64::from_be_bytes(v.value()[..8].try_into().unwrap_or([0; 8]))))
+    }
+
+    /// Every token an address holds: id, amount, and whether it holds a mint authority. As many
+    /// reads as tokens held, however many coins carry them.
+    pub fn get_token_holdings(&self, address: &Address) -> Result<Vec<(Hash, u64, bool)>, StorageError> {
+        let read_tx = self.db.begin_read()?;
+        let holdings = read_tx.open_table(HOLDINGS_TABLE)?;
+        let start = [script_index_prefix(&ScriptPublicKey::pay_to_address(address)).as_slice(), &[HOLDING_TOKEN]].concat();
+        let end = [start.as_slice(), &[0xff; 32]].concat();
+        let mut found = Vec::new();
+        for item in holdings.range::<&[u8]>(start.as_slice()..=end.as_slice())? {
+            let (key, value) = item?;
+            let id: [u8; 32] = key.value()[start.len()..].try_into().map_err(|_| DecodeError::Invalid("holding key"))?;
+            let v = value.value();
+            let amount = u64::from_be_bytes(v[..8].try_into().unwrap_or([0; 8]));
+            let authorities = u64::from_be_bytes(v[8..16].try_into().unwrap_or([0; 8]));
+            found.push((Hash(id), amount, authorities > 0));
+        }
+        Ok(found)
     }
 
     /// Every open offer (up to `MAX_LISTED`), found through the script index: all offer scripts share a version and a
@@ -943,6 +1032,43 @@ impl Storage {
 
     /// Adds up every unspent output by reading the whole UTXO set. Slow on a large chain; used
     /// to seed the running total and to check it.
+    /// The holdings table as stored, and as a full count of the coins says it should be. Equal
+    /// unless the running holdings have drifted; for checking.
+    pub fn holdings_and_recount(&self) -> Result<(HoldingRows, HoldingRows), StorageError> {
+        let read_tx = self.db.begin_read()?;
+        let mut stored = Vec::new();
+        for item in read_tx.open_table(HOLDINGS_TABLE)?.iter()? {
+            let (k, v) = item?;
+            stored.push((k.value().to_vec(), v.value().to_vec()));
+        }
+        let scratch = Database::builder().create_with_backend(redb::backends::InMemoryBackend::new())?;
+        let write_tx = scratch.begin_write()?;
+        {
+            let mut table = write_tx.open_table(HOLDINGS_TABLE)?;
+            for entry in read_tx.open_table(UTXO_TABLE)?.iter()? {
+                let (_, val) = entry?;
+                adjust_holdings(&mut table, &UtxoEntry::from_bytes(val.value())?.output, true)?;
+            }
+        }
+        write_tx.commit()?;
+        let mut recount = Vec::new();
+        for item in scratch.begin_read()?.open_table(HOLDINGS_TABLE)?.iter()? {
+            let (k, v) = item?;
+            recount.push((k.value().to_vec(), v.value().to_vec()));
+        }
+        Ok((stored, recount))
+    }
+
+    /// Forgets the holdings, as in a database from before they were kept. For testing the rebuild.
+    #[cfg(test)]
+    pub fn forget_holdings(&self) -> Result<(), StorageError> {
+        let write_tx = self.db.begin_write()?;
+        write_tx.delete_table(HOLDINGS_TABLE)?;
+        write_tx.open_table(METADATA_TABLE)?.remove(META_HOLDINGS)?;
+        write_tx.commit()?;
+        Ok(())
+    }
+
     pub fn scan_utxo_atoms(&self) -> Result<u128, StorageError> {
         let read_tx = self.db.begin_read()?;
         let utxo_table = read_tx.open_table(UTXO_TABLE)?;

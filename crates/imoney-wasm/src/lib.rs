@@ -73,6 +73,12 @@ pub struct ProposalSummary {
 pub struct ProposalPayment {
     pub address: Option<String>,
     pub amount_atoms: u64,
+    /// A token the output carries, so a co-signer sees it: an output of 0 IMN can still move
+    /// all of a shared wallet's tokens.
+    pub token_id: Option<String>,
+    pub token_amount: u64,
+    /// The output hands over the right to mint the token.
+    pub mint_authority: bool,
 }
 
 /// An unspent output as the node's `/address/:addr/utxos` endpoint reports it.
@@ -578,7 +584,13 @@ pub mod wallet {
                 let address = AddressType::from_u8(output.script_public_key.version)
                     .zip(<[u8; 32]>::try_from(output.script_public_key.script.as_slice()).ok())
                     .map(|(kind, hash)| Address::new(net, kind, Hash(hash)).to_string());
-                payments.push(ProposalPayment { address, amount_atoms: output.value_atoms });
+                payments.push(ProposalPayment {
+                    address,
+                    amount_atoms: output.value_atoms,
+                    token_id: output.token.as_ref().map(|t| t.id.to_hex()),
+                    token_amount: output.token.as_ref().map_or(0, |t| t.amount),
+                    mint_authority: output.token.as_ref().is_some_and(|t| t.mint_authority),
+                });
             }
         }
         let paid_out: u64 = tx.outputs.iter().map(|o| o.value_atoms).sum();
@@ -1116,6 +1128,19 @@ mod tests {
         assert_eq!(summary.payments[0].address.as_deref(), Some(shop.address.as_str()));
         assert_eq!(summary.payments[0].amount_atoms, 50_000_000);
         assert_eq!(summary.change_atoms + summary.fee_atoms, 30_000_000);
+        assert!(summary.payments[0].token_id.is_none());
+
+        // N-20: an output of 0 IMN that moves tokens is shown with the tokens it moves
+        let mut token_grab = proposal.clone();
+        token_grab.transaction.outputs.push(imoney_core::TxOutput {
+            value_atoms: 0,
+            script_public_key: ScriptPublicKey::pay_to_address(&Address::decode(&outsider.address).unwrap()),
+            token: Some(imoney_core::TokenAmount { id: imoney_core::Hash([6u8; 32]), amount: 7_000, mint_authority: false }),
+        });
+        let shown = shared_summary(&token_grab, &coins).unwrap();
+        let grab = shown.payments.iter().find(|p| p.address.as_deref() == Some(outsider.address.as_str())).unwrap();
+        assert_eq!((grab.amount_atoms, grab.token_amount), (0, 7_000));
+        assert_eq!(grab.token_id.as_deref(), Some("06".repeat(32).as_str()));
         assert_eq!(summary.invoice_id.as_deref(), Some("INV-3"));
         assert!(summary.signed_by.is_empty() && !summary.ready);
 

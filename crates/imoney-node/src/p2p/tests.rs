@@ -456,15 +456,18 @@ async fn an_inbound_peer_can_neither_hold_back_nor_fake_sync() {
     write_frame(&mut stream, MAGIC, &version).await.unwrap();
     eventually!("handshake completes", a.peer_count().await == 1);
 
-    // "I have nothing you lack", plus a properly mined block whose parent does not exist
+    // "I have nothing you lack": checked well inside the sync wait, since after it a node with
+    // only inbound peers stops waiting by design
     write_frame(&mut stream, MAGIC, &Message::Tips(vec![genesis])).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(!a.manager.is_synced(), "an inbound peer's word is not enough");
+
+    // A properly mined block whose parent does not exist
     let mut orphan = a.ledger.read().await.get_mining_template(Some(&miner)).block;
     orphan.header.parents = vec![Hash([7u8; 32])];
     let pre_pow_hash = orphan.header.pre_pow_hash().unwrap();
     orphan.header.nonce = a.pow.mine(&pre_pow_hash, orphan.header.bits, 0, 1_000_000, Arc::new(AtomicBool::new(false))).unwrap().0;
     write_frame(&mut stream, MAGIC, &Message::Block(orphan)).await.unwrap();
-    tokio::time::sleep(Duration::from_secs(1)).await;
-    assert!(!a.manager.is_synced(), "an inbound peer's word is not enough");
 
     // The fresh orphan does not stop the peer the node dialed from confirming it is caught up
     a.connect(&b);
@@ -495,4 +498,29 @@ async fn reconnecting_does_not_reset_the_misbehaviour_score() {
     // The same address on a fresh connection
     a.manager.misbehave(SocketAddr::new(ip, 40_002), 20);
     assert!(a.manager.is_banned(&ip));
+}
+
+/// N-10: a node started without --peers but with peers remembered from an earlier run waits to
+/// catch up before mining; one that knows of no network at all starts at once.
+#[tokio::test(flavor = "multi_thread")]
+async fn remembered_peers_also_hold_back_the_miner_until_synced() {
+    let first = TestNode::start("remembered-first").await;
+    first.manager.require_initial_sync_if_networked(false);
+    assert!(first.manager.is_synced());
+
+    let returning = TestNode::start("remembered-returning").await;
+    returning.manager.remember_addr("203.0.113.20:18555".parse().unwrap());
+    returning.manager.require_initial_sync_if_networked(false);
+    assert!(!returning.manager.is_synced());
+}
+
+/// N-11: a connection that never completes the handshake is dropped, freeing its inbound slot.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_silent_connection_gives_up_its_slot() {
+    let a = TestNode::start("silent-slot").await;
+    let _silent = TcpStream::connect(a.addr).await.unwrap();
+    eventually!("the connection takes a slot", a.manager.peers.lock().unwrap().len() == 1);
+    let started = Instant::now();
+    eventually!("the silent connection is dropped", a.manager.peers.lock().unwrap().is_empty());
+    assert!(started.elapsed() < Duration::from_secs(30));
 }

@@ -4,6 +4,8 @@
 # the node container. A seed node verifies and relays; it never mines.
 #
 # Instance metadata it reads:
+#   imn-ref         the release tag or commit to build (e.g. v0.1.5). Required: a seed never
+#                   builds whatever the default branch holds at the moment it boots
 #   imn-peers       peers to connect to, comma-separated host:port
 #   imn-api-public  "1" to serve the read-only API on port 18556 to the outside (the firewall
 #                   decides who can reach it); otherwise the API listens on this machine only
@@ -32,8 +34,16 @@ if ! command -v docker >/dev/null; then
 fi
 
 if ! docker image inspect imoney:latest >/dev/null 2>&1; then
+  REF=$(metadata imn-ref)
+  if [ -z "$REF" ]; then
+    echo "imn-seed: set instance metadata imn-ref to the release tag or commit to build" >&2
+    exit 1
+  fi
   rm -rf /opt/imoney
-  git clone --depth 1 https://github.com/Internet-Money-Network/imoney.git /opt/imoney
+  git init -q /opt/imoney
+  git -C /opt/imoney fetch -q --depth 1 https://github.com/Internet-Money-Network/imoney.git "$REF"
+  git -C /opt/imoney checkout -q FETCH_HEAD
+  echo "imn-seed: building $REF ($(git -C /opt/imoney rev-parse HEAD))"
   docker build -t imoney:latest /opt/imoney
   # Each build leaves its 2.7 GB build stage behind; a small disk fills after a few updates
   docker image prune -f
