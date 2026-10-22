@@ -55,7 +55,8 @@ docker volume rm imoney-data && docker volume create imoney-data
 docker run --rm -v imoney-data:/d -v ~/imn-backup:/b alpine sh -c 'if [ -f /b/miner-key.hex ]; then cp -p /b/miner-key.hex /d/ && chown 999:999 /d/miner-key.hex; fi'
 
 # Void the pool's balances; keep its key
-docker run --rm -v imoney-pool:/d alpine sh -c 'rm -f /d/pool-state.json /d/pool-state.json.partial'
+# (and the stale pre-testnet-3 backup, which holds void accounting)
+docker run --rm -v imoney-pool:/d alpine sh -c 'rm -f /d/pool-state.json /d/pool-state.json.partial /d/pool-state.json.pre-testnet3.bak'
 
 # A new RPC token, kept in a file only the owner can reach
 install -d -m 700 ~/imn
@@ -155,9 +156,14 @@ that file from `~/imn/rpc-token` on the home server. Never mine on the Google Cl
 - Update the session memory and `deploy/SEEDS.md` with the new container flags.
 - Ask the tester to confirm N-24 closed (seeds built from a pinned tag).
 - Delete `imoney:pre-testnet4` once testnet-4 has run for a day.
+- Optional tidy-up: `docker volume ls -qf dangling=true` on the home server lists anonymous volumes
+  left by earlier container recreates. Check each with `docker volume inspect` before removing it;
+  never remove `imoney-data`, `imoney-pool`, `imoney-fuzz` or another app's named volume.
 
 ## Rollback
 
 The chain is a test chain, so there is nothing to roll back to. If v0.1.5 will not start, run
-`imoney:pre-testnet4` with the same flags but `--rpc-token` in place of `--rpc-token-file`
-(the old image does not know the file option), and report the error.
+`imoney:pre-testnet4` with the same flags but `--rpc-token "$(cat ~/imn/rpc-token)"` in place of
+`--rpc-token-file` (the old image does not know the file option; use the new token, the old one
+is retired), and report the error. That image serves the testnet-3 genesis, so after the wipe it
+is for diagnosing only: it cannot rejoin anything.
