@@ -1135,7 +1135,15 @@ async fn broadcast_handler(
 ) -> (StatusCode, Json<BroadcastTxResponse>) {
     // Quantum-safe inputs are costly to check: each client gets a budget of them, taken before
     // any is checked, so garbage signatures cannot keep the node busy
-    let quantum_inputs = state.ledger.read().await.quantum_safe_inputs(&payload.transaction);
+    let quantum_inputs = {
+        let ledger = state.ledger.read().await;
+        // One already pending costs nothing to send again, so it is not charged
+        if ledger.mempool.contains(&payload.transaction.id()) {
+            0
+        } else {
+            ledger.quantum_safe_inputs(&payload.transaction)
+        }
+    };
     if quantum_inputs > 0 && !state.quantum_budget.allow_n(client.ip(), quantum_inputs) {
         return (
             StatusCode::TOO_MANY_REQUESTS,

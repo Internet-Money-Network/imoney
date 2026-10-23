@@ -797,7 +797,15 @@ impl PeerManager {
             Message::Tx(_) if !self.tx_limit.allow(peer_addr.ip()) => {}
             Message::Tx(tx) => {
                 // Over its budget of quantum-safe checks, a peer's transactions are dropped unchecked
-                let quantum_inputs = self.ledger.read().await.quantum_safe_inputs(&tx);
+                let quantum_inputs = {
+                    let ledger = self.ledger.read().await;
+                    // One already pending costs nothing to receive again, so it is not charged
+                    if ledger.mempool.contains(&tx.id()) {
+                        0
+                    } else {
+                        ledger.quantum_safe_inputs(&tx)
+                    }
+                };
                 if quantum_inputs > 0 && !self.quantum_budget.allow_n(peer_addr.ip(), quantum_inputs) {
                     return;
                 }

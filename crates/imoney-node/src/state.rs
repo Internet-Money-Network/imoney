@@ -171,7 +171,7 @@ impl ConsensusParams {
             // 12 hours of 5-second blocks
             finality_depth: 8_640,
             genesis: create_testnet_genesis(),
-            name: "testnet-5",
+            name: "testnet-6",
             network: Network::Testnet,
             maintenance: Some(MaintenanceFund {
                 script: ScriptPublicKey::pay_to_address(
