@@ -142,6 +142,9 @@ fn address_of(key: &SigningKey, testnet: bool) -> Address {
     Address::from_public_key(network(testnet), AddressType::PubKeyHash, key.verifying_key().as_bytes())
 }
 
+/// Derives the wallet's quantum-safe seed from its private key.
+const QUANTUM_KEY_CONTEXT: &str = "IMN 2026 wallet quantum key 0";
+
 fn keys(key: &SigningKey, testnet: bool) -> WalletKeys {
     WalletKeys {
         private_key_hex: hex::encode(key.to_bytes()),
@@ -336,6 +339,67 @@ pub mod wallet {
         invoice_id: Option<&str>,
     ) -> Result<SignedTransaction, String> {
         build_payment_to(private_key_hex, testnet, recipient, amount_atoms, fee_atoms, utxos_json, service_address, invoice_id, false)
+    }
+
+    /// The wallet's quantum-safe key. It comes from the wallet's own private key, so whatever
+    /// restores the wallet (its recovery phrase or the key itself) restores this too, and there
+    /// is nothing new to back up.
+    pub fn quantum_key(private_key_hex: &str) -> Result<imoney_core::quantum::QuantumSafeKey, String> {
+        let key = signing_key(private_key_hex)?;
+        Ok(imoney_core::quantum::QuantumSafeKey::from_seed(&blake3::derive_key(QUANTUM_KEY_CONTEXT, &key.to_bytes())))
+    }
+
+    /// The wallet's quantum-safe address: coins sent to it need an Ed25519 and a SQIsign
+    /// signature to move.
+    pub fn quantum_address(private_key_hex: &str, testnet: bool) -> Result<String, String> {
+        Ok(quantum_key(private_key_hex)?.address(network(testnet)).to_string())
+    }
+
+    /// Like `build_payment`, from the wallet's quantum-safe address.
+    #[allow(clippy::too_many_arguments)]
+    pub fn quantum_build_payment(
+        private_key_hex: &str,
+        testnet: bool,
+        recipient: &str,
+        amount_atoms: u64,
+        fee_atoms: u64,
+        utxos_json: &str,
+        service_address: Option<&str>,
+        invoice_id: Option<&str>,
+    ) -> Result<SignedTransaction, String> {
+        let key = quantum_key(private_key_hex)?;
+        let recipient = parse_address(recipient, testnet, "recipient")?;
+        if recipient.address_type == imoney_core::AddressType::Subscription {
+            return Err("That is a subscription's address. Money goes into a subscription only when it is set up; to add more, cancel it and start a new one.".to_string());
+        }
+        let service = service_address.map(|a| parse_address(a, testnet, "service")).transpose()?;
+        let utxos = spendable_utxos(utxos_json, &key.address(network(testnet)))?;
+        let build = |fee: u64| {
+            Transaction::build_quantum_safe_payment(
+                &key,
+                network(testnet),
+                &recipient,
+                amount_atoms,
+                fee,
+                utxos.clone(),
+                service.as_ref(),
+                invoice_id.filter(|id| !id.is_empty()),
+            )
+        };
+        if fee_atoms > 0 {
+            return Ok(signed(build(fee_atoms)?, fee_atoms));
+        }
+        // No fee given: pay for the transaction's actual size, as `build_payment` does
+        let mut fee = DEFAULT_FEE_PER_BYTE * 600;
+        for _ in 0..8 {
+            let tx = build(fee)?;
+            let needed = DEFAULT_FEE_PER_BYTE * tx.to_bytes().len() as u64;
+            if fee >= needed {
+                return Ok(signed(tx, fee));
+            }
+            fee = needed;
+        }
+        Err("Could not settle on a fee for this payment".to_string())
     }
 
     /// `build_payment`, and with `funding_subscription` set, also to a subscription address. A
@@ -736,6 +800,38 @@ pub fn build_payment(
     ))
 }
 
+/// The wallet's quantum-safe address, from its private key.
+#[wasm_bindgen]
+pub fn quantum_address(private_key_hex: &str, testnet: bool) -> Result<String, JsError> {
+    wallet::quantum_address(private_key_hex, testnet).map_err(|e| JsError::new(&e))
+}
+
+/// Like `build_payment`, sending from the wallet's quantum-safe address. Each coin it spends
+/// carries an Ed25519 and a SQIsign signature.
+#[wasm_bindgen]
+#[allow(clippy::too_many_arguments)]
+pub fn quantum_build_payment(
+    private_key_hex: &str,
+    testnet: bool,
+    recipient: &str,
+    amount_atoms: u64,
+    fee_atoms: u64,
+    utxos_json: &str,
+    service_address: Option<String>,
+    invoice_id: Option<String>,
+) -> Result<String, JsError> {
+    to_json(wallet::quantum_build_payment(
+        private_key_hex,
+        testnet,
+        recipient,
+        amount_atoms,
+        fee_atoms,
+        utxos_json,
+        service_address.as_deref(),
+        invoice_id.as_deref(),
+    ))
+}
+
 /// Issues a token. Returns the signed transaction as JSON, with the new token's ID in
 /// `token_id`. A fee of 0 sets the fee from the transaction's size.
 #[wasm_bindgen]
@@ -902,6 +998,28 @@ mod tests {
     use imoney_core::{Address, Encode, Network, ScriptPublicKey, Transaction};
 
     const PHRASE: &str = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+
+    /// The quantum-safe address comes from the wallet's key, the same whichever way the wallet
+    /// was restored, and a payment from it verifies with both signatures.
+    #[test]
+    fn a_quantum_safe_payment_is_signed_with_both_keys() {
+        let me = keys_from_mnemonic(PHRASE, true).unwrap();
+        let again = keys_from_private_key(&me.private_key_hex, true).unwrap();
+        let safe = quantum_address(&me.private_key_hex, true).unwrap();
+        assert_eq!(safe, quantum_address(&again.private_key_hex, true).unwrap());
+        assert!(safe.starts_with("imntest:"));
+        assert_ne!(safe, me.address);
+
+        let shop = keys_from_private_key(&"33".repeat(32), true).unwrap();
+        let signed =
+            quantum_build_payment(&me.private_key_hex, true, &shop.address, 1_000_000, 0, &utxos(&[5_000_000]), None, None).unwrap();
+        let tx = &signed.transaction;
+        let locked = ScriptPublicKey::pay_to_address(&Address::decode(&safe).unwrap());
+        assert!(tx.verify_input(Network::Testnet, 0, &locked).is_ok());
+        assert_eq!(tx.outputs[1].script_public_key, locked); // change comes back to it
+                                                             // The fee covers the larger signatures
+        assert!(signed.fee_atoms >= DEFAULT_FEE_PER_BYTE * tx.to_bytes().len() as u64);
+    }
 
     /// A subscription holds one coin, put there when it is set up: a plain payment to its
     /// address is refused, and funding it again once it holds money is refused too.

@@ -31,6 +31,8 @@ pub const SCRIPT_VERSION_QUANTUM_SAFE: u8 = AddressType::PostQuantumHash as u8;
 pub const SQISIGN_PUBLIC_KEY_BYTES: usize = 83;
 /// Bytes of a SQIsign (level I) signature.
 pub const SQISIGN_SIGNATURE_BYTES: usize = 200;
+/// Most quantum-safe coins one relayed payment may spend; nodes refuse more (relay policy).
+pub const MAX_RELAYED_INPUTS: usize = 16;
 /// Bytes of the signature script of a quantum-safe spend.
 pub const QUANTUM_SAFE_WITNESS_BYTES: usize = 32 + SQISIGN_PUBLIC_KEY_BYTES + 64 + SQISIGN_SIGNATURE_BYTES;
 
@@ -110,6 +112,35 @@ impl Transaction {
         script.extend_from_slice(&sq_signature.to_bytes());
         self.inputs[input_index].signature_script = script;
         Ok(())
+    }
+
+    /// Pays `amount_atoms` to `recipient` from a quantum-safe address's coins, change back to
+    /// it, signing every input with both keys. At most `MAX_RELAYED_INPUTS` coins are used:
+    /// nodes relay no more, since each costs a SQIsign check.
+    #[allow(clippy::too_many_arguments)]
+    pub fn build_quantum_safe_payment(
+        key: &QuantumSafeKey,
+        network: Network,
+        recipient: &Address,
+        amount_atoms: u64,
+        fee_atoms: u64,
+        available_utxos: Vec<(crate::transaction::Outpoint, crate::transaction::TxOutput)>,
+        service: Option<&Address>,
+        invoice_id: Option<&str>,
+    ) -> Result<Self, String> {
+        let mut tx =
+            Self::unsigned_payment(&key.address(network), recipient, amount_atoms, fee_atoms, available_utxos, service, invoice_id)?;
+        if tx.inputs.len() > MAX_RELAYED_INPUTS {
+            return Err(format!(
+                "This payment needs {} coins from the quantum-safe address, more than the {} one payment may use. Send a smaller amount first.",
+                tx.inputs.len(),
+                MAX_RELAYED_INPUTS
+            ));
+        }
+        for i in 0..tx.inputs.len() {
+            tx.sign_input_quantum_safe(network, i, key).map_err(|e| format!("Failed to sign input {}: {}", i, e))?;
+        }
+        Ok(tx)
     }
 
     /// Checks an input that spends a quantum-safe coin: both keys hash to the address, and both

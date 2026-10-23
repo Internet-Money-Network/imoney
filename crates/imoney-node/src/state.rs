@@ -50,7 +50,7 @@ pub const REORG_ALARM_DEPTH: usize = 3;
 /// Most quantum-safe inputs in one relayed transaction. Each costs a SQIsign verification
 /// (about 4 ms); this keeps one transaction's checks well under a tenth of a second. Relay
 /// policy only: a block may carry more.
-pub const MAX_QUANTUM_SAFE_INPUTS: usize = 16;
+pub const MAX_QUANTUM_SAFE_INPUTS: usize = imoney_core::quantum::MAX_RELAYED_INPUTS;
 
 /// Bytes of a block template kept free for the header and coinbase.
 const TEMPLATE_RESERVED_BYTES: usize = 2_000;
