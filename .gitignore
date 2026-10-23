@@ -36,3 +36,8 @@ fuzz/Cargo.lock
 imoney-cache/
 /dist-site/
 contracts/out/
+
+# Desktop app build output
+apps/imoney-desktop/src-tauri/target/
+apps/imoney-desktop/src-tauri/binaries/
+apps/imoney-desktop/src-tauri/gen/

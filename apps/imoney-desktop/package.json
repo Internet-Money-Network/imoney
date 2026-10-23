@@ -1,0 +1,15 @@
+{
+  "name": "imoney-desktop",
+  "private": true,
+  "version": "0.1.6",
+  "description": "Internet Money for the desktop: the wallet in its own window, with a node built in",
+  "scripts": {
+    "tauri": "tauri",
+    "sidecar": "node scripts/sidecar.mjs",
+    "dev": "npm run sidecar && tauri dev",
+    "build": "npm run sidecar && tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}
