@@ -990,6 +990,7 @@ dependencies = [
  "imoney-emission",
  "imoney-pow",
  "rand",
+ "rayon",
  "redb",
  "serde",
  "serde_json",

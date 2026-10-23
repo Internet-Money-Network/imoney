@@ -2029,3 +2029,64 @@ fn too_many_quantum_safe_inputs_are_not_relayed() {
     let err = ledger.broadcast_transaction(sweep).unwrap_err().to_string();
     assert!(err.contains("quantum-safe inputs"), "{}", err);
 }
+
+/// Signatures of a new block are checked on every core before the ledger goes through the
+/// payments; the outcome is the same as checking them one by one. A block of 30 quantum-safe
+/// payments, one with a forged SQIsign signature: 29 accepted, the forged one skipped.
+#[test]
+fn a_block_of_quantum_safe_payments_is_checked_in_parallel_with_the_same_outcome() {
+    use imoney_core::quantum::QuantumSafeKey;
+    let funder = key(175);
+    let (mut ledger, pow) = funded_ledger("quantum-parallel", &funder);
+    let miner = address_of(&key(176));
+    let safe_key = QuantumSafeKey::from_seed(&[44u8; 32]);
+    let safe = safe_key.address(Network::Testnet);
+    let shop = address_of(&key(177));
+    const COUNT: usize = 30;
+
+    let coins = ledger.get_spendable_utxos(&address_of(&funder)).unwrap();
+    let mut fund = Transaction::build_payment(&funder, Network::Testnet, &safe, 1_000_000, 100_000, coins, None).unwrap();
+    for _ in 1..COUNT {
+        fund.outputs.insert(0, TxOutput::new(1_000_000, ScriptPublicKey::pay_to_address(&safe)));
+    }
+    let change = fund.outputs.len() - 1;
+    fund.outputs[change].value_atoms -= (COUNT as u64 - 1) * 1_000_000;
+    for i in 0..fund.inputs.len() {
+        fund.sign_input(Network::Testnet, i, &funder).unwrap();
+    }
+    let fund_id = fund.id();
+    ledger.broadcast_transaction(fund).unwrap();
+    mine_tip(&mut ledger, &pow, &miner);
+
+    let mut payments: Vec<Transaction> = (0..COUNT)
+        .map(|i| {
+            let mut tx = Transaction {
+                version: 1,
+                inputs: vec![TxInput {
+                    previous_outpoint: Outpoint { transaction_id: fund_id, index: i as u32 },
+                    signature_script: Vec::new(),
+                }],
+                outputs: vec![TxOutput::new(500_000, ScriptPublicKey::pay_to_address(&shop))],
+                payload: vec![i as u8],
+                service: None,
+                issue: None,
+            };
+            tx.sign_input_quantum_safe(Network::Testnet, 0, &safe_key).unwrap();
+            tx
+        })
+        .collect();
+    let last = payments[7].inputs[0].signature_script.len() - 3;
+    payments[7].inputs[0].signature_script[last] ^= 1;
+
+    let tips: Vec<Hash> = ledger.tips.iter().copied().collect();
+    let block = mine_on(&ledger, &pow, &tips, &miner, payments);
+    // Building the block checked them; forget that, as a node receiving it would not know
+    ledger.verified_inputs.lock().unwrap().clear();
+    let started = std::time::Instant::now();
+    ledger.add_block(block, &pow).unwrap();
+    let took = started.elapsed();
+    assert_eq!(balance(&ledger, &shop), (COUNT as u64 - 1) * 500_000);
+    assert_eq!(balance(&ledger, &safe), 1_000_000); // the forged payment's coin is still there
+    assert_supply_total_is_exact(&ledger);
+    println!("block with {} quantum-safe payments added in {:?}", COUNT, took);
+}

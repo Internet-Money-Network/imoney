@@ -416,6 +416,12 @@ pub struct DagLedger {
     /// Address this node asks wallets to name as the service address of payments it serves.
     pub service_address: Option<Address>,
     pub mempool: Mempool,
+    /// Inputs whose signature is known to be good, by the spending transaction's full hash and
+    /// the input's position. Only for scripts whose check cannot depend on the time (ordinary
+    /// and quantum-safe addresses), so a hit never changes an answer. Filled when a payment
+    /// enters the mempool and, in parallel, when a block arrives; the ledger then skips those
+    /// checks.
+    verified_inputs: std::sync::Mutex<HashSet<(Hash, u32)>>,
     /// Ledger change notifications. Sending never blocks; slow subscribers skip events.
     pub events: broadcast::Sender<LedgerEvent>,
     pub genesis_hash: Hash,
@@ -477,6 +483,7 @@ impl DagLedger {
             service_address: mining_address.clone(),
             mining_address,
             mempool: Mempool::default(),
+            verified_inputs: std::sync::Mutex::new(HashSet::new()),
             events: broadcast::channel(1024).0,
             genesis_hash: genesis.hash(),
             prune_depth: None,
@@ -584,6 +591,47 @@ impl DagLedger {
         }
     }
 
+    /// Notes an input whose signature checked out. The set is bounded: when full it starts
+    /// again, which only means some signatures are checked twice.
+    fn remember_verified(&self, key: (Hash, u32)) {
+        let mut verified = self.verified_inputs.lock().expect("not poisoned");
+        if verified.len() >= MAX_VERIFIED_INPUTS {
+            verified.clear();
+        }
+        verified.insert(key);
+    }
+
+    /// Checks the signatures of a new block's payments on every core at once, before the ledger
+    /// goes through them in order. Only inputs spending coins already in the ledger, with
+    /// scripts whose check cannot depend on the time; a quantum-safe signature takes a few
+    /// milliseconds, so a full block of them checked one by one would take most of a second.
+    fn precheck_signatures(&self, block: &Block) {
+        use rayon::prelude::*;
+        let mut work = Vec::new();
+        for tx in block.transactions.iter().skip(1) {
+            let tx_hash = tx.hash();
+            for (i, input) in tx.inputs.iter().enumerate() {
+                let key = (tx_hash, i as u32);
+                if self.verified_inputs.lock().expect("not poisoned").contains(&key) {
+                    continue;
+                }
+                if let Ok(Some(coin)) = self.storage.get_utxo(&input.previous_outpoint) {
+                    if time_independent(coin.output.script_public_key.version) {
+                        work.push((tx, i, coin.output.script_public_key, key));
+                    }
+                }
+            }
+        }
+        let good: Vec<(Hash, u32)> = work
+            .into_par_iter()
+            .filter(|(tx, i, script, _)| tx.verify_input(self.network, *i, script).is_ok())
+            .map(|(_, _, _, key)| key)
+            .collect();
+        for key in good {
+            self.remember_verified(key);
+        }
+    }
+
     fn load_block(&self, hash: &Hash, pending: Option<(&Hash, &Block)>) -> Result<Block, StorageError> {
         if let Some((pending_hash, block)) = pending {
             if pending_hash == hash {
@@ -629,6 +677,7 @@ impl DagLedger {
         }
 
         let mut total_input_atoms: u64 = 0;
+        let tx_hash = tx.hash();
         let mut spent_outpoints = HashSet::new();
         let mut spent_outputs: Vec<TxOutput> = Vec::with_capacity(tx.inputs.len());
 
@@ -654,6 +703,15 @@ impl DagLedger {
             // Whether a failure holds at every blue score is found by trying the two extremes: a
             // deadline that is the only problem passes at one of them, a forged signature or a
             // malformed contract input at neither.
+            let cacheable = time_independent(utxo.output.script_public_key.version);
+            let key = (tx_hash, i as u32);
+            if cacheable && self.verified_inputs.lock().expect("not poisoned").contains(&key) {
+                total_input_atoms = total_input_atoms
+                    .checked_add(utxo.output.value_atoms)
+                    .ok_or_else(|| StateError::Transaction("Input total overflows".to_string()))?;
+                spent_outputs.push(utxo.output);
+                continue;
+            }
             tx.verify_input_at(self.network, i, &utxo.output.script_public_key, spending_blue_score).map_err(|e| {
                 let script = &utxo.output.script_public_key;
                 // A quantum-safe spend has no deadline, and checking it again would cost two more
@@ -667,6 +725,9 @@ impl DagLedger {
                     StateError::Transaction(format!("Input {} cannot be spent now: {}", i, e))
                 }
             })?;
+            if cacheable {
+                self.remember_verified(key);
+            }
 
             total_input_atoms = total_input_atoms
                 .checked_add(utxo.output.value_atoms)
@@ -1159,6 +1220,7 @@ impl DagLedger {
         }
         self.tips.insert(block_hash);
 
+        self.precheck_signatures(&block);
         let mut view = LedgerView::new(self.storage.clone());
         let meta = BlockMeta { level: self.dag.get(&block_hash).level, ghostdag };
         view.batch.blocks.push((block_hash, block.to_bytes()));
@@ -1765,6 +1827,14 @@ impl DagLedger {
 }
 
 /// What the consensus index keeps about a stored block.
+/// True for locking scripts whose signature check gives the same answer at any blue score.
+fn time_independent(version: u8) -> bool {
+    version == imoney_core::transaction::SCRIPT_VERSION_PUBKEY_HASH || version == SCRIPT_VERSION_QUANTUM_SAFE
+}
+
+/// Most inputs remembered as already verified; about 40 bytes each.
+const MAX_VERIFIED_INPUTS: usize = 200_000;
+
 /// True for locking scripts whose spend can be valid at one blue score and not another.
 fn score_dependent(version: u8) -> bool {
     use imoney_core::{escrow::SCRIPT_VERSION_ESCROW, hashlock::SCRIPT_VERSION_HASHLOCK, vault};

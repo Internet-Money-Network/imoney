@@ -404,6 +404,36 @@ export function quantum_address(private_key_hex, testnet) {
 }
 
 /**
+ * Merges up to 16 coins of the wallet's quantum-safe address into one.
+ * @param {string} private_key_hex
+ * @param {boolean} testnet
+ * @param {string} utxos_json
+ * @returns {string}
+ */
+export function quantum_build_consolidation(private_key_hex, testnet, utxos_json) {
+    let deferred4_0;
+    let deferred4_1;
+    try {
+        const ptr0 = passStringToWasm0(private_key_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(utxos_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.quantum_build_consolidation(ptr0, len0, testnet, ptr1, len1);
+        var ptr3 = ret[0];
+        var len3 = ret[1];
+        if (ret[3]) {
+            ptr3 = 0; len3 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred4_0 = ptr3;
+        deferred4_1 = len3;
+        return getStringFromWasm0(ptr3, len3);
+    } finally {
+        wasm.__wbindgen_free(deferred4_0, deferred4_1, 1);
+    }
+}
+
+/**
  * Like `build_payment`, sending from the wallet's quantum-safe address. Each coin it spends
  * carries an Ed25519 and a SQIsign signature.
  * @param {string} private_key_hex

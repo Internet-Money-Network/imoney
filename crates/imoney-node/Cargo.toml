@@ -10,6 +10,7 @@ name = "imoney-node"
 path = "src/main.rs"
 
 [dependencies]
+rayon.workspace = true
 imoney-core = { path = "../imoney-core" }
 imoney-pow = { path = "../imoney-pow" }
 imoney-emission = { path = "../imoney-emission" }

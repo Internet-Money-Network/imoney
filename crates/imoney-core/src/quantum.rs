@@ -128,8 +128,32 @@ impl Transaction {
         service: Option<&Address>,
         invoice_id: Option<&str>,
     ) -> Result<Self, String> {
-        let mut tx =
-            Self::unsigned_payment(&key.address(network), recipient, amount_atoms, fee_atoms, available_utxos, service, invoice_id)?;
+        let mut tx = Self::plan_quantum_safe_payment(
+            &key.address(network),
+            recipient,
+            amount_atoms,
+            fee_atoms,
+            available_utxos,
+            service,
+            invoice_id,
+        )?;
+        tx.sign_all_quantum_safe(network, key)?;
+        Ok(tx)
+    }
+
+    /// The payment `build_quantum_safe_payment` makes, not yet signed: what it spends and pays.
+    /// With `signed_size` it tells the fee before any (slow) signing.
+    #[allow(clippy::too_many_arguments)]
+    pub fn plan_quantum_safe_payment(
+        from: &Address,
+        recipient: &Address,
+        amount_atoms: u64,
+        fee_atoms: u64,
+        available_utxos: Vec<(crate::transaction::Outpoint, crate::transaction::TxOutput)>,
+        service: Option<&Address>,
+        invoice_id: Option<&str>,
+    ) -> Result<Self, String> {
+        let tx = Self::unsigned_payment(from, recipient, amount_atoms, fee_atoms, available_utxos, service, invoice_id)?;
         if tx.inputs.len() > MAX_RELAYED_INPUTS {
             return Err(format!(
                 "This payment needs {} coins from the quantum-safe address, more than the {} one payment may use. Send a smaller amount first.",
@@ -137,10 +161,22 @@ impl Transaction {
                 MAX_RELAYED_INPUTS
             ));
         }
-        for i in 0..tx.inputs.len() {
-            tx.sign_input_quantum_safe(network, i, key).map_err(|e| format!("Failed to sign input {}: {}", i, e))?;
-        }
         Ok(tx)
+    }
+
+    /// Signs every input with the quantum-safe key.
+    pub fn sign_all_quantum_safe(&mut self, network: Network, key: &QuantumSafeKey) -> Result<(), String> {
+        for i in 0..self.inputs.len() {
+            self.sign_input_quantum_safe(network, i, key).map_err(|e| format!("Failed to sign input {}: {}", i, e))?;
+        }
+        Ok(())
+    }
+
+    /// The size this transaction will have once every input is signed for a quantum-safe address.
+    /// Their signature scripts have a fixed length, so the fee is known before signing.
+    pub fn quantum_safe_signed_size(&self) -> usize {
+        let unsigned: usize = self.inputs.iter().map(|i| i.signature_script.len()).sum();
+        crate::serialize::Encode::to_bytes(self).len() - unsigned + self.inputs.len() * QUANTUM_SAFE_WITNESS_BYTES
     }
 
     /// Checks an input that spends a quantum-safe coin: both keys hash to the address, and both
@@ -193,6 +229,15 @@ mod tests {
         };
         tx.sign_input_quantum_safe(NET, 0, key).unwrap();
         (tx, locked)
+    }
+
+    #[test]
+    fn the_signed_size_is_known_before_signing() {
+        let key = QuantumSafeKey::from_seed(&[1u8; 32]);
+        let (signed, _) = spend(&key);
+        let mut unsigned = signed.clone();
+        unsigned.inputs[0].signature_script.clear();
+        assert_eq!(unsigned.quantum_safe_signed_size(), crate::serialize::Encode::to_bytes(&signed).len());
     }
 
     #[test]
