@@ -2126,3 +2126,62 @@ fn a_full_pool_turns_transactions_away_before_checking_signatures() {
     let err = ledger.broadcast_transaction(forged).unwrap_err().to_string();
     assert!(err.contains("full") && !err.contains(BAD_SIGNATURE), "{}", err);
 }
+
+/// The maintenance fund: during its period each blue block pays 5% of the subsidy to the fund and
+/// the miner may claim only the rest; a coinbase claiming all of it is refused; after the period
+/// the miner gets everything again. Every atom is accounted for.
+#[test]
+fn the_maintenance_fund_takes_five_percent_for_its_period_only() {
+    use crate::state::{MaintenanceFund, MAINTENANCE_PERCENT};
+    let fund = address_of(&key(180));
+    let miner = address_of(&key(181));
+    let mut params = test_params();
+    params.maintenance =
+        Some(MaintenanceFund { script: ScriptPublicKey::pay_to_address(&fund), percent: MAINTENANCE_PERCENT, end_daa_score: 6 });
+    let mut ledger = DagLedger::open_with_params(fresh_db("maintenance"), None, params).unwrap();
+    ledger.mempool = test_mempool();
+    let pow = test_pow();
+    let subsidy = imoney_emission::block_subsidy_atoms(1);
+    let share = subsidy * 5 / 100;
+
+    // A coinbase claiming the whole subsidy during the period is refused
+    let mut greedy = ledger.get_mining_template(Some(&miner)).block;
+    greedy.transactions[0].outputs[0].value_atoms = subsidy;
+    let greedy = solve(greedy, &pow);
+    assert!(matches!(ledger.add_block(greedy, &pow), Err(StateError::Coinbase(_))));
+
+    // Blocks with a DAA score below 6 pay the fund; later ones do not
+    for _ in 0..9 {
+        mine_tip(&mut ledger, &pow, &miner);
+    }
+    let genesis = ledger.genesis_hash;
+    let scores: Vec<u64> = ledger.blocks.iter().filter(|(h, _)| **h != genesis).map(|(_, header)| header.daa_score).collect();
+    assert_eq!(scores.len(), 9);
+    let during = scores.iter().filter(|s| **s < 6).count() as u64;
+    assert!(during > 0 && during < 9, "the period ends partway: {} of 9", during);
+    assert_eq!(balance(&ledger, &fund), during * share);
+    assert_eq!(balance(&ledger, &miner), during * (subsidy - share) + (9 - during) * subsidy);
+    assert_supply_total_is_exact(&ledger);
+    // The fund's share comes out of the subsidy, never on top of it: the supply is exactly the
+    // subsidies of the blue blocks (genesis, which pays none, included)
+    assert_eq!(ledger.storage.total_utxo_atoms().unwrap(), expected_supply(&ledger));
+}
+
+/// The fund's address on the test network must be one only its owner can spend from, not the
+/// public test wallet used while it was built.
+#[test]
+fn the_maintenance_address_is_not_the_public_test_wallet() {
+    assert_ne!(
+        crate::state::TESTNET_MAINTENANCE_ADDRESS,
+        "imntest:q82y64ecnpqkkqsan49u6qg83tqxlmauapy5vz2q0amghk9xklqqx2p8h0q",
+        "replace the temporary maintenance address with the owner's"
+    );
+    let params = ConsensusParams::testnet();
+    let fund = params.maintenance.as_ref().unwrap();
+    assert_eq!(fund.end_daa_score, 18_921_600);
+    assert_eq!(fund.percent, 5);
+    // A quantum-safe address on the test network
+    let address = Address::decode(crate::state::TESTNET_MAINTENANCE_ADDRESS).unwrap();
+    assert_eq!(address.network, Network::Testnet);
+    assert_eq!(address.address_type, AddressType::PostQuantumHash);
+}

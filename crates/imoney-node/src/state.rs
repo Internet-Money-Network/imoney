@@ -119,9 +119,44 @@ pub struct ConsensusParams {
     pub name: &'static str,
     /// Which address prefix the network uses.
     pub network: Network,
+    /// The share of each block's subsidy paid to the network's maintenance fund, for a limited
+    /// time; `None` on networks without one.
+    pub maintenance: Option<MaintenanceFund>,
 }
 
+/// A share of the block subsidy paid, by the ledger itself, to one fixed address for a fixed
+/// number of blocks: what keeps the network's servers and development running in its first
+/// years. A miner may claim only the rest of the subsidy; transaction fees stay the miner's.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MaintenanceFund {
+    /// Where the share goes.
+    pub script: ScriptPublicKey,
+    /// The share, in percent of the subsidy.
+    pub percent: u64,
+    /// Blocks with a DAA score below this pay it; none after.
+    pub end_daa_score: u64,
+}
+
+/// The maintenance fund runs for the first three years of blocks: 3 * 365 days of 5-second
+/// blocks, 18,921,600.
+pub const MAINTENANCE_BLOCKS: u64 = 3 * BLOCKS_PER_YEAR;
+/// The maintenance fund's share of the subsidy, in percent.
+pub const MAINTENANCE_PERCENT: u64 = 5;
+
 impl ConsensusParams {
+    /// The atoms of the subsidy of a block at `daa_score` that go to the maintenance fund.
+    pub fn maintenance_share(&self, daa_score: u64) -> u64 {
+        match &self.maintenance {
+            Some(fund) if daa_score < fund.end_daa_score => block_subsidy_atoms(daa_score) * fund.percent / 100,
+            _ => 0,
+        }
+    }
+
+    /// The most a block's coinbase may claim: the subsidy less the maintenance share.
+    pub fn miner_subsidy(&self, daa_score: u64) -> u64 {
+        block_subsidy_atoms(daa_score) - self.maintenance_share(daa_score)
+    }
+
     /// The public test network.
     pub fn testnet() -> Self {
         Self {
@@ -136,8 +171,15 @@ impl ConsensusParams {
             // 12 hours of 5-second blocks
             finality_depth: 8_640,
             genesis: create_testnet_genesis(),
-            name: "testnet-5",
+            name: "testnet-6",
             network: Network::Testnet,
+            maintenance: Some(MaintenanceFund {
+                script: ScriptPublicKey::pay_to_address(
+                    &Address::decode(TESTNET_MAINTENANCE_ADDRESS).expect("the maintenance address is valid"),
+                ),
+                percent: MAINTENANCE_PERCENT,
+                end_daa_score: MAINTENANCE_BLOCKS,
+            }),
         }
     }
 
@@ -147,6 +189,8 @@ impl ConsensusParams {
             daa: DaaParams::new(crate::genesis::DEVNET_GENESIS_BITS),
             genesis: create_devnet_genesis(),
             name: "devnet",
+            // Private networks have no fund unless a test sets one
+            maintenance: None,
             ..Self::testnet()
         }
     }
@@ -272,6 +316,15 @@ pub struct InvoicePayment {
 
 /// One page of blocks for a syncing peer, and the position to continue from if more remain.
 pub type BlockPage = (Vec<Block>, Option<(u64, Hash)>);
+
+/// The test network's maintenance fund address.
+/// It is the owner's quantum-safe address (type 1: Ed25519 and SQIsign).
+pub const TESTNET_MAINTENANCE_ADDRESS: &str = "imntest:q8ljh5n7rn3tuf6wvc5sm506wspl4ufg4ht6m5uhtqme4fnnp666y9dap92";
+
+/// The outpoint of the maintenance share the ledger creates for a blue block: beside its reward.
+pub fn maintenance_outpoint(block_hash: &Hash) -> Outpoint {
+    Outpoint { index: 1, ..reward_outpoint(block_hash) }
+}
 
 /// The outpoint of the reward the ledger creates for a blue block.
 pub fn reward_outpoint(block_hash: &Hash) -> Outpoint {
@@ -906,6 +959,30 @@ impl DagLedger {
                     view.create(outpoint.clone(), entry.clone());
                     created.push((outpoint, entry));
                 }
+                // The maintenance fund's share of this blue block's subsidy. Only beside a reward:
+                // genesis pays none, and neither does its share
+                let share = self.params.maintenance_share(block.header.daa_score);
+                let pays_a_reward = !block.transactions[0].outputs.is_empty();
+                if let (Some(fund), true) = (&self.params.maintenance, share > 0 && pays_a_reward) {
+                    let outpoint = maintenance_outpoint(&block_hash);
+                    let entry = UtxoEntry {
+                        output: TxOutput { value_atoms: share, script_public_key: fund.script.clone(), token: None },
+                        blue_score,
+                        is_coinbase: true,
+                    };
+                    let item = HistoryItem {
+                        script: fund.script.clone(),
+                        id: outpoint.transaction_id,
+                        received_atoms: share,
+                        sent_atoms: 0,
+                        is_reward: true,
+                        timestamp_ms: block.header.timestamp_ms,
+                    };
+                    view.batch.put_history(blue_score, &item);
+                    acceptance.history.push(item);
+                    view.create(outpoint.clone(), entry.clone());
+                    created.push((outpoint, entry));
+                }
             }
         }
 
@@ -1213,7 +1290,9 @@ impl DagLedger {
         if coinbase.issue.is_some() || coinbase.outputs.iter().any(|o| o.token.is_some()) {
             return Err(StateError::Coinbase("a block reward cannot create tokens".to_string()));
         }
-        let subsidy = block_subsidy_atoms(header.daa_score);
+        // The miner's part of the subsidy: during the maintenance period, the subsidy less the
+        // fund's share, which the ledger pays itself
+        let subsidy = self.params.miner_subsidy(header.daa_score);
         if coinbase.outputs.iter().any(|o| o.value_atoms > subsidy) {
             return Err(StateError::Coinbase(format!("pays more than the {}-atom subsidy", subsidy)));
         }
@@ -1485,7 +1564,7 @@ impl DagLedger {
 
         let address = payout.ok_or_else(|| StateError::Coinbase("no payout address".to_string()))?;
         let coinbase_outputs = vec![TxOutput {
-            value_atoms: block_subsidy_atoms(daa_score),
+            value_atoms: self.params.miner_subsidy(daa_score),
             script_public_key: ScriptPublicKey::pay_to_address(address),
             token: None,
         }];

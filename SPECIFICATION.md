@@ -67,7 +67,10 @@ Any dataset item can be computed from the light cache alone, so a node verifies 
 * **Launch Block Subsidy:** $5.00000000\text{ IMN}$ per block ($500\text{M}$ atoms).
 * **Era Duration:** $25,228,800$ blocks (4 × 365 days).
 
-### 4.2 Mathematical Model
+### 4.2 Maintenance Fund
+For the first 18,921,600 blocks (DAA scores below that: three years of 5-second blocks), 5% of each blue block's subsidy, rounded down to the atom, is paid by the ledger itself to the network's maintenance address, fixed in the consensus rules: a second reward output beside the miner's, at index 1 of the block's reward outpoint, maturing like any block reward. During that period a block's coinbase may claim at most the subsidy less that share; transaction fees remain wholly the miner's. After it, the miner may claim the whole subsidy. The share comes out of the subsidy, so the emission schedule and total supply are unchanged: about 4.73 million IMN over the period, 2% of the supply at year 16. Genesis pays neither a reward nor a share.
+
+### 4.3 Mathematical Model
 For a block with cumulative DAA score $s$, the era index $E$ is:
 $$E = \left\lfloor \frac{s}{25\,228\,800} \right\rfloor$$
 
@@ -77,7 +80,7 @@ $$R(s) = \begin{cases}
 31\,250\,000 & \text{for } E \ge 4 \text{ (Permanent Floor)}
 \end{cases}$$
 
-### 4.3 Supply Metrics Table
+### 4.4 Supply Metrics Table
 | Era | Years | Blocks | Reward / Block | Total Mined in Era | Cumulative Supply |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **0** | 0 – 4 | 0 – 25,228,799 | 5.00000000 IMN | 126,144,000 IMN | 126,144,000 IMN |
