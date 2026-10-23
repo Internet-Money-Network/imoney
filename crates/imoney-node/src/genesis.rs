@@ -13,11 +13,16 @@ pub const TESTNET_GENESIS_BITS: u32 = 0x1e100000;
 /// Private test networks (`--devnet`) and unit tests: every other hash is a block.
 pub const DEVNET_GENESIS_BITS: u32 = 0x207fffff;
 
-/// The genesis block of the public test network (testnet-4: the difficulty rule's
-/// effective-time window and the pen-test fixes of October 2026).
+/// The genesis block of the public test network (testnet-5: quantum-safe addresses, Ed25519
+/// with SQIsign). A new genesis so no node from before quantum-safe spends can join it: such a
+/// node would skip those spends and its ledger would part from the network's.
 pub fn create_testnet_genesis() -> Block {
-    // 2026-10-22 00:00:00 UTC
-    genesis(1_792_627_200_000, TESTNET_GENESIS_BITS, b"Internet Money testnet-4: 5-second blockDAG, Hallmark PoW, fair launch")
+    // 2026-10-23 00:00:00 UTC
+    genesis(
+        1_792_713_600_000,
+        TESTNET_GENESIS_BITS,
+        b"Internet Money testnet-5: quantum-safe addresses (Ed25519 + SQIsign), 5-second blockDAG, Hallmark PoW, fair launch",
+    )
 }
 
 /// The genesis block shared by private test networks, which are told apart by their

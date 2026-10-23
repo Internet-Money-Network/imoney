@@ -31,14 +31,6 @@ pub struct MempoolEntry {
     pub size: usize,
 }
 
-impl MempoolEntry {
-    /// True when this entry pays a higher fee per byte than `other`.
-    /// Compared by cross-multiplication so no precision is lost.
-    fn pays_more_than(&self, other: &MempoolEntry) -> bool {
-        (self.fee as u128) * (other.size as u128) > (other.fee as u128) * (self.size as u128)
-    }
-}
-
 /// A pending transaction's place in the fee ranking: lowest fee per byte first, then by ID.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Rank {
@@ -182,25 +174,43 @@ impl Mempool {
 
     /// Evicts the cheapest transactions until `incoming` fits, but only ones that pay less than it.
     fn make_room_for(&mut self, incoming: &MempoolEntry) -> Result<(), MempoolError> {
+        for id in self.eviction_plan(incoming.size, incoming.fee)? {
+            self.remove(&id);
+        }
+        Ok(())
+    }
+
+    /// The transactions that would have to go for one of `size` bytes paying `fee` to fit, or
+    /// `Full` if it cannot. Changes nothing.
+    fn eviction_plan(&self, size: usize, fee: u64) -> Result<Vec<Hash>, MempoolError> {
         let mut freed = 0usize;
         let mut victims = Vec::new();
         for rank in &self.ranked {
-            if self.total_bytes - freed + incoming.size <= self.max_bytes {
+            if self.total_bytes - freed + size <= self.max_bytes {
                 break;
             }
-            if !incoming.pays_more_than(&self.entries[&rank.id]) {
+            // Pays more per byte than this one, compared without dividing
+            if (fee as u128) * (rank.size as u128) <= (rank.fee as u128) * (size as u128) {
                 return Err(MempoolError::Full);
             }
             freed += rank.size;
             victims.push(rank.id);
         }
-        if self.total_bytes - freed + incoming.size > self.max_bytes {
+        if self.total_bytes - freed + size > self.max_bytes {
             return Err(MempoolError::Full);
         }
-        for id in victims {
-            self.remove(&id);
+        Ok(victims)
+    }
+
+    /// Whether a transaction of `size` bytes paying `fee` would be admitted as far as room goes,
+    /// without admitting it. The ledger asks before checking signatures, so a full pool turns away
+    /// a transaction that would not get in for free instead of after the costly checks. Between
+    /// this answer and the insert the pool can only fill further, which only ever refuses more.
+    pub fn has_room_for(&self, size: usize, fee: u64) -> Result<(), MempoolError> {
+        if self.total_bytes + size <= self.max_bytes {
+            return Ok(());
         }
-        Ok(())
+        self.eviction_plan(size, fee).map(|_| ())
     }
 
     pub fn remove(&mut self, tx_id: &Hash) -> Option<Transaction> {
@@ -353,6 +363,20 @@ mod tests {
         // The evicted transaction's outpoint is spendable again
         assert!(pool.insert(tx(1, 0), 9_000).is_ok());
         assert!(!pool.contains(&better));
+    }
+
+    /// Round 4, R4-2: the room probe gives the answer an insert would, and changes nothing.
+    #[test]
+    fn the_room_probe_agrees_with_inserting_and_changes_nothing() {
+        let size = size_of(&tx(1, 0));
+        let mut pool = Mempool::new(2 * size).with_min_fee_rate(1);
+        pool.insert(tx(1, 0), 1_000).unwrap();
+        pool.insert(tx(2, 0), 5_000).unwrap();
+        assert_eq!(pool.has_room_for(size, 500), Err(MempoolError::Full));
+        assert_eq!(pool.has_room_for(size, 3_000), Ok(()));
+        assert_eq!(pool.len(), 2, "probing evicts nothing");
+        assert_eq!(pool.insert(tx(3, 0), 500), Err(MempoolError::Full));
+        assert!(pool.insert(tx(4, 0), 3_000).is_ok());
     }
 
     #[test]

@@ -1,6 +1,6 @@
 [package]
 name = "imoney-desktop"
-version = "0.1.7"
+version = "0.1.8"
 edition = "2021"
 description = "Internet Money for the desktop: the wallet in its own window, with a node built in"
 license = "MIT OR Apache-2.0"

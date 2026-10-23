@@ -2090,3 +2090,39 @@ fn a_block_of_quantum_safe_payments_is_checked_in_parallel_with_the_same_outcome
     assert_supply_total_is_exact(&ledger);
     println!("block with {} quantum-safe payments added in {:?}", COUNT, took);
 }
+
+/// Round 4, R4-2: when the pool has no room for a transaction, it is turned away before any
+/// signature is checked. A quantum-safe spend with a forged SQIsign signature, sent to a full
+/// pool, is refused as "full", not as a bad signature: the costly check never ran.
+#[test]
+fn a_full_pool_turns_transactions_away_before_checking_signatures() {
+    use imoney_core::quantum::QuantumSafeKey;
+    let funder = key(178);
+    let (mut ledger, pow) = funded_ledger("quantum-full-pool", &funder);
+    let miner = address_of(&key(179));
+    let safe_key = QuantumSafeKey::from_seed(&[45u8; 32]);
+    let safe = safe_key.address(Network::Testnet);
+
+    let coins = ledger.get_spendable_utxos(&address_of(&funder)).unwrap();
+    let fund = Transaction::build_payment(&funder, Network::Testnet, &safe, 5_000_000, 1_000, coins, None).unwrap();
+    let coin = Outpoint { transaction_id: fund.id(), index: 0 };
+    ledger.broadcast_transaction(fund).unwrap();
+    mine_tip(&mut ledger, &pow, &miner);
+
+    let mut forged = Transaction {
+        version: 1,
+        inputs: vec![TxInput { previous_outpoint: coin, signature_script: Vec::new() }],
+        outputs: vec![TxOutput::new(4_000_000, ScriptPublicKey::pay_to_address(&miner))],
+        payload: Vec::new(),
+        service: None,
+        issue: None,
+    };
+    forged.sign_input_quantum_safe(Network::Testnet, 0, &safe_key).unwrap();
+    let last = forged.inputs[0].signature_script.len() - 3;
+    forged.inputs[0].signature_script[last] ^= 1;
+
+    // A pool with no room at all
+    ledger.mempool = crate::mempool::Mempool::new(10).with_min_fee_rate(1);
+    let err = ledger.broadcast_transaction(forged).unwrap_err().to_string();
+    assert!(err.contains("full") && !err.contains(BAD_SIGNATURE), "{}", err);
+}

@@ -47,6 +47,12 @@ pub const NETWORK_ALERT_WINDOW_MS: u64 = 30 * 60 * 1000;
 /// A selected-chain switch that undoes at least this many blocks is recorded as a warning sign.
 pub const REORG_ALARM_DEPTH: usize = 3;
 
+/// Quantum-safe inputs one client (an IP address, or an IPv6 /64) may have checked per
+/// second, and the burst allowed, over HTTP and over P2P separately. About a fifth of a CPU
+/// core of SQIsign checks; an honest wallet sends a few now and then.
+pub const QUANTUM_SAFE_INPUTS_PER_SECOND: f64 = 50.0;
+pub const QUANTUM_SAFE_INPUT_BURST: f64 = 100.0;
+
 /// Most quantum-safe inputs in one relayed transaction. Each costs a SQIsign verification
 /// (about 4 ms); this keeps one transaction's checks well under a tenth of a second. Relay
 /// policy only: a block may carry more.
@@ -130,7 +136,7 @@ impl ConsensusParams {
             // 12 hours of 5-second blocks
             finality_depth: 8_640,
             genesis: create_testnet_genesis(),
-            name: "testnet-4",
+            name: "testnet-5",
             network: Network::Testnet,
         }
     }
@@ -1392,6 +1398,21 @@ impl DagLedger {
     }
 
     /// Validates and admits a signed transaction into the mempool.
+    /// How many of `tx`'s inputs spend quantum-safe coins this node knows of. A few database
+    /// reads and no signature checks, so it can be asked before deciding whether to check them.
+    pub fn quantum_safe_inputs(&self, tx: &Transaction) -> usize {
+        tx.inputs
+            .iter()
+            .filter(|input| {
+                self.storage
+                    .get_utxo(&input.previous_outpoint)
+                    .ok()
+                    .flatten()
+                    .is_some_and(|coin| coin.output.script_public_key.version == SCRIPT_VERSION_QUANTUM_SAFE)
+            })
+            .count()
+    }
+
     pub fn broadcast_transaction(&mut self, tx: Transaction) -> Result<Hash, StateError> {
         let tx_id = tx.id();
         if self.mempool.contains(&tx_id) {
@@ -1425,7 +1446,11 @@ impl DagLedger {
             .iter()
             .try_fold(0u64, |sum, o| sum.checked_add(o.value_atoms))
             .ok_or_else(|| StateError::Transaction("Output total overflows".to_string()))?;
-        self.mempool.check_policy(&tx, inputs_value.saturating_sub(outputs_value))?;
+        let fee = inputs_value.saturating_sub(outputs_value);
+        self.mempool.check_policy(&tx, fee)?;
+        // And whether it would find room, before any signature is checked: a full pool must not
+        // be a way to make the node verify transactions it then turns away
+        self.mempool.has_room_for(tx.to_bytes().len(), fee)?;
         let fee = self.check_spend(
             &tx,
             |outpoint| self.storage.get_utxo(outpoint),

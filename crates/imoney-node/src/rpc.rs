@@ -29,6 +29,9 @@ pub struct AppState {
     /// Broadcasts stay open to any website (checkout pages need them) but each one takes the
     /// ledger's write lock, so each client's rate is capped well above real use.
     pub broadcast_limit: RateLimit,
+    /// Quantum-safe inputs each client may have checked per second: each costs a SQIsign
+    /// verification (about 4 ms) under the ledger lock. See `QUANTUM_SAFE_INPUTS_PER_SECOND`.
+    pub quantum_budget: RateLimit,
     /// Open address WebSockets, each holding a task and a ledger subscription.
     pub sockets_open: std::sync::atomic::AtomicUsize,
     /// Open address WebSockets per client, so one client cannot take every slot.
@@ -50,6 +53,9 @@ const MAX_SOCKETS_PER_CLIENT: usize = 16;
 pub struct RateLimit {
     rate: f64,
     burst: f64,
+    /// Requests from this machine are not counted. Off for limits a web page in the operator's
+    /// browser, which also connects from here, must not get around.
+    exempt_loopback: bool,
     buckets: std::sync::Mutex<std::collections::HashMap<std::net::IpAddr, (f64, std::time::Instant)>>,
 }
 
@@ -86,12 +92,22 @@ fn client_key(ip: std::net::IpAddr) -> std::net::IpAddr {
 
 impl RateLimit {
     pub fn new(rate: f64, burst: f64) -> Self {
-        RateLimit { rate, burst, buckets: std::sync::Mutex::new(std::collections::HashMap::new()) }
+        RateLimit { rate, burst, exempt_loopback: true, buckets: std::sync::Mutex::new(std::collections::HashMap::new()) }
+    }
+
+    /// A limit that counts this machine too.
+    pub fn strict(rate: f64, burst: f64) -> Self {
+        RateLimit { exempt_loopback: false, ..Self::new(rate, burst) }
     }
 
     /// Takes one request from `ip`'s bucket; false when it is empty.
     pub fn allow(&self, ip: std::net::IpAddr) -> bool {
-        if ip.is_loopback() {
+        self.allow_n(ip, 1)
+    }
+
+    /// Takes `n` from `ip`'s bucket at once; false, taking nothing, when it holds fewer.
+    pub fn allow_n(&self, ip: std::net::IpAddr, n: usize) -> bool {
+        if self.exempt_loopback && ip.is_loopback() {
             return true;
         }
         let ip = client_key(ip);
@@ -110,10 +126,10 @@ impl RateLimit {
         let (tokens, at) = buckets.entry(ip).or_insert((self.burst, now));
         *tokens = (*tokens + now.duration_since(*at).as_secs_f64() * self.rate).min(self.burst);
         *at = now;
-        if *tokens < 1.0 {
+        if *tokens < n as f64 {
             return false;
         }
-        *tokens -= 1.0;
+        *tokens -= n as f64;
         true
     }
 }
@@ -476,6 +492,7 @@ pub fn create_router(
         template_limit: RateLimit::new(20.0, 100.0),
         submit_limit: RateLimit::new(50.0, 200.0),
         broadcast_limit: RateLimit::new(20.0, 100.0),
+        quantum_budget: RateLimit::strict(crate::state::QUANTUM_SAFE_INPUTS_PER_SECOND, crate::state::QUANTUM_SAFE_INPUT_BURST),
         sockets_open: std::sync::atomic::AtomicUsize::new(0),
         sockets_per_client: std::sync::Mutex::new(std::collections::HashMap::new()),
         allowed_origins,
@@ -1113,8 +1130,22 @@ async fn invoice_handler(
 
 async fn broadcast_handler(
     State(state): State<Arc<AppState>>,
+    axum::extract::ConnectInfo(client): axum::extract::ConnectInfo<std::net::SocketAddr>,
     Json(payload): Json<BroadcastTxRequest>,
 ) -> (StatusCode, Json<BroadcastTxResponse>) {
+    // Quantum-safe inputs are costly to check: each client gets a budget of them, taken before
+    // any is checked, so garbage signatures cannot keep the node busy
+    let quantum_inputs = state.ledger.read().await.quantum_safe_inputs(&payload.transaction);
+    if quantum_inputs > 0 && !state.quantum_budget.allow_n(client.ip(), quantum_inputs) {
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(BroadcastTxResponse {
+                success: false,
+                tx_id: None,
+                error: Some("Too many quantum-safe payments from this address just now; try again in a few seconds".to_string()),
+            }),
+        );
+    }
     let mut ledger = state.ledger.write().await;
     match ledger.broadcast_transaction(payload.transaction.clone()) {
         Ok(tx_id) => {
@@ -1378,6 +1409,20 @@ mod tests {
         for bad in ["rebind.example:18556", "evil.example", "localhost.evil.example:18556"] {
             assert!(!host_names_this_machine(bad), "{}", bad);
         }
+    }
+
+    /// Round 4, R4-2: the quantum-safe budget is taken several at a time, counts this machine
+    /// too, and refuses without taking anything when too little is left.
+    #[test]
+    fn the_quantum_budget_is_strict_and_takes_several_at_once() {
+        let local: IpAddr = "127.0.0.1".parse().unwrap();
+        let budget = RateLimit::strict(0.0, 20.0);
+        assert!(budget.allow_n(local, 16));
+        assert!(!budget.allow_n(local, 16), "only 4 left");
+        assert!(budget.allow_n(local, 4));
+        assert!(!budget.allow_n(local, 1));
+        // The ordinary limits still let this machine through
+        assert!(RateLimit::new(0.0, 0.0).allow(local));
     }
 
     /// Addresses within one IPv6 /64 share a bucket.

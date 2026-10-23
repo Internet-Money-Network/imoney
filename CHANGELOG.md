@@ -6,6 +6,12 @@ Notable changes to Internet Money. Nothing has been released yet: everything bel
 ## Unreleased
 
 ### Added
+- **The public test network was restarted as testnet-5**, with quantum-safe addresses: type 1
+  locks coins to an Ed25519 key and a SQIsign key, and spending needs both signatures. A new
+  genesis (2026-10-23) keeps out nodes from before quantum-safe spends, which would skip them and
+  part from the network (round-4 finding R4-1). Wallets use the quantum-safe address as their
+  main one; checking SQIsign signatures is budgeted per client (R4-2). Delete the data directory
+  except `miner-key.hex` before upgrading. See `deploy/TESTNET-5-RESET.md`.
 - **The public test network was restarted as testnet-4**, because the difficulty rule now
   takes a block's time as the latest stamp among it and the ten selected-chain blocks before
   it (a miner backdating its blocks could otherwise slow the chain), and with the pen-test
