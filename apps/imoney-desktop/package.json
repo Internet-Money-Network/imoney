@@ -1,7 +1,7 @@
 {
   "name": "imoney-desktop",
   "private": true,
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Internet Money for the desktop: the wallet in its own window, with a node built in",
   "scripts": {
     "tauri": "tauri",

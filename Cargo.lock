@@ -880,7 +880,7 @@ dependencies = [
 
 [[package]]
 name = "imoney-consensus"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "imoney-core",
  "imoney-emission",
@@ -892,7 +892,7 @@ dependencies = [
 
 [[package]]
 name = "imoney-cookbook"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "ed25519-dalek",
  "hex",
@@ -905,7 +905,7 @@ dependencies = [
 
 [[package]]
 name = "imoney-core"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "bech32",
  "blake3",
@@ -923,7 +923,7 @@ dependencies = [
 
 [[package]]
 name = "imoney-emission"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "imoney-core",
  "serde",
@@ -932,7 +932,7 @@ dependencies = [
 
 [[package]]
 name = "imoney-gpu-miner"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "clap",
  "hex",
@@ -947,7 +947,7 @@ dependencies = [
 
 [[package]]
 name = "imoney-loadtest"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "blake3",
  "clap",
@@ -961,7 +961,7 @@ dependencies = [
 
 [[package]]
 name = "imoney-miner"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "chrono",
  "clap",
@@ -977,7 +977,7 @@ dependencies = [
 
 [[package]]
 name = "imoney-node"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "axum",
  "blake3",
@@ -1001,7 +1001,7 @@ dependencies = [
 
 [[package]]
 name = "imoney-pow"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "blake3",
  "byteorder",
@@ -1016,7 +1016,7 @@ dependencies = [
 
 [[package]]
 name = "imoney-stratum"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "clap",
  "ed25519-dalek",
@@ -1031,7 +1031,7 @@ dependencies = [
 
 [[package]]
 name = "imoney-wasm"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "bip39",
  "blake3",
