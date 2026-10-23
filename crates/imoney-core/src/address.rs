@@ -101,14 +101,13 @@ impl Address {
     /// This is Bech32 with a `:` in place of the `1` separator.
     pub fn encode(&self) -> Result<String, AddressError> {
         let hrp = Hrp::parse(self.network.hrp_str()).map_err(|e| AddressError::Encode(e.to_string()))?;
-        
+
         let mut data = Vec::with_capacity(33);
         data.push(self.address_type as u8);
         data.extend_from_slice(self.hash.as_bytes());
 
-        let encoded = bech32::encode::<Bech32>(hrp, &data)
-            .map_err(|e| AddressError::Encode(e.to_string()))?;
-        
+        let encoded = bech32::encode::<Bech32>(hrp, &data).map_err(|e| AddressError::Encode(e.to_string()))?;
+
         // Replace the Bech32 `1` separator with a colon: "imn1qz..." -> "imn:qz..."
         let prefix = self.network.hrp_str();
         match encoded.strip_prefix(prefix).and_then(|rest| rest.strip_prefix('1')) {
@@ -120,13 +119,10 @@ impl Address {
     /// Decodes a human-readable Bech32 string back into an Address struct.
     pub fn decode(s: &str) -> Result<Self, AddressError> {
         // Restore the Bech32 separator (e.g. "imn:qz..." -> "imn1qz...")
-        let (prefix, payload) = s
-            .split_once(':')
-            .ok_or_else(|| AddressError::Decode("missing ':' after network prefix".to_string()))?;
+        let (prefix, payload) = s.split_once(':').ok_or_else(|| AddressError::Decode("missing ':' after network prefix".to_string()))?;
         let normalized = format!("{}1{}", prefix, payload);
 
-        let (hrp, data) = bech32::decode(&normalized)
-            .map_err(|e| AddressError::Decode(e.to_string()))?;
+        let (hrp, data) = bech32::decode(&normalized).map_err(|e| AddressError::Decode(e.to_string()))?;
 
         // Upper case is allowed (QR codes use it); mixed case is refused by the Bech32 decoder
         let network = match hrp.as_str().to_ascii_lowercase().as_str() {
@@ -139,8 +135,7 @@ impl Address {
             return Err(AddressError::InvalidLength(data.len()));
         }
 
-        let address_type = AddressType::from_u8(data[0])
-            .ok_or_else(|| AddressError::Decode("Unknown address type byte".to_string()))?;
+        let address_type = AddressType::from_u8(data[0]).ok_or_else(|| AddressError::Decode("Unknown address type byte".to_string()))?;
 
         let mut hash_bytes = [0u8; 32];
         hash_bytes.copy_from_slice(&data[1..33]);

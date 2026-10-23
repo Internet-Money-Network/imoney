@@ -7,6 +7,9 @@ pub use imoney_core::constants::MIN_RELAY_FEE_PER_BYTE;
 
 /// Default cap on the total size of pending transactions, in bytes.
 pub const DEFAULT_MAX_MEMPOOL_BYTES: usize = 50_000_000;
+/// An output worth less than this many bytes of fee is dust: about what spending it would
+/// cost, so it would never be worth spending. 100,000 atoms at the default fee rate.
+pub const DUST_BYTES: u64 = 100;
 
 #[derive(Error, Debug, PartialEq, Eq)]
 pub enum MempoolError {
@@ -16,6 +19,8 @@ pub enum MempoolError {
     Conflict(Hash),
     #[error("Mempool is full and this transaction pays less per byte than everything in it")]
     Full,
+    #[error("An output of {0} atoms is below the {1}-atom minimum: it would cost more to spend than it is worth")]
+    Dust(u64, u64),
 }
 
 /// A pending transaction with the figures used to rank it.
@@ -119,17 +124,32 @@ impl Mempool {
 
     /// Admits a transaction that has already been checked against the UTXO set.
     /// When the pool is full, the lowest-paying transactions are evicted to make room.
+    /// The relay rules that need only the transaction and its fee: the minimum fee for its
+    /// size, and no dust. Cheap, so it runs before any signature is checked.
+    pub fn check_policy(&self, tx: &Transaction, fee: u64) -> Result<(), MempoolError> {
+        let size = tx.to_bytes().len();
+        let min_fee = size as u64 * self.min_fee_per_byte;
+        if fee < min_fee {
+            return Err(MempoolError::FeeTooLow(fee, min_fee, size));
+        }
+        // An output worth less than it would cost to spend only grows every node's coin set.
+        // A token output carries its value in the token, so its IMN may be zero.
+        let dust = self.min_fee_per_byte.saturating_mul(DUST_BYTES);
+        let burned = |o: &&imoney_core::TxOutput| o.script_public_key == imoney_core::ScriptPublicKey::burn();
+        if let Some(small) = tx.outputs.iter().find(|o| o.token.is_none() && !burned(o) && o.value_atoms < dust) {
+            return Err(MempoolError::Dust(small.value_atoms, dust));
+        }
+        Ok(())
+    }
+
     pub fn insert(&mut self, tx: Transaction, fee: u64) -> Result<Hash, MempoolError> {
         let tx_id = tx.id();
         if self.entries.contains_key(&tx_id) {
             return Ok(tx_id);
         }
 
+        self.check_policy(&tx, fee)?;
         let size = tx.to_bytes().len();
-        let min_fee = size as u64 * self.min_fee_per_byte;
-        if fee < min_fee {
-            return Err(MempoolError::FeeTooLow(fee, min_fee, size));
-        }
         self.check_conflicts(&tx)?;
 
         let entry = MempoolEntry { tx, fee, size };
@@ -212,21 +232,12 @@ impl Mempool {
 
     /// Pending transactions that name `invoice_id`.
     pub fn by_invoice(&self, invoice_id: &str) -> impl Iterator<Item = &Transaction> {
-        self.invoices
-            .get(invoice_id)
-            .into_iter()
-            .flatten()
-            .filter_map(|tx_id| self.entries.get(tx_id).map(|entry| &entry.tx))
+        self.invoices.get(invoice_id).into_iter().flatten().filter_map(|tx_id| self.entries.get(tx_id).map(|entry| &entry.tx))
     }
 
     /// Keeps only the transactions for which `still_valid` returns true.
     pub fn retain(&mut self, mut still_valid: impl FnMut(&Transaction) -> bool) {
-        let stale: Vec<Hash> = self
-            .entries
-            .iter()
-            .filter(|(_, entry)| !still_valid(&entry.tx))
-            .map(|(id, _)| *id)
-            .collect();
+        let stale: Vec<Hash> = self.entries.iter().filter(|(_, entry)| !still_valid(&entry.tx)).map(|(id, _)| *id).collect();
         for id in stale {
             self.remove(&id);
         }
@@ -264,7 +275,7 @@ mod tests {
                 signature_script: vec![0u8; 96],
             }],
             outputs: vec![TxOutput {
-                value_atoms: 1,
+                value_atoms: 1_000_000,
                 script_public_key: ScriptPublicKey { version: 0, script: vec![spends; 32] },
                 token: None,
             }],
@@ -374,5 +385,20 @@ mod tests {
         pool.retain(|t| t.id() == keep);
         assert!(pool.contains(&keep) && !pool.contains(&drop));
         assert!(pool.insert(tx(2, 3), 1_000).is_ok());
+    }
+
+    /// Round 3, M3: an output worth less than spending it would cost is refused; a burn and a
+    /// token output, whose IMN may be zero, are not.
+    #[test]
+    fn dust_outputs_are_refused() {
+        let pool = Mempool::default().with_min_fee_rate(1);
+        let mut dusty = tx(1, 0);
+        dusty.outputs[0].value_atoms = DUST_BYTES - 1;
+        assert_eq!(pool.check_policy(&dusty, 1_000_000), Err(MempoolError::Dust(DUST_BYTES - 1, DUST_BYTES)));
+        dusty.outputs[0].value_atoms = DUST_BYTES;
+        assert!(pool.check_policy(&dusty, 1_000_000).is_ok());
+        let mut burn = tx(2, 0);
+        burn.outputs[0] = TxOutput { value_atoms: 0, script_public_key: ScriptPublicKey::burn(), token: None };
+        assert!(pool.check_policy(&burn, 1_000_000).is_ok());
     }
 }

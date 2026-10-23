@@ -165,11 +165,20 @@ impl Transaction {
         }
 
         let mut spent_amounts: BTreeMap<Hash, u64> = BTreeMap::new();
+        // Authorities spent, counted: an authority moves or is given up, but is never copied
+        let mut spent_authorities: BTreeMap<Hash, u64> = BTreeMap::new();
+        // Tokens whose holder may mint here: an authority spent from an address its owner signs
+        // for. One held by a contract (vault, escrow, offer, ...) may only be passed on as the
+        // contract allows; whoever the contract lets spend it gains no right to mint.
         let mut authorities: BTreeSet<Hash> = BTreeSet::new();
         for output in spent {
             if let Some(token) = &output.token {
                 if token.mint_authority {
-                    authorities.insert(token.id);
+                    *spent_authorities.entry(token.id).or_default() += 1;
+                    let version = output.script_public_key.version;
+                    if version == crate::transaction::SCRIPT_VERSION_PUBKEY_HASH || version == crate::multisig::SCRIPT_VERSION_MULTISIG {
+                        authorities.insert(token.id);
+                    }
                 } else {
                     let total = spent_amounts.entry(token.id).or_default();
                     *total = total.checked_add(token.amount).ok_or_else(|| invalid("token input total overflows"))?;
@@ -178,15 +187,19 @@ impl Transaction {
         }
 
         let mut created_amounts: BTreeMap<Hash, u64> = BTreeMap::new();
+        let mut created_authorities: BTreeMap<Hash, u64> = BTreeMap::new();
         for output in &self.outputs {
             let Some(token) = &output.token else { continue };
-            let may_mint = new_id == Some(token.id) || authorities.contains(&token.id);
             if token.mint_authority {
                 if token.amount != 0 {
                     return Err(invalid("a mint authority carries no amount"));
                 }
-                if !may_mint {
-                    return Err(invalid("a mint authority can only come from issuing or from another mint authority"));
+                let created = created_authorities.entry(token.id).or_default();
+                *created += 1;
+                // Issuing creates one authority; otherwise no more leave than came in
+                let allowed = spent_authorities.get(&token.id).copied().unwrap_or(0) + u64::from(new_id == Some(token.id));
+                if *created > allowed {
+                    return Err(invalid("a mint authority can only come from issuing or from another mint authority, one for one"));
                 }
             } else {
                 if token.amount == 0 {
@@ -243,7 +256,7 @@ impl Transaction {
         if mintable {
             outputs.push(TxOutput::mint_authority(id, script.clone()));
         }
-        if change > 0 {
+        if change >= crate::constants::MIN_OUTPUT_ATOMS {
             outputs.push(TxOutput::new(change, script));
         }
         sign_all(Transaction { version: 1, inputs, outputs, payload: Vec::new(), service: None, issue: Some(info) }, network, key)
@@ -288,11 +301,8 @@ impl Transaction {
         let script = ScriptPublicKey::pay_to_address(&me);
 
         // The token coins first, smallest first, until the amount is covered
-        let mut token_coins: Vec<(Outpoint, TxOutput)> = coins
-            .iter()
-            .filter(|(_, o)| o.token.as_ref().is_some_and(|t| t.id == id && !t.mint_authority))
-            .cloned()
-            .collect();
+        let mut token_coins: Vec<(Outpoint, TxOutput)> =
+            coins.iter().filter(|(_, o)| o.token.as_ref().is_some_and(|t| t.id == id && !t.mint_authority)).cloned().collect();
         token_coins.sort_by_key(|(_, o)| o.token.as_ref().map_or(0, |t| t.amount));
         let mut gathered: u64 = 0;
         let mut inputs = Vec::new();
@@ -322,7 +332,7 @@ impl Transaction {
         if gathered > amount {
             outputs.push(TxOutput::token(id, gathered - amount, script.clone()));
         }
-        if imn_change > 0 {
+        if imn_change >= crate::constants::MIN_OUTPUT_ATOMS {
             outputs.push(TxOutput::new(imn_change, script));
         }
         let payload = invoice_payload(invoice_id)?;
@@ -360,7 +370,7 @@ impl Transaction {
         if !give_up_authority {
             outputs.push(TxOutput::mint_authority(id, script.clone()));
         }
-        if change > 0 {
+        if change >= crate::constants::MIN_OUTPUT_ATOMS {
             outputs.push(TxOutput::new(change, script));
         }
         if outputs.is_empty() {
@@ -469,12 +479,15 @@ mod tests {
     #[test]
     fn transfers_conserve_every_token_exactly() {
         let coins = [coin(1, 1, 100_000), coin(1, 2, 100_000)];
-        let issue = Transaction::build_token_issue(&key(1), Network::Testnet, info(), 1_000, false, 10_000, vec![coins[0].clone()]).unwrap();
+        let issue =
+            Transaction::build_token_issue(&key(1), Network::Testnet, info(), 1_000, false, 10_000, vec![coins[0].clone()]).unwrap();
         let id = issue.issued_token().unwrap();
         let mut wallet = outputs_of(&issue);
         wallet.push(coins[1].clone());
 
-        let send = Transaction::build_token_transfer(&key(1), Network::Testnet, &address(2), id, 300, 10_000, wallet.clone(), Some("order-7")).unwrap();
+        let send =
+            Transaction::build_token_transfer(&key(1), Network::Testnet, &address(2), id, 300, 10_000, wallet.clone(), Some("order-7"))
+                .unwrap();
         assert!(send.check_tokens(&spent(&send, &wallet)).is_ok());
         assert_eq!(send.outputs[0].token.as_ref().unwrap().amount, 300);
         assert_eq!(send.outputs[1].token.as_ref().unwrap().amount, 700);
@@ -524,11 +537,13 @@ mod tests {
     #[test]
     fn tokens_are_destroyed_only_by_sending_them_to_the_burn_script() {
         let coins = [coin(1, 1, 100_000), coin(1, 2, 100_000)];
-        let issue = Transaction::build_token_issue(&key(1), Network::Testnet, info(), 1_000, false, 10_000, vec![coins[0].clone()]).unwrap();
+        let issue =
+            Transaction::build_token_issue(&key(1), Network::Testnet, info(), 1_000, false, 10_000, vec![coins[0].clone()]).unwrap();
         let id = issue.issued_token().unwrap();
         let mut wallet = outputs_of(&issue);
         wallet.push(coins[1].clone());
-        let mut burn = Transaction::build_token_transfer(&key(1), Network::Testnet, &address(2), id, 1_000, 10_000, wallet.clone(), None).unwrap();
+        let mut burn =
+            Transaction::build_token_transfer(&key(1), Network::Testnet, &address(2), id, 1_000, 10_000, wallet.clone(), None).unwrap();
         burn.outputs[0].script_public_key = ScriptPublicKey::burn();
         assert!(burn.check_tokens(&spent(&burn, &wallet)).is_ok());
         assert_eq!(burn.outputs[0].script_public_key.version, SCRIPT_VERSION_BURN);
@@ -549,6 +564,74 @@ mod tests {
         assert!(empty.check_tokens(&spent(&empty, &coins)).is_err());
         // Plain payments never pick coins that carry tokens
         let wallet = outputs_of(&issue);
-        assert!(Transaction::build_payment(&key(1), Network::Testnet, &address(2), 1, 1, wallet.into_iter().filter(|(_, o)| o.token.is_some()).collect(), None).is_err());
+        assert!(Transaction::build_payment(
+            &key(1),
+            Network::Testnet,
+            &address(2),
+            1,
+            1,
+            wallet.into_iter().filter(|(_, o)| o.token.is_some()).collect(),
+            None
+        )
+        .is_err());
+    }
+
+    /// A transaction moving the given spent outputs to `outputs`; the rules here need no signatures.
+    fn moving(inputs: usize, outputs: Vec<TxOutput>) -> Transaction {
+        Transaction {
+            version: 1,
+            inputs: (0..inputs)
+                .map(|n| crate::TxInput {
+                    previous_outpoint: Outpoint { transaction_id: Hash([n as u8; 32]), index: 0 },
+                    signature_script: Vec::new(),
+                })
+                .collect(),
+            outputs,
+            payload: Vec::new(),
+            service: None,
+            issue: None,
+        }
+    }
+
+    /// GHSA-4q7g-xvf3-9f32: one authority must not become several.
+    #[test]
+    fn a_mint_authority_cannot_be_copied() {
+        let id = Hash([42u8; 32]);
+        let mine = ScriptPublicKey::pay_to_address(&address(1));
+        let authority = TxOutput::mint_authority(id, mine.clone());
+        let one = moving(1, vec![TxOutput::mint_authority(id, mine.clone())]);
+        assert!(one.check_tokens(&[&authority]).is_ok());
+        let five = moving(1, (0..5).map(|_| TxOutput::mint_authority(id, mine.clone())).collect());
+        assert!(five.check_tokens(&[&authority]).is_err());
+        // Two in, two out is fine
+        let two = moving(2, vec![TxOutput::mint_authority(id, mine.clone()), TxOutput::mint_authority(id, mine.clone())]);
+        assert!(two.check_tokens(&[&authority, &authority]).is_ok());
+    }
+
+    /// The holder of an authority in their own address may still mint, keeping the authority.
+    #[test]
+    fn an_owned_authority_still_mints() {
+        let id = Hash([42u8; 32]);
+        let mine = ScriptPublicKey::pay_to_address(&address(1));
+        let authority = TxOutput::mint_authority(id, mine.clone());
+        let mint = moving(1, vec![TxOutput::mint_authority(id, mine.clone()), TxOutput::token(id, 1_000_000, mine)]);
+        assert!(mint.check_tokens(&[&authority]).is_ok());
+    }
+
+    /// An authority held by a contract can be passed on, but whoever the contract lets spend it
+    /// may not mint with it or copy it.
+    #[test]
+    fn an_authority_in_a_contract_grants_no_minting() {
+        let id = Hash([42u8; 32]);
+        let mine = ScriptPublicKey::pay_to_address(&address(1));
+        for version in [crate::vault::SCRIPT_VERSION_VAULT_PENDING, crate::escrow::SCRIPT_VERSION_ESCROW] {
+            let held = TxOutput::mint_authority(id, ScriptPublicKey { version, script: vec![7u8; 32] });
+            let pass_on = moving(1, vec![TxOutput::mint_authority(id, mine.clone())]);
+            assert!(pass_on.check_tokens(&[&held]).is_ok());
+            let mint = moving(1, vec![TxOutput::mint_authority(id, mine.clone()), TxOutput::token(id, 1_000, mine.clone())]);
+            assert!(mint.check_tokens(&[&held]).is_err());
+            let copy = moving(1, vec![TxOutput::mint_authority(id, mine.clone()), TxOutput::mint_authority(id, mine.clone())]);
+            assert!(copy.check_tokens(&[&held]).is_err());
+        }
     }
 }

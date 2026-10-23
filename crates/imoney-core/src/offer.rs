@@ -113,7 +113,13 @@ impl OfferTerms {
             return Err(invalid("offer terms are 114 bytes"));
         }
         let number = |from: usize| u64::from_be_bytes(bytes[from..from + 8].try_into().expect("8 bytes"));
-        Self::new(bytes[..32].try_into().expect("32 bytes"), read_asset(&bytes[32..65])?, read_asset(&bytes[65..98])?, number(98), number(106))
+        Self::new(
+            bytes[..32].try_into().expect("32 bytes"),
+            read_asset(&bytes[32..65])?,
+            read_asset(&bytes[65..98])?,
+            number(98),
+            number(106),
+        )
     }
 
     /// The locking script of an offer with these terms.
@@ -337,7 +343,13 @@ impl Transaction {
         };
         let carried = TxOutput { value_atoms: back.value_atoms, ..coin.clone() };
         let fee_from_others = if covers_fee { 0 } else { fee_atoms };
-        let tx = fund(vec![back], vec![(TxInput { previous_outpoint: offer_outpoint, signature_script: Vec::new() }, carried)], &me, fee_from_others, others)?;
+        let tx = fund(
+            vec![back],
+            vec![(TxInput { previous_outpoint: offer_outpoint, signature_script: Vec::new() }, carried)],
+            &me,
+            fee_from_others,
+            others,
+        )?;
         let mut tx = sign_own(tx, network, key, &[0])?;
         let signature = key.sign(tx.sig_hash(network, 0).as_bytes());
         tx.inputs[0].signature_script = [vec![CANCEL], signature.to_bytes().to_vec()].concat();
@@ -418,7 +430,7 @@ pub(crate) fn fund(
         return Err(format!("Not enough IMN: need {} atoms including the fee", imn_out));
     }
     outputs.extend(change);
-    if imn_in > imn_out {
+    if imn_in - imn_out >= crate::constants::MIN_OUTPUT_ATOMS {
         outputs.push(TxOutput::new(imn_in - imn_out, change_script));
     }
     Ok(Transaction { version: 1, inputs, outputs, payload: Vec::new(), service: None, issue: None })
@@ -559,10 +571,30 @@ mod tests {
     #[test]
     fn one_payment_cannot_settle_two_offers() {
         let maker_coins = vec![bean_coin(1, 1, 500), bean_coin(1, 2, 500), imn_coin(1, 3, 100_000), imn_coin(1, 4, 100_000)];
-        let first =
-            Transaction::build_offer(&key(1), NET, Some(BEAN), 500, None, 1_000, 1, 10_000, vec![maker_coins[0].clone(), maker_coins[2].clone()]).unwrap();
-        let second =
-            Transaction::build_offer(&key(1), NET, Some(BEAN), 500, None, 1_000, 1, 10_000, vec![maker_coins[1].clone(), maker_coins[3].clone()]).unwrap();
+        let first = Transaction::build_offer(
+            &key(1),
+            NET,
+            Some(BEAN),
+            500,
+            None,
+            1_000,
+            1,
+            10_000,
+            vec![maker_coins[0].clone(), maker_coins[2].clone()],
+        )
+        .unwrap();
+        let second = Transaction::build_offer(
+            &key(1),
+            NET,
+            Some(BEAN),
+            500,
+            None,
+            1_000,
+            1,
+            10_000,
+            vec![maker_coins[1].clone(), maker_coins[3].clone()],
+        )
+        .unwrap();
         let mut known = maker_coins;
         known.extend([first_output(&first), first_output(&second), imn_coin(2, 9, 5_000_000)]);
         // Take the first properly, then add the second offer naming the same payment output

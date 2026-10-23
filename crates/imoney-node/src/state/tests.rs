@@ -1,6 +1,6 @@
 use super::*;
-use imoney_core::constants::BLOCKS_PER_HALVING_ERA;
 use ed25519_dalek::SigningKey;
+use imoney_core::constants::BLOCKS_PER_HALVING_ERA;
 use imoney_core::{AddressType, TxInput};
 use imoney_pow::{PowMode, PowParams};
 use std::path::PathBuf;
@@ -91,6 +91,9 @@ fn balance(ledger: &DagLedger, address: &Address) -> u64 {
 /// The running supply total must always equal an actual count of every coin.
 fn assert_supply_total_is_exact(ledger: &DagLedger) {
     assert_eq!(ledger.storage.total_utxo_atoms().unwrap(), ledger.storage.scan_utxo_atoms().unwrap());
+    // Every address's running holdings (IMN and tokens) match a count of its coins
+    let (stored, recount) = ledger.storage.holdings_and_recount().unwrap();
+    assert_eq!(stored, recount, "running holdings drifted from the coins");
 }
 
 /// An address's whole history, newest first.
@@ -101,10 +104,7 @@ fn history(ledger: &DagLedger, address: &Address) -> Vec<HistoryRow> {
 /// Everything an address's history says it received, less what it says it sent, must be
 /// exactly the address's balance.
 fn assert_history_adds_up(ledger: &DagLedger, address: &Address) {
-    let net: i128 = history(ledger, address)
-        .iter()
-        .map(|row| row.received_atoms as i128 - row.sent_atoms as i128)
-        .sum();
+    let net: i128 = history(ledger, address).iter().map(|row| row.received_atoms as i128 - row.sent_atoms as i128).sum();
     assert_eq!(net, balance(ledger, address) as i128, "history does not add up to the balance");
 }
 
@@ -291,8 +291,7 @@ fn two_nodes_reach_the_same_ledger_from_the_same_blocks() {
     mine_tip(&mut node_a, &pow, &address_of(&miner));
 
     // Node B has its own payout address and an empty mempool, and sees only the blocks
-    let mut node_b =
-        DagLedger::open_with_params(fresh_db("node-b"), Some(address_of(&key(15))), test_params()).unwrap();
+    let mut node_b = DagLedger::open_with_params(fresh_db("node-b"), Some(address_of(&key(15))), test_params()).unwrap();
     let mut blocks: Vec<&BlockHeader> = node_a.blocks.values().filter(|h| !h.parents.is_empty()).collect();
     blocks.sort_by_key(|h| h.daa_score);
     for header in blocks {
@@ -349,10 +348,7 @@ fn conflicting_parallel_blocks_resolve_the_same_way_in_any_arrival_order() {
     assert_eq!(node_x.virtual_ghostdag.mergeset_blues.len(), 2);
     for node in [&node_x, &node_y] {
         assert_eq!(node.storage.total_utxo_atoms().unwrap(), expected_supply(node));
-        let accepted = [&to_alice, &to_bob]
-            .iter()
-            .filter(|tx| node.get_transaction(&tx.id()).unwrap().is_some())
-            .count();
+        let accepted = [&to_alice, &to_bob].iter().filter(|tx| node.get_transaction(&tx.id()).unwrap().is_some()).count();
         assert_eq!(accepted, 1);
     }
 }
@@ -396,11 +392,8 @@ fn heavier_side_chain_replaces_the_selected_chain_and_its_payments() {
 
     // A node that only ever saw the winning branch first ends in the identical state
     let mut fresh = open("reorg-fresh");
-    let mut prefix: Vec<&BlockHeader> = node
-        .blocks
-        .values()
-        .filter(|h| !h.parents.is_empty() && ![hash_a, hash_b1, hash_b2].contains(&h.hash()))
-        .collect();
+    let mut prefix: Vec<&BlockHeader> =
+        node.blocks.values().filter(|h| !h.parents.is_empty() && ![hash_a, hash_b1, hash_b2].contains(&h.hash())).collect();
     prefix.sort_by_key(|h| h.daa_score);
     for header in prefix {
         fresh.add_block(node.storage.get_block(&header.hash()).unwrap().unwrap(), &pow).unwrap();
@@ -705,8 +698,7 @@ fn fee_is_split_between_the_miner_and_the_named_service_address() {
     let (mut ledger, pow) = funded_ledger("fee-split", &payer);
 
     let utxos = ledger.get_spendable_utxos(&address_of(&payer)).unwrap();
-    let payment =
-        Transaction::build_payment(&payer, Network::Testnet, &alice, 20_000, 1_001, utxos, Some(&node_operator)).unwrap();
+    let payment = Transaction::build_payment(&payer, Network::Testnet, &alice, 20_000, 1_001, utxos, Some(&node_operator)).unwrap();
     let service_outpoint = payment.service_outpoint();
     ledger.broadcast_transaction(payment).unwrap();
     let carrying_block = mine_tip(&mut ledger, &pow, &block_miner);
@@ -1099,18 +1091,39 @@ fn compression_ratio() {
         let payer = SigningKey::from_bytes(&imoney_core::serialize::tagged_hash("k", &[&i.to_be_bytes()]).0);
         let coin = (
             Outpoint { transaction_id: imoney_core::serialize::tagged_hash("c", &[&i.to_be_bytes()]), index: 0 },
-            TxOutput { value_atoms: 5_000_000_000 + i as u64 * 977, script_public_key: ScriptPublicKey::pay_to_address(&address_of(&payer)), token: None },
+            TxOutput {
+                value_atoms: 5_000_000_000 + i as u64 * 977,
+                script_public_key: ScriptPublicKey::pay_to_address(&address_of(&payer)),
+                token: None,
+            },
         );
         // Half of the payments go to the same shop with an invoice, half between strangers
-        let (to, invoice) = if i % 2 == 0 { (shop.clone(), Some(format!("wc-{}-ab12cd34ef", i))) } else { (address_of(&key((i % 200) as u8 + 2)), None) };
+        let (to, invoice) =
+            if i % 2 == 0 { (shop.clone(), Some(format!("wc-{}-ab12cd34ef", i))) } else { (address_of(&key((i % 200) as u8 + 2)), None) };
         transactions.push(
-            Transaction::build_invoice_payment(&payer, Network::Testnet, &to, 123_456_789 + i as u64, 2_800, vec![coin], None, invoice.as_deref()).unwrap(),
+            Transaction::build_invoice_payment(
+                &payer,
+                Network::Testnet,
+                &to,
+                123_456_789 + i as u64,
+                2_800,
+                vec![coin],
+                None,
+                invoice.as_deref(),
+            )
+            .unwrap(),
         );
     }
     let bytes = Block { header: create_testnet_genesis().header, transactions }.to_bytes();
     for level in [1, 3, 9, 19] {
         let packed = zstd::bulk::compress(&bytes, level).unwrap();
-        println!("level {:>2}: {} -> {} bytes ({:.1}% saved)", level, bytes.len(), packed.len(), 100.0 * (1.0 - packed.len() as f64 / bytes.len() as f64));
+        println!(
+            "level {:>2}: {} -> {} bytes ({:.1}% saved)",
+            level,
+            bytes.len(),
+            packed.len(),
+            100.0 * (1.0 - packed.len() as f64 / bytes.len() as f64)
+        );
     }
 }
 
@@ -1324,7 +1337,8 @@ fn hash_locked_coins_are_claimed_with_the_secret_or_refunded_after_the_deadline(
     let secret = [0x5a; 32];
     let lock = |ledger: &mut DagLedger, refund_after: u64| {
         let script =
-            HashLockScript::new(bob.verifying_key().to_bytes(), alice.verifying_key().to_bytes(), secret_hash(&secret), refund_after).unwrap();
+            HashLockScript::new(bob.verifying_key().to_bytes(), alice.verifying_key().to_bytes(), secret_hash(&secret), refund_after)
+                .unwrap();
         let address = script.address(Network::Testnet);
         let coins = ledger.get_spendable_utxos(&address_of(&alice)).unwrap();
         let funding = Transaction::build_payment(&alice, Network::Testnet, &address, 400_000, 1_000, coins, None).unwrap();
@@ -1336,8 +1350,16 @@ fn hash_locked_coins_are_claimed_with_the_secret_or_refunded_after_the_deadline(
     let (script, address, outpoint) = lock(&mut ledger, 1_000_000);
     mine_tip(&mut ledger, &pow, &miner);
     assert_eq!(balance(&ledger, &address), 400_000);
-    let claim =
-        Transaction::spend_hashlock(&script, Network::Testnet, (outpoint.clone(), TxOutput::new(400_000, ScriptPublicKey::pay_to_address(&address))), &address_of(&bob), 1_000, &bob, Some(secret)).unwrap();
+    let claim = Transaction::spend_hashlock(
+        &script,
+        Network::Testnet,
+        (outpoint.clone(), TxOutput::new(400_000, ScriptPublicKey::pay_to_address(&address))),
+        &address_of(&bob),
+        1_000,
+        &bob,
+        Some(secret),
+    )
+    .unwrap();
     let claim_id = ledger.broadcast_transaction(claim).unwrap();
     mine_tip(&mut ledger, &pow, &miner);
     assert_eq!(balance(&ledger, &address_of(&bob)), 399_000);
@@ -1347,15 +1369,32 @@ fn hash_locked_coins_are_claimed_with_the_secret_or_refunded_after_the_deadline(
     assert_eq!(seen.revealed_secret(0), Some(secret));
     assert_eq!(seen.input_address(Network::Testnet, 0), Some(address.clone()));
     // The coin is gone: Alice cannot also take a refund
-    let late = Transaction::spend_hashlock(&script, Network::Testnet, (outpoint, TxOutput::new(400_000, ScriptPublicKey::pay_to_address(&address))), &address_of(&alice), 1_000, &alice, None).unwrap();
+    let late = Transaction::spend_hashlock(
+        &script,
+        Network::Testnet,
+        (outpoint, TxOutput::new(400_000, ScriptPublicKey::pay_to_address(&address))),
+        &address_of(&alice),
+        1_000,
+        &alice,
+        None,
+    )
+    .unwrap();
     assert!(ledger.broadcast_transaction(late).is_err());
 
     // A second lock that Bob never claims: Alice gets it back, but not before the deadline
     let deadline = ledger.virtual_blue_score + 6;
     let (script, address, outpoint) = lock(&mut ledger, deadline);
     mine_tip(&mut ledger, &pow, &miner);
-    let refund =
-        Transaction::spend_hashlock(&script, Network::Testnet, (outpoint.clone(), TxOutput::new(400_000, ScriptPublicKey::pay_to_address(&address))), &address_of(&alice), 1_000, &alice, None).unwrap();
+    let refund = Transaction::spend_hashlock(
+        &script,
+        Network::Testnet,
+        (outpoint.clone(), TxOutput::new(400_000, ScriptPublicKey::pay_to_address(&address))),
+        &address_of(&alice),
+        1_000,
+        &alice,
+        None,
+    )
+    .unwrap();
     assert!(ledger.broadcast_transaction(refund.clone()).is_err());
 
     // A miner who puts the early refund in a block anyway gains nothing: it is skipped
@@ -1400,7 +1439,8 @@ fn tokens_are_issued_transferred_minted_and_conserved_by_the_ledger() {
 
     // Pay the shop 300 for an order; the shop's IMN balance is untouched
     let coins = ledger.get_utxos(&address_of(&issuer)).unwrap();
-    let pay = Transaction::build_token_transfer(&issuer, Network::Testnet, &address_of(&shop), id, 300, 10_000, coins, Some("order-9")).unwrap();
+    let pay =
+        Transaction::build_token_transfer(&issuer, Network::Testnet, &address_of(&shop), id, 300, 10_000, coins, Some("order-9")).unwrap();
     ledger.broadcast_transaction(pay).unwrap();
     mine_tip(&mut ledger, &pow, &miner);
     assert_eq!(tokens_of(&ledger, &address_of(&shop), id), 300);
@@ -1463,24 +1503,35 @@ fn tokens_trade_for_imn_through_hash_locks_with_no_one_in_between() {
     let token_lock = HashLockScript::new(bob.verifying_key().to_bytes(), alice.verifying_key().to_bytes(), hash, deadline + 500).unwrap();
     let coins = ledger.get_utxos(&address_of(&alice)).unwrap();
     let lock_tokens = Transaction::build_token_transfer_with_atoms(
-        &alice, Network::Testnet, &token_lock.address(Network::Testnet), id, 20_000, 10_000, 10_000, coins, None,
+        &alice,
+        Network::Testnet,
+        &token_lock.address(Network::Testnet),
+        id,
+        20_000,
+        10_000,
+        10_000,
+        coins,
+        None,
     )
     .unwrap();
     let token_coin = (Outpoint { transaction_id: lock_tokens.id(), index: 0 }, lock_tokens.outputs[0].clone());
     // Bob locks 1.5 IMN for Alice under the same hash, with the earlier deadline
     let imn_lock = HashLockScript::new(alice.verifying_key().to_bytes(), bob.verifying_key().to_bytes(), hash, deadline).unwrap();
     let coins = ledger.get_spendable_utxos(&address_of(&bob)).unwrap();
-    let lock_imn = Transaction::build_payment(&bob, Network::Testnet, &imn_lock.address(Network::Testnet), 1_500_000, 1_000, coins, None).unwrap();
+    let lock_imn =
+        Transaction::build_payment(&bob, Network::Testnet, &imn_lock.address(Network::Testnet), 1_500_000, 1_000, coins, None).unwrap();
     let imn_coin = (Outpoint { transaction_id: lock_imn.id(), index: 0 }, lock_imn.outputs[0].clone());
     ledger.broadcast_transaction(lock_tokens).unwrap();
     ledger.broadcast_transaction(lock_imn).unwrap();
     mine_tip(&mut ledger, &pow, &miner);
 
     // Alice claims the IMN, revealing the secret; Bob uses it to claim the tokens
-    let claim_imn = Transaction::spend_hashlock(&imn_lock, Network::Testnet, imn_coin, &address_of(&alice), 1_000, &alice, Some(secret)).unwrap();
+    let claim_imn =
+        Transaction::spend_hashlock(&imn_lock, Network::Testnet, imn_coin, &address_of(&alice), 1_000, &alice, Some(secret)).unwrap();
     let revealed = claim_imn.revealed_secret(0).unwrap();
     ledger.broadcast_transaction(claim_imn).unwrap();
-    let claim_tokens = Transaction::spend_hashlock(&token_lock, Network::Testnet, token_coin, &address_of(&bob), 10_000, &bob, Some(revealed)).unwrap();
+    let claim_tokens =
+        Transaction::spend_hashlock(&token_lock, Network::Testnet, token_coin, &address_of(&bob), 10_000, &bob, Some(revealed)).unwrap();
     ledger.broadcast_transaction(claim_tokens).unwrap();
     mine_tip(&mut ledger, &pow, &miner);
 
@@ -1509,7 +1560,8 @@ fn escrow_pays_only_where_each_party_may_send_it() {
         )
         .unwrap();
         let coins = ledger.get_spendable_utxos(&address_of(&buyer)).unwrap();
-        let fund = Transaction::build_payment(&buyer, Network::Testnet, &script.address(Network::Testnet), 600_000, 1_000, coins, None).unwrap();
+        let fund =
+            Transaction::build_payment(&buyer, Network::Testnet, &script.address(Network::Testnet), 600_000, 1_000, coins, None).unwrap();
         let coin = (Outpoint { transaction_id: fund.id(), index: 0 }, fund.outputs[0].clone());
         ledger.broadcast_transaction(fund).unwrap();
         (script, coin)
@@ -1593,8 +1645,24 @@ fn offers_are_listed_taken_in_parts_and_cancelled_on_the_chain() {
     assert_eq!(OfferTerms::of(&book[0].1.output).unwrap().give, Some(bean));
 
     // The taker buys 200; a rival trying to take the same offer at the same time loses the race
-    let take = Transaction::take_offer(&taker, Network::Testnet, offer_coin.clone(), 200, 10_000, ledger.get_spendable_utxos(&address_of(&taker)).unwrap()).unwrap();
-    let race = Transaction::take_offer(&rival, Network::Testnet, offer_coin, 100, 10_000, ledger.get_spendable_utxos(&address_of(&rival)).unwrap()).unwrap();
+    let take = Transaction::take_offer(
+        &taker,
+        Network::Testnet,
+        offer_coin.clone(),
+        200,
+        10_000,
+        ledger.get_spendable_utxos(&address_of(&taker)).unwrap(),
+    )
+    .unwrap();
+    let race = Transaction::take_offer(
+        &rival,
+        Network::Testnet,
+        offer_coin,
+        100,
+        10_000,
+        ledger.get_spendable_utxos(&address_of(&rival)).unwrap(),
+    )
+    .unwrap();
     let rest_coin = (Outpoint { transaction_id: take.id(), index: 1 }, take.outputs[1].clone());
     ledger.broadcast_transaction(take).unwrap();
     assert!(ledger.broadcast_transaction(race).is_err());
@@ -1606,7 +1674,9 @@ fn offers_are_listed_taken_in_parts_and_cancelled_on_the_chain() {
     let book = ledger.storage.get_offers().unwrap();
     assert_eq!(book.len(), 1);
     assert_eq!(book[0].1.output.token.as_ref().unwrap().amount, 400);
-    let take_rest = Transaction::take_offer(&rival, Network::Testnet, rest_coin, 400, 10_000, ledger.get_spendable_utxos(&address_of(&rival)).unwrap()).unwrap();
+    let take_rest =
+        Transaction::take_offer(&rival, Network::Testnet, rest_coin, 400, 10_000, ledger.get_spendable_utxos(&address_of(&rival)).unwrap())
+            .unwrap();
     ledger.broadcast_transaction(take_rest).unwrap();
     mine_tip(&mut ledger, &pow, &miner);
     assert_eq!(tokens_of(&ledger, &address_of(&rival), bean), 400);
@@ -1620,7 +1690,9 @@ fn offers_are_listed_taken_in_parts_and_cancelled_on_the_chain() {
     ledger.broadcast_transaction(offer).unwrap();
     mine_tip(&mut ledger, &pow, &miner);
     assert_eq!(tokens_of(&ledger, &address_of(&maker), bean), 0);
-    let cancel = Transaction::cancel_offer(&maker, Network::Testnet, offer_coin, 10_000, ledger.get_spendable_utxos(&address_of(&maker)).unwrap()).unwrap();
+    let cancel =
+        Transaction::cancel_offer(&maker, Network::Testnet, offer_coin, 10_000, ledger.get_spendable_utxos(&address_of(&maker)).unwrap())
+            .unwrap();
     ledger.broadcast_transaction(cancel).unwrap();
     mine_tip(&mut ledger, &pow, &miner);
     assert_eq!(tokens_of(&ledger, &address_of(&maker), bean), 400);
@@ -1636,9 +1708,12 @@ fn a_subscription_pays_the_merchant_once_per_period_until_cancelled() {
     let (mut ledger, pow) = funded_ledger("subscription", &customer);
     let miner = address_of(&key(36));
     let due = ledger.virtual_blue_score + 3;
-    let script = SubscriptionScript::new(customer.verifying_key().to_bytes(), merchant.verifying_key().to_bytes(), 1_000_000, 4, due, [1u8; 32]).unwrap();
+    let script =
+        SubscriptionScript::new(customer.verifying_key().to_bytes(), merchant.verifying_key().to_bytes(), 1_000_000, 4, due, [1u8; 32])
+            .unwrap();
     let coins = ledger.get_spendable_utxos(&address_of(&customer)).unwrap();
-    let fund = Transaction::build_payment(&customer, Network::Testnet, &script.address(Network::Testnet), 3_500_000, 1_000, coins, None).unwrap();
+    let fund =
+        Transaction::build_payment(&customer, Network::Testnet, &script.address(Network::Testnet), 3_500_000, 1_000, coins, None).unwrap();
     let coin = (Outpoint { transaction_id: fund.id(), index: 0 }, fund.outputs[0].clone());
     ledger.broadcast_transaction(fund).unwrap();
     mine_tip(&mut ledger, &pow, &miner);
@@ -1681,7 +1756,8 @@ fn a_vault_withdrawal_waits_and_a_stolen_key_is_stopped_by_the_backup() {
     let miner = address_of(&key(40));
     let vault = VaultScript::new(everyday.verifying_key().to_bytes(), backup.verifying_key().to_bytes(), 6).unwrap();
     let coins = ledger.get_spendable_utxos(&address_of(&everyday)).unwrap();
-    let fund = Transaction::build_payment(&everyday, Network::Testnet, &vault.address(Network::Testnet), 3_000_000, 1_000, coins, None).unwrap();
+    let fund =
+        Transaction::build_payment(&everyday, Network::Testnet, &vault.address(Network::Testnet), 3_000_000, 1_000, coins, None).unwrap();
     let coin = (Outpoint { transaction_id: fund.id(), index: 0 }, fund.outputs[0].clone());
     ledger.broadcast_transaction(fund).unwrap();
     mine_tip(&mut ledger, &pow, &miner);
@@ -1696,7 +1772,8 @@ fn a_vault_withdrawal_waits_and_a_stolen_key_is_stopped_by_the_backup() {
     let complete = Transaction::complete_vault_withdrawal(&pending, pending_coin.clone(), 1_000).unwrap();
     assert!(ledger.broadcast_transaction(complete).is_err());
     // The owner sees it and pulls the money back with the backup key
-    let stop = Transaction::recover_vault(&vault, Some(&pending), Network::Testnet, pending_coin, &backup, &address_of(&backup), 1_000).unwrap();
+    let stop =
+        Transaction::recover_vault(&vault, Some(&pending), Network::Testnet, pending_coin, &backup, &address_of(&backup), 1_000).unwrap();
     ledger.broadcast_transaction(stop).unwrap();
     mine_tip(&mut ledger, &pow, &miner);
     assert_eq!(balance(&ledger, &thief), 0);
@@ -1704,7 +1781,8 @@ fn a_vault_withdrawal_waits_and_a_stolen_key_is_stopped_by_the_backup() {
 
     // A genuine withdrawal completes after the wait
     let coins = ledger.get_spendable_utxos(&address_of(&everyday)).unwrap();
-    let fund = Transaction::build_payment(&everyday, Network::Testnet, &vault.address(Network::Testnet), 2_000_000, 1_000, coins, None).unwrap();
+    let fund =
+        Transaction::build_payment(&everyday, Network::Testnet, &vault.address(Network::Testnet), 2_000_000, 1_000, coins, None).unwrap();
     let coin = (Outpoint { transaction_id: fund.id(), index: 0 }, fund.outputs[0].clone());
     ledger.broadcast_transaction(fund).unwrap();
     mine_tip(&mut ledger, &pow, &miner);
@@ -1720,4 +1798,150 @@ fn a_vault_withdrawal_waits_and_a_stolen_key_is_stopped_by_the_backup() {
     mine_tip(&mut ledger, &pow, &miner);
     assert_eq!(balance(&ledger, &shop), 1_998_000);
     assert_supply_total_is_exact(&ledger);
+}
+
+/// GHSA-7p7c-5846-822f: a subscription address holds at most one unspent coin, so no two coins
+/// of one subscription can come due together. A second payment is refused by the mempool, both
+/// while the first is pending and once it is in a block, and skipped when a block carries it.
+#[test]
+fn a_subscription_address_holds_only_one_coin() {
+    use imoney_core::SubscriptionScript;
+    let customer = key(37);
+    let merchant = key(38);
+    let (mut ledger, pow) = funded_ledger("subscription-one-coin", &customer);
+    let miner = address_of(&key(39));
+    let due = ledger.virtual_blue_score + 50;
+    let script =
+        SubscriptionScript::new(customer.verifying_key().to_bytes(), merchant.verifying_key().to_bytes(), 1_000_000, 4, due, [2u8; 32])
+            .unwrap();
+    let to = script.address(Network::Testnet);
+    // Two coins to pay from: split one by paying ourselves
+    let me = address_of(&customer);
+    let coins = ledger.get_spendable_utxos(&me).unwrap();
+    let split = Transaction::build_payment(&customer, Network::Testnet, &me, 10_000_000, 1_000, coins, None).unwrap();
+    ledger.broadcast_transaction(split).unwrap();
+    mine_tip(&mut ledger, &pow, &miner);
+    let coins = ledger.get_spendable_utxos(&me).unwrap();
+    let (first_coin, second_coin) = (vec![coins[0].clone()], vec![coins[1].clone()]);
+    let first = Transaction::build_payment(&customer, Network::Testnet, &to, 3_000_000, 1_000, first_coin, None).unwrap();
+    let second = Transaction::build_payment(&customer, Network::Testnet, &to, 3_000_000, 1_000, second_coin, None).unwrap();
+
+    // Two outputs to it in one transaction
+    let mut doubled = first.clone();
+    doubled.outputs.push(doubled.outputs[0].clone());
+    doubled.outputs[0].value_atoms -= 1_000_000;
+    doubled.outputs[2].value_atoms = 1_000_000;
+    assert!(ledger.broadcast_transaction(doubled).is_err());
+
+    // A second payment while the first is pending, then once it is in a block
+    ledger.broadcast_transaction(first).unwrap();
+    assert!(ledger.broadcast_transaction(second.clone()).is_err());
+    mine_tip(&mut ledger, &pow, &miner);
+    assert_eq!(balance(&ledger, &to), 3_000_000);
+    assert!(ledger.broadcast_transaction(second.clone()).is_err());
+
+    // A block that carries it anyway: the ledger skips it
+    let tips: Vec<Hash> = ledger.tips.iter().copied().collect();
+    let block = mine_on(&ledger, &pow, &tips, &miner, vec![second]);
+    ledger.add_block(block, &pow).unwrap();
+    assert_eq!(balance(&ledger, &to), 3_000_000);
+    assert_supply_total_is_exact(&ledger);
+}
+
+/// N-5: a balance is read from running holdings, which must agree with the coins themselves
+/// however many there are, and be rebuilt for a database from before they existed.
+#[test]
+fn balances_come_from_running_holdings_that_match_the_coins() {
+    let owner = key(41);
+    let (mut ledger, pow) = funded_ledger("holdings", &owner);
+    let me = address_of(&owner);
+    let dust = address_of(&key(42));
+    // Many small coins to one address
+    for _ in 0..5 {
+        let coins = ledger.get_spendable_utxos(&me).unwrap();
+        let tx = Transaction::build_payment(&owner, Network::Testnet, &dust, 1_000, 1_000, coins, None).unwrap();
+        ledger.broadcast_transaction(tx).unwrap();
+        mine_tip(&mut ledger, &pow, &me);
+    }
+    let summed: u64 = ledger.get_utxos(&dust).unwrap().iter().map(|(_, o)| o.value_atoms).sum();
+    assert_eq!(summed, 5_000);
+    assert_eq!(balance(&ledger, &dust), summed);
+    assert_supply_total_is_exact(&ledger);
+
+    // An older database: holdings rebuilt on opening
+    let path = std::env::temp_dir().join("imoney-test-holdings.redb");
+    ledger.storage.forget_holdings().unwrap();
+    drop(ledger);
+    let reopened = DagLedger::open_with_params(path, None, test_params()).unwrap();
+    assert_eq!(balance(&reopened, &dust), 5_000);
+    assert_supply_total_is_exact(&reopened);
+}
+
+/// Round 3, H1: after a reorganisation only the pending transactions it could have affected
+/// are checked again. One whose coin the reorganisation removed goes; one it left untouched
+/// stays.
+#[test]
+fn a_reorganisation_keeps_untouched_pending_payments_and_drops_undone_ones() {
+    let mut params = test_params();
+    params.finality_depth = 50;
+    let mut ledger = DagLedger::open_with_params(fresh_db("reorg-mempool"), None, params).unwrap();
+    ledger.mempool = test_mempool();
+    let pow = test_pow();
+    let (old_miner, losing_miner, winning_miner) = (key(150), key(151), key(152));
+    let shop = address_of(&key(153));
+
+    let genesis = ledger.genesis_hash;
+    let base = extend(&mut ledger, &pow, genesis, 4, &address_of(&old_miner));
+    let base = extend(&mut ledger, &pow, base, MATURITY as usize + 2, &address_of(&key(154)));
+    let losing_tip = extend(&mut ledger, &pow, base, MATURITY as usize + 2, &address_of(&losing_miner));
+    assert_eq!(ledger.virtual_selected_parent, losing_tip);
+
+    // One payment from a reward both branches share, one from a reward only the losing branch has
+    let shared = ledger.get_spendable_utxos(&address_of(&old_miner)).unwrap();
+    let untouched = Transaction::build_payment(&old_miner, Network::Testnet, &shop, 1_000, 1_000, shared, None).unwrap();
+    let doomed_coins = ledger.get_spendable_utxos(&address_of(&losing_miner)).unwrap();
+    assert!(!doomed_coins.is_empty());
+    let doomed = Transaction::build_payment(&losing_miner, Network::Testnet, &shop, 1_000, 1_000, doomed_coins, None).unwrap();
+    ledger.broadcast_transaction(untouched.clone()).unwrap();
+    ledger.broadcast_transaction(doomed.clone()).unwrap();
+
+    let winning_tip = extend(&mut ledger, &pow, base, MATURITY as usize + 4, &address_of(&winning_miner));
+    assert_eq!(ledger.virtual_selected_parent, winning_tip);
+    assert!(ledger.mempool.contains(&untouched.id()), "an untouched payment must stay");
+    assert!(!ledger.mempool.contains(&doomed.id()), "a payment from an undone reward must go");
+    assert_supply_total_is_exact(&ledger);
+}
+
+/// Round 3, M7: a contract input that is malformed (invalid at every blue score) is reported as
+/// a bad signature, so the peer that sent it is penalised; one that is only early is not.
+#[test]
+fn malformed_contract_inputs_count_as_bad_signatures() {
+    use imoney_core::{secret_hash, HashLockScript};
+    let owner = key(160);
+    let (mut ledger, pow) = funded_ledger("malformed-contract", &owner);
+    let me = address_of(&owner);
+    let lock = HashLockScript::new(
+        owner.verifying_key().to_bytes(),
+        owner.verifying_key().to_bytes(),
+        secret_hash(&[7u8; 32]),
+        ledger.virtual_blue_score + 1_000,
+    )
+    .unwrap();
+    let coins = ledger.get_spendable_utxos(&me).unwrap();
+    let fund =
+        Transaction::build_payment(&owner, Network::Testnet, &lock.address(Network::Testnet), 5_000_000, 1_000, coins, None).unwrap();
+    let locked = (Outpoint { transaction_id: fund.id(), index: 0 }, fund.outputs[0].clone());
+    ledger.broadcast_transaction(fund).unwrap();
+    mine_tip(&mut ledger, &pow, &me);
+
+    // A refund before its deadline: only early
+    let early = Transaction::spend_hashlock(&lock, Network::Testnet, locked.clone(), &me, 1_000_000, &owner, None).unwrap();
+    let err = ledger.broadcast_transaction(early.clone()).unwrap_err().to_string();
+    assert!(!err.contains(BAD_SIGNATURE), "{}", err);
+
+    // The same spend with a mangled witness: invalid whatever the time
+    let mut mangled = early;
+    mangled.inputs[0].signature_script.truncate(10);
+    let err = ledger.broadcast_transaction(mangled).unwrap_err().to_string();
+    assert!(err.contains(BAD_SIGNATURE), "{}", err);
 }

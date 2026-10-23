@@ -185,6 +185,10 @@ impl Transaction {
     /// Returns the outputs the collections claim (their rests).
     pub fn check_subscription_collections(&self, spent: &[&TxOutput]) -> Result<Vec<u16>, TransactionError> {
         let mut named: Vec<u16> = Vec::new();
+        // Per subscription (its script, which names the period due): what its coins held, what
+        // went back in, and its allowance. A subscriber may fund one subscription with several
+        // coins; together they still give the merchant one period's amount, not one per coin.
+        let mut totals: Vec<(&ScriptPublicKey, u64, u64, u64)> = Vec::new();
         for (index, coin) in spent.iter().enumerate() {
             if coin.script_public_key.version != SCRIPT_VERSION_SUBSCRIPTION {
                 continue;
@@ -194,26 +198,36 @@ impl Transaction {
             }
             let Some((script, SubscriptionSpend::Collect { rest })) = self.subscription_spend(index) else { continue };
             let allowance = script.amount_per_period.saturating_add(MAX_SUBSCRIPTION_FEE_ATOMS);
-            match rest {
-                None => {
-                    if coin.value_atoms > allowance {
-                        return Err(invalid("more than one period's amount is left: it must stay in the subscription"));
-                    }
-                }
+            let returned = match rest {
+                None => 0,
                 Some(i) => {
                     if named.contains(&i) {
                         return Err(invalid("an output may hold the rest of only one subscription"));
                     }
                     named.push(i);
-                    let output = self.outputs.get(i as usize).ok_or_else(|| invalid("the collection names an output that does not exist"))?;
+                    let output =
+                        self.outputs.get(i as usize).ok_or_else(|| invalid("the collection names an output that does not exist"))?;
                     let next = script.next()?;
                     if output.script_public_key != next.locking_script() {
                         return Err(invalid("the rest must stay in the subscription, due one period later"));
                     }
-                    if output.token.is_some() || output.value_atoms.saturating_add(allowance) < coin.value_atoms {
-                        return Err(invalid("a collection takes at most one period's amount"));
+                    if output.token.is_some() {
+                        return Err(invalid("subscriptions hold IMN only"));
                     }
+                    output.value_atoms
                 }
+            };
+            match totals.iter_mut().find(|(s, ..)| *s == &coin.script_public_key) {
+                Some((_, held, back, _)) => {
+                    *held = held.saturating_add(coin.value_atoms);
+                    *back = back.saturating_add(returned);
+                }
+                None => totals.push((&coin.script_public_key, coin.value_atoms, returned, allowance)),
+            }
+        }
+        for (_, held, back, allowance) in totals {
+            if back.saturating_add(allowance) < held {
+                return Err(invalid("a collection takes at most one period's amount; the rest must stay in the subscription"));
             }
         }
         Ok(named)
@@ -253,7 +267,8 @@ impl Transaction {
             issue: None,
         };
         let signature = merchant.sign(tx.sig_hash(network, 0).as_bytes());
-        tx.inputs[0].signature_script = [script.to_bytes(), vec![COLLECT], signature.to_bytes().to_vec(), rest.to_be_bytes().to_vec()].concat();
+        tx.inputs[0].signature_script =
+            [script.to_bytes(), vec![COLLECT], signature.to_bytes().to_vec(), rest.to_be_bytes().to_vec()].concat();
         Ok(tx)
     }
 
@@ -332,6 +347,27 @@ mod tests {
         let again = Transaction::collect_subscription(&next, NET, rest.clone(), &merchant, 10_000).unwrap();
         assert!(valid(&again, &rest.1, 1_050).is_err());
         valid(&again, &rest.1, 1_100).unwrap();
+    }
+
+    /// GHSA-7p7c-5846-822f: two coins funding one subscription give one period's amount in a
+    /// transaction, not one per coin.
+    #[test]
+    fn two_coins_of_one_subscription_give_one_period_together() {
+        let (_, merchant, script, coin) = setup();
+        let second = (Outpoint { transaction_id: Hash([8u8; 32]), index: 0 }, coin.1.clone());
+        let a = Transaction::collect_subscription(&script, NET, coin.clone(), &merchant, 10_000).unwrap();
+        let b = Transaction::collect_subscription(&script, NET, second.clone(), &merchant, 10_000).unwrap();
+        // Both collections in one transaction: each coin's rest named separately
+        let mut both = a.clone();
+        both.inputs.push(b.inputs[0].clone());
+        both.outputs.push(b.outputs[0].clone());
+        both.outputs.push(b.outputs[1].clone());
+        let rest_b = 3u16.to_be_bytes();
+        let len = both.inputs[1].signature_script.len();
+        both.inputs[1].signature_script[len - 2..].copy_from_slice(&rest_b);
+        assert!(both.check_subscription_collections(&[&coin.1, &second.1]).is_err());
+        // One coin alone is still fine
+        assert!(a.check_subscription_collections(&[&coin.1]).is_ok());
     }
 
     #[test]

@@ -1,18 +1,17 @@
 use crate::genesis::{create_devnet_genesis, create_testnet_genesis};
 use crate::mempool::{Mempool, MempoolError};
 use crate::storage::{
-    AcceptanceData, AcceptedTx, BlockMeta, HistoryItem, HistoryRow, Storage, StorageError, TxRecord, UtxoEntry,
-    WriteBatch, META_LAST_REORG, META_PRUNED_FLOOR, META_SINK, META_VIRTUAL_ACCEPTANCE,
+    AcceptanceData, AcceptedTx, BlockMeta, HistoryItem, HistoryRow, Storage, StorageError, TxRecord, UtxoEntry, WriteBatch,
+    META_LAST_REORG, META_PRUNED_FLOOR, META_SINK, META_VIRTUAL_ACCEPTANCE,
 };
 use imoney_consensus::{work_from_bits, DaaParams, Dag, DagBlock, GhostdagData, GhostdagError, GhostdagParams};
 use imoney_core::constants::{
-    ATOMS_PER_IMN, BLOCKS_PER_HALVING_ERA, BLOCKS_PER_YEAR, MAX_BLOCK_BYTES, MAX_BLOCK_PARENTS, MAX_TX_BYTES,
-    TARGET_TIME_PER_BLOCK_MS,
+    ATOMS_PER_IMN, BLOCKS_PER_HALVING_ERA, BLOCKS_PER_YEAR, MAX_BLOCK_BYTES, MAX_BLOCK_PARENTS, MAX_TX_BYTES, TARGET_TIME_PER_BLOCK_MS,
 };
 use imoney_core::serialize::tagged_hash;
+use imoney_core::subscription::SCRIPT_VERSION_SUBSCRIPTION;
 use imoney_core::{
-    Address, Block, BlockError, BlockHeader, Decode, Encode, Hash, Network, Outpoint, ScriptPublicKey, TokenInfo,
-    Transaction, TxOutput,
+    Address, Block, BlockError, BlockHeader, Decode, Encode, Hash, Network, Outpoint, ScriptPublicKey, TokenInfo, Transaction, TxOutput,
 };
 use imoney_emission::{block_subsidy_atoms, block_subsidy_imn};
 use imoney_pow::{compact_to_u256, is_valid_pow, HallmarkPow};
@@ -35,7 +34,7 @@ const MIN_LEVELS_IN_MEMORY: u64 = 2_000;
 pub const DEFAULT_FINAL_CONFIRMATIONS: u64 = 60;
 /// How long after a reorganisation the node keeps warning that the network is unsettled.
 /// Most payments listed for one invoice at one address.
-const MAX_INVOICE_PAYMENTS: usize = 1_000;
+const MAX_INVOICE_PAYMENTS: usize = 100;
 /// Most tips tried as extra parents of the virtual block; each try runs GHOSTDAG.
 const MAX_VIRTUAL_PARENT_CANDIDATES: usize = 2 * MAX_BLOCK_PARENTS;
 
@@ -125,7 +124,7 @@ impl ConsensusParams {
             // 12 hours of 5-second blocks
             finality_depth: 8_640,
             genesis: create_testnet_genesis(),
-            name: "testnet-3",
+            name: "testnet-4",
             network: Network::Testnet,
         }
     }
@@ -264,10 +263,7 @@ pub type BlockPage = (Vec<Block>, Option<(u64, Hash)>);
 
 /// The outpoint of the reward the ledger creates for a blue block.
 pub fn reward_outpoint(block_hash: &Hash) -> Outpoint {
-    Outpoint {
-        transaction_id: tagged_hash("IMN 2026 block reward", &[&block_hash.0]),
-        index: 0,
-    }
+    Outpoint { transaction_id: tagged_hash("IMN 2026 block reward", &[&block_hash.0]), index: 0 }
 }
 
 /// Uncommitted ledger changes layered over the database.
@@ -289,6 +285,19 @@ impl LedgerView {
             return Ok(None);
         }
         self.storage.get_utxo(outpoint)
+    }
+
+    /// True when an unspent output other than those in `ignore` is locked to exactly `script`.
+    fn script_occupied(&self, script: &ScriptPublicKey, ignore: &[Outpoint]) -> Result<bool, StorageError> {
+        if self.batch.utxo_puts.iter().any(|(outpoint, entry)| &entry.output.script_public_key == script && !ignore.contains(outpoint)) {
+            return Ok(true);
+        }
+        for outpoint in self.storage.outpoints_at_script(script, usize::MAX)? {
+            if !self.batch.utxo_deletes.contains(&outpoint) && !ignore.contains(&outpoint) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     fn create(&mut self, outpoint: Outpoint, entry: UtxoEntry) {
@@ -355,11 +364,7 @@ impl LedgerView {
             self.put_invoice(accepted);
             self.put_record(
                 accepted.tx_id,
-                TxRecord {
-                    block_hash: accepted.block_hash,
-                    tx_index: accepted.tx_index,
-                    accepting_blue_score: acceptance.blue_score,
-                },
+                TxRecord { block_hash: accepted.block_hash, tx_index: accepted.tx_index, accepting_blue_score: acceptance.blue_score },
             );
         }
     }
@@ -422,7 +427,6 @@ pub struct DagLedger {
     level_index: BTreeSet<(u64, Hash)>,
     virtual_acceptance: AcceptanceData,
 }
-
 
 impl DagLedger {
     /// Opens the ledger of the network described by `params` from disk, or creates it if new.
@@ -488,9 +492,7 @@ impl DagLedger {
         let genesis_hash = genesis.hash();
         if stored_blocks == 0 {
             // Genesis initialization
-            ledger
-                .dag
-                .insert_genesis(genesis_hash, genesis.header.timestamp_ms, genesis.header.bits);
+            ledger.dag.insert_genesis(genesis_hash, genesis.header.timestamp_ms, genesis.header.bits);
             let meta = BlockMeta { level: 0, ghostdag: GhostdagData::default() };
             view.batch.blocks.push((genesis_hash, genesis.to_bytes()));
             view.batch.block_meta.push((genesis_hash, meta.to_bytes()));
@@ -507,10 +509,8 @@ impl DagLedger {
             // Recover from disk: the recent blocks, and genesis
             let floor = ledger.storage.top_level()?.unwrap_or(0).saturating_sub(keep_levels).max(1);
             let mut loaded = ledger.storage.load_blocks_from_level(floor)?;
-            let (genesis_header, genesis_meta) = ledger
-                .storage
-                .get_header_and_meta(&genesis_hash)?
-                .ok_or(StorageError::MissingBlock(genesis_hash))?;
+            let (genesis_header, genesis_meta) =
+                ledger.storage.get_header_and_meta(&genesis_hash)?.ok_or(StorageError::MissingBlock(genesis_hash))?;
             loaded.push((genesis_hash, genesis_header, genesis_meta));
 
             let mut non_tips = HashSet::new();
@@ -523,12 +523,8 @@ impl DagLedger {
                 ledger.blocks.insert(hash, header);
             }
             // Tips: recent blocks that are not parents of any other block
-            ledger.tips = ledger
-                .blocks
-                .keys()
-                .filter(|h| !non_tips.contains(h) && (**h != genesis_hash || stored_blocks == 1))
-                .copied()
-                .collect();
+            ledger.tips =
+                ledger.blocks.keys().filter(|h| !non_tips.contains(h) && (**h != genesis_hash || stored_blocks == 1)).copied().collect();
 
             let sink_bytes = ledger.storage.get_metadata(META_SINK)?.expect("Metadata must exist if blocks exist");
             ledger.virtual_selected_parent = <Hash as Decode>::from_bytes(&sink_bytes).map_err(StorageError::from)?;
@@ -598,6 +594,7 @@ impl DagLedger {
         &self,
         tx: &Transaction,
         lookup: impl Fn(&Outpoint) -> Result<Option<UtxoEntry>, StorageError>,
+        occupied: impl Fn(&ScriptPublicKey, &[Outpoint]) -> Result<bool, StorageError>,
         spending_blue_score: u64,
     ) -> Result<u64, StateError> {
         if tx.inputs.is_empty() {
@@ -606,12 +603,23 @@ impl DagLedger {
         if tx.outputs.is_empty() {
             return Err(StateError::Transaction("Transaction has no outputs".to_string()));
         }
+
+        // A subscription address holds at most one unspent coin. Its per-period limit is checked
+        // coin by coin, so two coins due together would let the merchant collect twice.
+        if tx.service.as_ref().is_some_and(|s| s.version == SCRIPT_VERSION_SUBSCRIPTION) {
+            return Err(StateError::Transaction("A subscription cannot be named as the service".to_string()));
+        }
+        let spending: Vec<Outpoint> = tx.inputs.iter().map(|input| input.previous_outpoint.clone()).collect();
+        let mut funded: Vec<&ScriptPublicKey> = Vec::new();
+        for script in tx.outputs.iter().map(|o| &o.script_public_key).filter(|s| s.version == SCRIPT_VERSION_SUBSCRIPTION) {
+            if funded.contains(&script) || occupied(script, &spending)? {
+                return Err(StateError::Transaction(SUBSCRIPTION_HOLDS_ONE_COIN.to_string()));
+            }
+            funded.push(script);
+        }
         let size = tx.to_bytes().len();
         if size > MAX_TX_BYTES {
-            return Err(StateError::Transaction(format!(
-                "Transaction is {} bytes, above the {}-byte limit",
-                size, MAX_TX_BYTES
-            )));
+            return Err(StateError::Transaction(format!("Transaction is {} bytes, above the {}-byte limit", size, MAX_TX_BYTES)));
         }
 
         let mut total_input_atoms: u64 = 0;
@@ -634,8 +642,22 @@ impl DagLedger {
             }
 
             // Verify signature against public key and address hash
-            tx.verify_input_at(self.network, i, &utxo.output.script_public_key, spending_blue_score)
-                .map_err(|e| StateError::Transaction(format!("{} on input {}: {}", BAD_SIGNATURE, i, e)))?;
+            // Only a failure that holds at every blue score is marked as a bad signature. A
+            // deadline (hash-lock, vault, subscription, escrow) passes at different moments on
+            // nodes a block apart, and an honest peer relaying across one must not be punished.
+            // Whether a failure holds at every blue score is found by trying the two extremes: a
+            // deadline that is the only problem passes at one of them, a forged signature or a
+            // malformed contract input at neither.
+            tx.verify_input_at(self.network, i, &utxo.output.script_public_key, spending_blue_score).map_err(|e| {
+                let script = &utxo.output.script_public_key;
+                let always_invalid = tx.verify_input_at(self.network, i, script, 0).is_err()
+                    && tx.verify_input_at(self.network, i, script, u64::MAX).is_err();
+                if always_invalid {
+                    StateError::Transaction(format!("{} on input {}: {}", BAD_SIGNATURE, i, e))
+                } else {
+                    StateError::Transaction(format!("Input {} cannot be spent now: {}", i, e))
+                }
+            })?;
 
             total_input_atoms = total_input_atoms
                 .checked_add(utxo.output.value_atoms)
@@ -655,10 +677,7 @@ impl DagLedger {
             .try_fold(0u64, |acc, o| acc.checked_add(o.value_atoms))
             .ok_or_else(|| StateError::Transaction("Output total overflows".to_string()))?;
         if total_input_atoms < total_output_atoms {
-            return Err(StateError::Transaction(format!(
-                "Inputs {} atoms < outputs {} atoms",
-                total_input_atoms, total_output_atoms
-            )));
+            return Err(StateError::Transaction(format!("Inputs {} atoms < outputs {} atoms", total_input_atoms, total_output_atoms)));
         }
 
         Ok(total_input_atoms - total_output_atoms)
@@ -688,7 +707,12 @@ impl DagLedger {
             let mut fees: u64 = 0;
 
             for (index, tx) in block.transactions.iter().enumerate().skip(1) {
-                let fee = match self.check_spend(tx, |outpoint| view.get(outpoint), blue_score) {
+                let fee = match self.check_spend(
+                    tx,
+                    |outpoint| view.get(outpoint),
+                    |script, ignore| view.script_occupied(script, ignore),
+                    blue_score,
+                ) {
                     Ok(fee) => fee,
                     Err(StateError::Transaction(_)) => continue, // Not spendable here: skip it
                     Err(e) => return Err(e),
@@ -754,10 +778,7 @@ impl DagLedger {
                     created.push((outpoint, entry));
                 }
 
-                view.put_record(
-                    tx_id,
-                    TxRecord { block_hash, tx_index: index as u32, accepting_blue_score: blue_score },
-                );
+                view.put_record(tx_id, TxRecord { block_hash, tx_index: index as u32, accepting_blue_score: blue_score });
                 let accepted = AcceptedTx {
                     tx_id,
                     block_hash,
@@ -902,12 +923,8 @@ impl DagLedger {
     fn pick_virtual_parents(&self, sink: &Hash) -> Vec<Hash> {
         let sink_score = self.dag.get(sink).ghostdag.blue_score;
         // A tip left behind for longer than the finality depth is never merged
-        let mut others: Vec<Hash> = self
-            .tips
-            .iter()
-            .filter(|t| *t != sink && !self.too_old_to_be_a_parent(t, sink_score))
-            .copied()
-            .collect();
+        let mut others: Vec<Hash> =
+            self.tips.iter().filter(|t| *t != sink && !self.too_old_to_be_a_parent(t, sink_score)).copied().collect();
         others.sort_by_key(|h| std::cmp::Reverse(self.dag.sort_key(h)));
         // However many tips there are, only the heaviest few are tried
         others.truncate(MAX_VIRTUAL_PARENT_CANDIDATES);
@@ -932,11 +949,7 @@ impl DagLedger {
     /// Moves the UTXO set in `view` from the current virtual state to the virtual state of the
     /// current tips: undoes the old virtual block, switches the selected chain if a heavier one
     /// exists (undoing and applying whole blocks), then applies the new virtual block.
-    fn resolve_virtual(
-        &self,
-        view: &mut LedgerView,
-        pending: Option<(&Hash, &Block)>,
-    ) -> Result<VirtualState, StateError> {
+    fn resolve_virtual(&self, view: &mut LedgerView, pending: Option<(&Hash, &Block)>) -> Result<VirtualState, StateError> {
         let old_sink = self.virtual_selected_parent;
 
         // Only tips whose selected chain runs through the finality point may become the sink
@@ -947,10 +960,8 @@ impl DagLedger {
         let mut by_weight: Vec<Hash> = self.tips.iter().copied().collect();
         by_weight.sort_by_key(|h| std::cmp::Reverse(self.dag.sort_key(h)));
         let heaviest = *by_weight.first().expect("the DAG always has a tip");
-        let new_sink = by_weight
-            .into_iter()
-            .find(|tip| self.chain_ancestor_at_or_below(*tip, finality_score) == finality_point)
-            .unwrap_or(old_sink);
+        let new_sink =
+            by_weight.into_iter().find(|tip| self.chain_ancestor_at_or_below(*tip, finality_score) == finality_point).unwrap_or(old_sink);
         let finality_conflict = heaviest != new_sink;
 
         view.undo(&self.virtual_acceptance);
@@ -1043,11 +1054,7 @@ impl DagLedger {
         self.check_claimed_pow(&block.header, pow_engine)
     }
 
-    pub fn add_block(
-        &mut self,
-        block: Block,
-        pow_engine: &HallmarkPow,
-    ) -> Result<Hash, StateError> {
+    pub fn add_block(&mut self, block: Block, pow_engine: &HallmarkPow) -> Result<Hash, StateError> {
         let header = &block.header;
         let block_hash = header.hash();
 
@@ -1073,10 +1080,7 @@ impl DagLedger {
             if let Some(selected_parent) = self.dag.best_of(&header.parents) {
                 let expected_bits = self.dag.expected_bits_after(&selected_parent, &self.params.daa);
                 if header.bits != expected_bits {
-                    return Err(StateError::Header(format!(
-                        "Difficulty bits 0x{:08x} should be 0x{:08x}",
-                        header.bits, expected_bits
-                    )));
+                    return Err(StateError::Header(format!("Difficulty bits 0x{:08x} should be 0x{:08x}", header.bits, expected_bits)));
                 }
             }
         }
@@ -1087,28 +1091,16 @@ impl DagLedger {
         let expected_daa_score = self.dag.daa_score(&ghostdag);
         let expected_bits = self.dag.expected_bits(&ghostdag, &self.params.daa);
         if header.blue_score != ghostdag.blue_score {
-            return Err(StateError::Header(format!(
-                "Blue score {} should be {}",
-                header.blue_score, ghostdag.blue_score
-            )));
+            return Err(StateError::Header(format!("Blue score {} should be {}", header.blue_score, ghostdag.blue_score)));
         }
         if header.blue_work != ghostdag.blue_work {
-            return Err(StateError::Header(format!(
-                "Blue work {} should be {}",
-                header.blue_work, ghostdag.blue_work
-            )));
+            return Err(StateError::Header(format!("Blue work {} should be {}", header.blue_work, ghostdag.blue_work)));
         }
         if header.daa_score != expected_daa_score {
-            return Err(StateError::Header(format!(
-                "DAA score {} should be {}",
-                header.daa_score, expected_daa_score
-            )));
+            return Err(StateError::Header(format!("DAA score {} should be {}", header.daa_score, expected_daa_score)));
         }
         if header.bits != expected_bits {
-            return Err(StateError::Header(format!(
-                "Difficulty bits 0x{:08x} should be 0x{:08x}",
-                header.bits, expected_bits
-            )));
+            return Err(StateError::Header(format!("Difficulty bits 0x{:08x} should be 0x{:08x}", header.bits, expected_bits)));
         }
         if header.accepted_id_merkle_root != Hash::ZERO || header.utxo_commitment != Hash::ZERO {
             return Err(StateError::Header("Reserved commitment fields must be zero".to_string()));
@@ -1139,6 +1131,9 @@ impl DagLedger {
         if coinbase.outputs.len() != 1 {
             return Err(StateError::Coinbase("must have exactly one output".to_string()));
         }
+        if coinbase.outputs.iter().any(|o| o.script_public_key.version == SCRIPT_VERSION_SUBSCRIPTION) {
+            return Err(StateError::Coinbase("a block reward cannot pay into a subscription".to_string()));
+        }
         if coinbase.issue.is_some() || coinbase.outputs.iter().any(|o| o.token.is_some()) {
             return Err(StateError::Coinbase("a block reward cannot create tokens".to_string()));
         }
@@ -1149,14 +1144,7 @@ impl DagLedger {
 
         // Add the block to the in-memory DAG, then move the ledger to the new virtual state
         let removed_tips: Vec<Hash> = header.parents.iter().filter(|p| self.tips.contains(*p)).copied().collect();
-        self.dag.insert(
-            block_hash,
-            header.parents.clone(),
-            header.timestamp_ms,
-            header.bits,
-            header.daa_score,
-            ghostdag.clone(),
-        );
+        self.dag.insert(block_hash, header.parents.clone(), header.timestamp_ms, header.bits, header.daa_score, ghostdag.clone());
         for parent in &removed_tips {
             self.tips.remove(parent);
         }
@@ -1168,12 +1156,10 @@ impl DagLedger {
         view.batch.block_meta.push((block_hash, meta.to_bytes()));
         view.batch.levels.push((meta.level, block_hash));
 
-        let result = self
-            .resolve_virtual(&mut view, Some((&block_hash, &block)))
-            .and_then(|virtual_state| {
-                self.storage.commit(&view.batch)?;
-                Ok(virtual_state)
-            });
+        let result = self.resolve_virtual(&mut view, Some((&block_hash, &block))).and_then(|virtual_state| {
+            self.storage.commit(&view.batch)?;
+            Ok(virtual_state)
+        });
         let virtual_state = match result {
             Ok(virtual_state) => virtual_state,
             Err(e) => {
@@ -1188,6 +1174,7 @@ impl DagLedger {
         self.level_index.insert((meta.level, block_hash));
         self.block_count += 1;
         let reorganised = virtual_state.reorg_depth > 0;
+        let score_before = self.virtual_blue_score;
         self.set_virtual(virtual_state);
 
         // Drop pending transactions that were accepted or can no longer be spent: those
@@ -1202,14 +1189,43 @@ impl DagLedger {
         for tx in block.transactions.iter().skip(1) {
             self.mempool.remove(&tx.id());
         }
-        // A reorganisation can lower the blue score and bring back or remove coins: check
-        // everything still pending against the new state. Rare, so the cost is acceptable.
+        // A reorganisation can lower the blue score and bring coins back changed. Coins it
+        // removed were dealt with above. Only the pending transactions it could have affected
+        // are checked again: those spending a coin that was put back (perhaps at another blue
+        // score), those funding a subscription (one may hold a coin now), and, when the score
+        // went down, those whose inputs depend on it. Checking the whole pool on every
+        // reorganisation, under the ledger lock, let anyone who can cause reorganisations stall
+        // the node.
         if reorganised {
-            let spending_score = self.virtual_blue_score;
+            let lowered = self.virtual_blue_score < score_before;
             let storage = self.storage.clone();
-            let mut pending: Vec<Transaction> = self.mempool.transactions().cloned().collect();
-            pending.retain(|tx| self.check_spend(tx, |outpoint| storage.get_utxo(outpoint), spending_score).is_err());
-            for tx in pending {
+            let mut suspects: Vec<Transaction> = Vec::new();
+            for tx in self.mempool.transactions() {
+                let touched = tx.inputs.iter().any(|input| view.batch.utxo_puts.contains_key(&input.previous_outpoint));
+                let funds_subscription = tx.outputs.iter().any(|o| o.script_public_key.version == SCRIPT_VERSION_SUBSCRIPTION);
+                let depends_on_score = lowered
+                    && tx.inputs.iter().any(|input| {
+                        storage
+                            .get_utxo(&input.previous_outpoint)
+                            .ok()
+                            .flatten()
+                            .is_none_or(|entry| entry.is_coinbase || score_dependent(entry.output.script_public_key.version))
+                    });
+                if touched || funds_subscription || depends_on_score {
+                    suspects.push(tx.clone());
+                }
+            }
+            let spending_score = self.virtual_blue_score;
+            suspects.retain(|tx| {
+                self.check_spend(
+                    tx,
+                    |outpoint| storage.get_utxo(outpoint),
+                    |script, ignore| stored_occupied(&storage, script, ignore),
+                    spending_score,
+                )
+                .is_err()
+            });
+            for tx in suspects {
                 self.mempool.remove(&tx.id());
             }
         }
@@ -1224,7 +1240,6 @@ impl DagLedger {
 
         Ok(block_hash)
     }
-
 
     /// Turns on pruning and prunes whatever is already deep enough. The depth must exceed the
     /// finality depth, so nothing that a reorganisation could still need is ever deleted.
@@ -1314,7 +1329,37 @@ impl DagLedger {
 
         // A conflict is found from memory; the spend checks below read the database and verify signatures
         self.mempool.check_conflicts(&tx)?;
-        let fee = self.check_spend(&tx, |outpoint| self.storage.get_utxo(outpoint), self.virtual_blue_score)?;
+        // Relay policy (fee, size, dust) first, from the coins' values alone: it costs a few
+        // reads, while the spend checks below verify every signature under the ledger lock
+        let mut inputs_value: u64 = 0;
+        for input in &tx.inputs {
+            let coin = self
+                .storage
+                .get_utxo(&input.previous_outpoint)?
+                .ok_or_else(|| StateError::Transaction(format!("UTXO not found: {:?}", input.previous_outpoint)))?;
+            inputs_value = inputs_value.saturating_add(coin.output.value_atoms);
+        }
+        let outputs_value = tx
+            .outputs
+            .iter()
+            .try_fold(0u64, |sum, o| sum.checked_add(o.value_atoms))
+            .ok_or_else(|| StateError::Transaction("Output total overflows".to_string()))?;
+        self.mempool.check_policy(&tx, inputs_value.saturating_sub(outputs_value))?;
+        let fee = self.check_spend(
+            &tx,
+            |outpoint| self.storage.get_utxo(outpoint),
+            |script, ignore| stored_occupied(&self.storage, script, ignore),
+            self.virtual_blue_score,
+        )?;
+
+        // A pending payment may already be funding the same subscription
+        let pays_pending_subscription =
+            tx.outputs.iter().filter(|o| o.script_public_key.version == SCRIPT_VERSION_SUBSCRIPTION).any(|o| {
+                self.mempool.transactions().any(|pending| pending.outputs.iter().any(|p| p.script_public_key == o.script_public_key))
+            });
+        if pays_pending_subscription {
+            return Err(StateError::Transaction(SUBSCRIPTION_HOLDS_ONE_COIN.to_string()));
+        }
 
         // The mempool applies relay policy: minimum fee, no conflicting spends, size cap
         let outputs = tx.outputs.clone();
@@ -1325,12 +1370,7 @@ impl DagLedger {
     }
 
     /// Builds an unmined block on the given parents with every consensus field filled in.
-    pub fn build_block(
-        &self,
-        parents: &[Hash],
-        payout: Option<&Address>,
-        transactions: Vec<Transaction>,
-    ) -> Result<Block, StateError> {
+    pub fn build_block(&self, parents: &[Hash], payout: Option<&Address>, transactions: Vec<Transaction>) -> Result<Block, StateError> {
         let mut parents = parents.to_vec();
         parents.sort();
         self.check_parents(&parents)?;
@@ -1405,12 +1445,7 @@ impl DagLedger {
     }
 
     pub fn get_utxos(&self, address: &Address) -> Result<Vec<(Outpoint, TxOutput)>, StorageError> {
-        Ok(self
-            .storage
-            .get_utxos(address)?
-            .into_iter()
-            .map(|(outpoint, entry)| (outpoint, entry.output))
-            .collect())
+        Ok(self.storage.get_utxos(address)?.into_iter().map(|(outpoint, entry)| (outpoint, entry.output)).collect())
     }
 
     /// Queries the UTXOs of an address that can be spent right now (excludes immature rewards).
@@ -1448,12 +1483,7 @@ impl DagLedger {
 
     /// What an address received and sent, newest first, each row with its confirmations.
     /// `before` continues after a row already read (see `HistoryRow::position`).
-    pub fn address_history(
-        &self,
-        address: &Address,
-        limit: usize,
-        before: Option<&[u8]>,
-    ) -> Result<Vec<(HistoryRow, u64)>, StorageError> {
+    pub fn address_history(&self, address: &Address, limit: usize, before: Option<&[u8]>) -> Result<Vec<(HistoryRow, u64)>, StorageError> {
         Ok(self
             .storage
             .get_history(address, limit, before)?
@@ -1469,18 +1499,14 @@ impl DagLedger {
     /// selected chain was reorganised several blocks deep within the last half hour.
     pub fn network_alert(&self) -> bool {
         let now_ms = chrono::Utc::now().timestamp_millis() as u64;
-        self.finality_conflict
-            || self.last_reorg.is_some_and(|(_, at)| now_ms.saturating_sub(at) < NETWORK_ALERT_WINDOW_MS)
+        self.finality_conflict || self.last_reorg.is_some_and(|(_, at)| now_ms.saturating_sub(at) < NETWORK_ALERT_WINDOW_MS)
     }
 
     /// Every payment that names `invoice_id`, pending or accepted, with how much each pays `address`.
     pub fn invoice_payments(&self, invoice_id: &str, address: &Address) -> Result<Vec<InvoicePayment>, StorageError> {
         let script = ScriptPublicKey::pay_to_address(address);
         let paid_to_address = |tx: &Transaction| -> u64 {
-            tx.outputs
-                .iter()
-                .filter(|o| o.script_public_key == script)
-                .fold(0u64, |sum, o| sum.saturating_add(o.value_atoms))
+            tx.outputs.iter().filter(|o| o.script_public_key == script).fold(0u64, |sum, o| sum.saturating_add(o.value_atoms))
         };
 
         let mut payments: Vec<InvoicePayment> = self
@@ -1493,14 +1519,24 @@ impl DagLedger {
                 payer: tx.input_address(self.network, 0),
             })
             .collect();
+        // Each block is read once, however many of the payments it carries: anyone can pay an
+        // invoice, and this lookup is open to anyone
         let key = crate::storage::invoice_payee_key(invoice_id, &script);
+        let mut by_block: HashMap<Hash, Vec<(Hash, TxRecord)>> = HashMap::new();
         for tx_id in self.storage.get_invoice_tx_ids(&key, MAX_INVOICE_PAYMENTS)? {
-            if let Some(info) = self.get_transaction(&tx_id)? {
+            if let Some(record) = self.storage.get_tx_record(&tx_id)? {
+                by_block.entry(record.block_hash).or_default().push((tx_id, record));
+            }
+        }
+        for (block_hash, records) in by_block {
+            let block = self.storage.get_block(&block_hash)?.ok_or(StorageError::MissingBlock(block_hash))?;
+            for (tx_id, record) in records {
+                let Some(tx) = block.transactions.get(record.tx_index as usize) else { continue };
                 payments.push(InvoicePayment {
                     tx_id,
-                    amount_atoms: paid_to_address(&info.tx),
-                    confirmations: info.confirmations,
-                    payer: info.tx.input_address(self.network, 0),
+                    amount_atoms: paid_to_address(tx),
+                    confirmations: self.virtual_blue_score.saturating_sub(record.accepting_blue_score) + 1,
+                    payer: tx.input_address(self.network, 0),
                 });
             }
         }
@@ -1516,10 +1552,7 @@ impl DagLedger {
         let Some(record) = self.storage.get_tx_record(tx_id)? else {
             return Ok(None);
         };
-        let block = self
-            .storage
-            .get_block(&record.block_hash)?
-            .ok_or(StorageError::MissingBlock(record.block_hash))?;
+        let block = self.storage.get_block(&record.block_hash)?.ok_or(StorageError::MissingBlock(record.block_hash))?;
         let Some(tx) = block.transactions.get(record.tx_index as usize) else {
             return Ok(None);
         };
@@ -1562,20 +1595,12 @@ impl DagLedger {
 
     /// The level of the first locator entry this node has, or 0 when it has none of them.
     pub fn sync_start_level(&self, locator: &[Hash]) -> u64 {
-        locator
-            .iter()
-            .find_map(|hash| self.dag.try_get(hash))
-            .map_or(0, |block| block.level)
+        locator.iter().find_map(|hash| self.dag.try_get(hash)).map_or(0, |block| block.level)
     }
 
     /// Blocks after `cursor` in `(level, hash)` order, up to the given limits.
     /// Also returns the cursor for the next call, or `None` when nothing is left.
-    pub fn blocks_after(
-        &self,
-        cursor: (u64, Hash),
-        max_blocks: usize,
-        max_bytes: usize,
-    ) -> Result<BlockPage, StorageError> {
+    pub fn blocks_after(&self, cursor: (u64, Hash), max_blocks: usize, max_bytes: usize) -> Result<BlockPage, StorageError> {
         let mut blocks = Vec::new();
         let mut bytes = 0usize;
         let mut last = None;
@@ -1642,18 +1667,14 @@ impl DagLedger {
         let circulating_supply_atoms = self.storage.total_utxo_atoms()?;
         let circulating_supply_imn = circulating_supply_atoms as f64 / ATOMS_PER_IMN as f64;
         let block_reward_imn = block_subsidy_imn(self.virtual_daa_score);
-        let annual_inflation_percent = if circulating_supply_imn > 0.0 {
-            100.0 * block_reward_imn * BLOCKS_PER_YEAR as f64 / circulating_supply_imn
-        } else {
-            0.0
-        };
+        let annual_inflation_percent =
+            if circulating_supply_imn > 0.0 { 100.0 * block_reward_imn * BLOCKS_PER_YEAR as f64 / circulating_supply_imn } else { 0.0 };
 
         // The reward halves at the end of each of the first four eras, then stays at the floor
         let era = self.virtual_daa_score / BLOCKS_PER_HALVING_ERA;
         let next_halving_daa_score = (era < 4).then(|| (era + 1) * BLOCKS_PER_HALVING_ERA);
         let blocks_until_halving = next_halving_daa_score.map(|at| at - self.virtual_daa_score);
-        let days_until_halving =
-            blocks_until_halving.map(|blocks| blocks as f64 * TARGET_TIME_PER_BLOCK_MS as f64 / 86_400_000.0);
+        let days_until_halving = blocks_until_halving.map(|blocks| blocks as f64 * TARGET_TIME_PER_BLOCK_MS as f64 / 86_400_000.0);
 
         Ok(NetworkStats {
             difficulty: work_from_bits(self.difficulty_bits) as f64,
@@ -1724,9 +1745,23 @@ impl DagLedger {
     }
 }
 
-
-
 /// What the consensus index keeps about a stored block.
+/// True for locking scripts whose spend can be valid at one blue score and not another.
+fn score_dependent(version: u8) -> bool {
+    use imoney_core::{escrow::SCRIPT_VERSION_ESCROW, hashlock::SCRIPT_VERSION_HASHLOCK, vault};
+    matches!(version, SCRIPT_VERSION_ESCROW | SCRIPT_VERSION_HASHLOCK | SCRIPT_VERSION_SUBSCRIPTION)
+        || version == vault::SCRIPT_VERSION_VAULT
+        || version == vault::SCRIPT_VERSION_VAULT_PENDING
+}
+
+/// Why a payment into a subscription that already holds a coin is refused.
+pub const SUBSCRIPTION_HOLDS_ONE_COIN: &str = "This subscription already holds money: cancel it and start a new one to add more";
+
+/// `LedgerView::script_occupied` for the committed ledger alone.
+fn stored_occupied(storage: &Storage, script: &ScriptPublicKey, ignore: &[Outpoint]) -> Result<bool, StorageError> {
+    Ok(storage.outpoints_at_script(script, ignore.len() + 1)?.iter().any(|outpoint| !ignore.contains(outpoint)))
+}
+
 fn dag_block(header: &BlockHeader, meta: BlockMeta) -> DagBlock {
     DagBlock {
         parents: header.parents.clone(),

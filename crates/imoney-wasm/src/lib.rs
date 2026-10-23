@@ -7,9 +7,8 @@ use bip39::Mnemonic;
 use ed25519_dalek::SigningKey;
 use imoney_core::constants::MIN_RELAY_FEE_PER_BYTE;
 use imoney_core::{
-    Address, AddressType, Encode, Hash, MultisigScript, Network, Outpoint, PartialSignature, ScriptPublicKey, TokenAmount,
-    TokenInfo, Transaction,
-    TxOutput,
+    Address, AddressType, Encode, Hash, MultisigScript, Network, Outpoint, PartialSignature, ScriptPublicKey, TokenAmount, TokenInfo,
+    Transaction, TxOutput,
 };
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
@@ -74,6 +73,12 @@ pub struct ProposalSummary {
 pub struct ProposalPayment {
     pub address: Option<String>,
     pub amount_atoms: u64,
+    /// A token the output carries, so a co-signer sees it: an output of 0 IMN can still move
+    /// all of a shared wallet's tokens.
+    pub token_id: Option<String>,
+    pub token_amount: u64,
+    /// The output hands over the right to mint the token.
+    pub mint_authority: bool,
 }
 
 /// An unspent output as the node's `/address/:addr/utxos` endpoint reports it.
@@ -191,10 +196,9 @@ fn check_proposal(proposal: &Proposal, utxos_json: &str) -> Result<(MultisigScri
     }
     let mut total: u64 = 0;
     for input in &tx.inputs {
-        let (_, coin) = coins
-            .iter()
-            .find(|(outpoint, _)| *outpoint == input.previous_outpoint)
-            .ok_or_else(|| "The proposal spends a coin your node does not list for this shared wallet. It may already be spent.".to_string())?;
+        let (_, coin) = coins.iter().find(|(outpoint, _)| *outpoint == input.previous_outpoint).ok_or_else(|| {
+            "The proposal spends a coin your node does not list for this shared wallet. It may already be spent.".to_string()
+        })?;
         total = total.checked_add(coin.value_atoms).ok_or_else(|| "Input total overflows".to_string())?;
     }
     let outputs = tx.outputs.iter().try_fold(0u64, |sum, o| sum.checked_add(o.value_atoms));
@@ -220,8 +224,7 @@ fn spendable_utxos(utxos_json: &str, owner: &Address) -> Result<Vec<(Outpoint, T
         .into_iter()
         .filter(|item| item.spendable != Some(false))
         .map(|item| {
-            let transaction_id =
-                Hash::from_hex(&item.transaction_id).map_err(|_| "Invalid transaction ID in UTXO list".to_string())?;
+            let transaction_id = Hash::from_hex(&item.transaction_id).map_err(|_| "Invalid transaction ID in UTXO list".to_string())?;
             Ok((
                 Outpoint { transaction_id, index: item.index },
                 TxOutput {
@@ -332,8 +335,29 @@ pub mod wallet {
         service_address: Option<&str>,
         invoice_id: Option<&str>,
     ) -> Result<SignedTransaction, String> {
+        build_payment_to(private_key_hex, testnet, recipient, amount_atoms, fee_atoms, utxos_json, service_address, invoice_id, false)
+    }
+
+    /// `build_payment`, and with `funding_subscription` set, also to a subscription address. A
+    /// subscription holds exactly one coin, put there when it is created; an ordinary payment
+    /// to one is refused here rather than by the network.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn build_payment_to(
+        private_key_hex: &str,
+        testnet: bool,
+        recipient: &str,
+        amount_atoms: u64,
+        fee_atoms: u64,
+        utxos_json: &str,
+        service_address: Option<&str>,
+        invoice_id: Option<&str>,
+        funding_subscription: bool,
+    ) -> Result<SignedTransaction, String> {
         let key = signing_key(private_key_hex)?;
         let recipient = parse_address(recipient, testnet, "recipient")?;
+        if recipient.address_type == imoney_core::AddressType::Subscription && !funding_subscription {
+            return Err("That is a subscription's address. Money goes into a subscription only when it is set up; to add more, cancel it and start a new one.".to_string());
+        }
         let service = service_address.map(|a| parse_address(a, testnet, "service")).transpose()?;
         let utxos = spendable_utxos(utxos_json, &address_of(&key, testnet))?;
         let build = |fee: u64| {
@@ -384,7 +408,9 @@ pub mod wallet {
         let key = signing_key(private_key_hex)?;
         let utxos = spendable_utxos(utxos_json, &address_of(&key, testnet))?;
         let info = TokenInfo { name: name.trim().to_string(), ticker: ticker.trim().to_uppercase(), decimals, url: url.trim().to_string() };
-        with_fee(fee_atoms, |fee| Transaction::build_token_issue(&key, network(testnet), info.clone(), supply, mintable, fee, utxos.clone()))
+        with_fee(fee_atoms, |fee| {
+            Transaction::build_token_issue(&key, network(testnet), info.clone(), supply, mintable, fee, utxos.clone())
+        })
     }
 
     /// Sends `amount` (in the token's smallest unit) of a token, optionally for an invoice.
@@ -443,7 +469,9 @@ pub mod wallet {
         let key = signing_key(private_key_hex)?;
         let (give, want) = (parse_asset(give)?, parse_asset(want)?);
         let utxos = spendable_utxos(utxos_json, &address_of(&key, testnet))?;
-        with_fee(fee_atoms, |fee| Transaction::build_offer(&key, network(testnet), give, give_amount, want, price_num, price_den, fee, utxos.clone()))
+        with_fee(fee_atoms, |fee| {
+            Transaction::build_offer(&key, network(testnet), give, give_amount, want, price_num, price_den, fee, utxos.clone())
+        })
     }
 
     /// Takes `take_amount` of the offer at `offer_tx_id:offer_index`, whose output is given as
@@ -463,7 +491,13 @@ pub mod wallet {
     }
 
     /// Cancels one of the wallet's own offers and returns what it holds.
-    pub fn offer_cancel(private_key_hex: &str, testnet: bool, offer_json: &str, fee_atoms: u64, utxos_json: &str) -> Result<SignedTransaction, String> {
+    pub fn offer_cancel(
+        private_key_hex: &str,
+        testnet: bool,
+        offer_json: &str,
+        fee_atoms: u64,
+        utxos_json: &str,
+    ) -> Result<SignedTransaction, String> {
         let key = signing_key(private_key_hex)?;
         let offer = parse_offer(offer_json, testnet)?;
         let utxos = spendable_utxos(utxos_json, &address_of(&key, testnet))?;
@@ -472,8 +506,7 @@ pub mod wallet {
 
     /// Sets up a shared wallet from its co-signers' public keys (hex, in any order).
     pub fn shared_wallet_create(threshold: u8, public_keys: &[&str], testnet: bool) -> Result<SharedWallet, String> {
-        let keys: Vec<[u8; 32]> =
-            public_keys.iter().map(|key| hex_array(key, "A public key")).collect::<Result<_, _>>()?;
+        let keys: Vec<[u8; 32]> = public_keys.iter().map(|key| hex_array(key, "A public key")).collect::<Result<_, _>>()?;
         let script = MultisigScript::new(threshold, &keys).map_err(|e| e.to_string())?;
         Ok(shared_wallet(&script, testnet))
     }
@@ -551,7 +584,13 @@ pub mod wallet {
                 let address = AddressType::from_u8(output.script_public_key.version)
                     .zip(<[u8; 32]>::try_from(output.script_public_key.script.as_slice()).ok())
                     .map(|(kind, hash)| Address::new(net, kind, Hash(hash)).to_string());
-                payments.push(ProposalPayment { address, amount_atoms: output.value_atoms });
+                payments.push(ProposalPayment {
+                    address,
+                    amount_atoms: output.value_atoms,
+                    token_id: output.token.as_ref().map(|t| t.id.to_hex()),
+                    token_amount: output.token.as_ref().map_or(0, |t| t.amount),
+                    mint_authority: output.token.as_ref().is_some_and(|t| t.mint_authority),
+                });
             }
         }
         let paid_out: u64 = tx.outputs.iter().map(|o| o.value_atoms).sum();
@@ -567,12 +606,8 @@ pub mod wallet {
                             && hex_array::<64>(&entry.signature, "signature").is_ok_and(|signature| {
                                 let mut probe = tx.clone();
                                 let one = MultisigScript::new(1, &[**key]).expect("one valid key");
-                                probe
-                                    .set_multisig_signatures(index, &one, &[PartialSignature { public_key: **key, signature }])
-                                    .is_ok()
-                                    && probe
-                                        .verify_input(net, index, &ScriptPublicKey::pay_to_address(&one.address(net)))
-                                        .is_ok()
+                                probe.set_multisig_signatures(index, &one, &[PartialSignature { public_key: **key, signature }]).is_ok()
+                                    && probe.verify_input(net, index, &ScriptPublicKey::pay_to_address(&one.address(net))).is_ok()
                             })
                     })
                 })
@@ -605,10 +640,7 @@ pub mod wallet {
         for (index, entries) in signed.signatures.iter_mut().enumerate() {
             let partial = proposal.transaction.multisig_sign(network(proposal.testnet), index, &key);
             entries.retain(|entry| entry.public_key != hex::encode(public_key));
-            entries.push(ProposalSignature {
-                public_key: hex::encode(partial.public_key),
-                signature: hex::encode(partial.signature),
-            });
+            entries.push(ProposalSignature { public_key: hex::encode(partial.public_key), signature: hex::encode(partial.signature) });
         }
         Ok(signed)
     }
@@ -773,7 +805,14 @@ pub fn offer_create(
 
 /// Takes part or all of an offer, given as one entry of the node's `/api/v1/offers`.
 #[wasm_bindgen]
-pub fn offer_take(private_key_hex: &str, testnet: bool, offer_json: &str, take_amount: u64, fee_atoms: u64, utxos_json: &str) -> Result<String, JsError> {
+pub fn offer_take(
+    private_key_hex: &str,
+    testnet: bool,
+    offer_json: &str,
+    take_amount: u64,
+    fee_atoms: u64,
+    utxos_json: &str,
+) -> Result<String, JsError> {
     to_json(wallet::offer_take(private_key_hex, testnet, offer_json, take_amount, fee_atoms, utxos_json))
 }
 
@@ -864,11 +903,37 @@ mod tests {
 
     const PHRASE: &str = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
 
+    /// A subscription holds one coin, put there when it is set up: a plain payment to its
+    /// address is refused, and funding it again once it holds money is refused too.
+    #[test]
+    fn a_subscription_is_funded_once_and_never_paid_like_an_address() {
+        let me = keys_from_mnemonic(PHRASE, true).unwrap();
+        let shop = keys_from_private_key(&"22".repeat(32), true).unwrap();
+        let script = imoney_core::SubscriptionScript::new(
+            hex::decode(&me.public_key_hex).unwrap().try_into().unwrap(),
+            hex::decode(&shop.public_key_hex).unwrap().try_into().unwrap(),
+            1_000_000,
+            100,
+            1_000,
+            [3u8; 32],
+        )
+        .unwrap();
+        let address = script.address(Network::Testnet).to_string();
+        let coins = utxos(&[50_000_000]);
+        let plain = build_payment(&me.private_key_hex, true, &address, 3_000_000, 0, &coins, None, None);
+        assert!(plain.unwrap_err().contains("subscription"));
+        assert!(build_payment_to(&me.private_key_hex, true, &address, 3_000_000, 0, &coins, None, None, true).is_ok());
+        let terms = hex::encode(script.to_bytes());
+        assert!(crate::programs::subscription_fund(&me.private_key_hex, true, &terms, 3_000_000, 0, &coins).is_ok());
+    }
+
     fn utxos(values: &[u64]) -> String {
         let items: Vec<String> = values
             .iter()
             .enumerate()
-            .map(|(i, v)| format!(r#"{{"transaction_id":"{}","index":{},"value_atoms":{},"value_imn":0,"spendable":true}}"#, "ab".repeat(32), i, v))
+            .map(|(i, v)| {
+                format!(r#"{{"transaction_id":"{}","index":{},"value_atoms":{},"value_imn":0,"spendable":true}}"#, "ab".repeat(32), i, v)
+            })
             .collect();
         format!("[{}]", items.join(","))
     }
@@ -878,7 +943,8 @@ mod tests {
         let keys = keys_from_mnemonic(PHRASE, true).unwrap();
         let other = keys_from_mnemonic("legal winner thank year wave sausage worth useful legal winner thank yellow", true).unwrap();
 
-        let issued = token_issue(&keys.private_key_hex, true, "Coffee points", "bean", 0, "", 1_000, true, 0, &utxos(&[5_000_000])).unwrap();
+        let issued =
+            token_issue(&keys.private_key_hex, true, "Coffee points", "bean", 0, "", 1_000, true, 0, &utxos(&[5_000_000])).unwrap();
         let id = issued.token_id.clone().expect("an issuing transaction names its token");
         assert_eq!(issued.transaction.issue.as_ref().unwrap().ticker, "BEAN");
 
@@ -968,9 +1034,9 @@ mod tests {
             &me.private_key_hex,
             true,
             &shop.address,
-            60_000,
+            6_000_000,
             1_000,
-            &utxos(&[50_000, 50_000]),
+            &utxos(&[5_000_000, 5_000_000]),
             Some(&node.address),
             Some("INV-7"),
         )
@@ -979,8 +1045,8 @@ mod tests {
         assert_eq!(signed.inputs_used, 2);
         assert_eq!(signed.tx_id, tx.id().to_hex());
         assert_eq!(tx.invoice_id(), Some("INV-7"));
-        assert_eq!(tx.outputs[0].value_atoms, 60_000);
-        assert_eq!(tx.outputs[1].value_atoms, 39_000); // change
+        assert_eq!(tx.outputs[0].value_atoms, 6_000_000);
+        assert_eq!(tx.outputs[1].value_atoms, 3_999_000); // change
         assert!(tx.service.is_some());
 
         let my_script = ScriptPublicKey::pay_to_address(&Address::decode(&me.address).unwrap());
@@ -1062,6 +1128,19 @@ mod tests {
         assert_eq!(summary.payments[0].address.as_deref(), Some(shop.address.as_str()));
         assert_eq!(summary.payments[0].amount_atoms, 50_000_000);
         assert_eq!(summary.change_atoms + summary.fee_atoms, 30_000_000);
+        assert!(summary.payments[0].token_id.is_none());
+
+        // N-20: an output of 0 IMN that moves tokens is shown with the tokens it moves
+        let mut token_grab = proposal.clone();
+        token_grab.transaction.outputs.push(imoney_core::TxOutput {
+            value_atoms: 0,
+            script_public_key: ScriptPublicKey::pay_to_address(&Address::decode(&outsider.address).unwrap()),
+            token: Some(imoney_core::TokenAmount { id: imoney_core::Hash([6u8; 32]), amount: 7_000, mint_authority: false }),
+        });
+        let shown = shared_summary(&token_grab, &coins).unwrap();
+        let grab = shown.payments.iter().find(|p| p.address.as_deref() == Some(outsider.address.as_str())).unwrap();
+        assert_eq!((grab.amount_atoms, grab.token_amount), (0, 7_000));
+        assert_eq!(grab.token_id.as_deref(), Some("06".repeat(32).as_str()));
         assert_eq!(summary.invoice_id.as_deref(), Some("INV-3"));
         assert!(summary.signed_by.is_empty() && !summary.ready);
 

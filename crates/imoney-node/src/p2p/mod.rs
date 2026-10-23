@@ -44,6 +44,12 @@ const MAX_ADDRS_PER_REPLY: usize = 100;
 /// Misbehaviour score at which a peer is disconnected and its IP banned.
 const BAN_THRESHOLD: u32 = 100;
 const BAN_DURATION: Duration = Duration::from_secs(10 * 60);
+/// Transactions from one IP address checked per second, and the burst allowed; far above what
+/// an honest relay sends at this network's block size.
+const TXS_PER_SECOND_PER_IP: f64 = 200.0;
+const TX_BURST_PER_IP: f64 = 2_000.0;
+/// Most IP addresses with a misbehaviour score kept; beyond this, faded ones are forgotten.
+const MAX_SCORED_IPS: usize = 10_000;
 /// A peer's misbehaviour score fades by one point for each of these that passes.
 const SCORE_FADE: Duration = Duration::from_secs(30);
 /// A block that fails proof of work cost its sender nothing to make: abuse, and nothing else.
@@ -63,6 +69,9 @@ const SYNC_BATCH_BYTES: usize = 2_000_000;
 const DIAL_INTERVAL: Duration = Duration::from_secs(1);
 const DIAL_TIMEOUT: Duration = Duration::from_secs(5);
 const PING_INTERVAL: Duration = Duration::from_secs(30);
+/// How long a new connection may hold a slot before completing the handshake. Without it, a
+/// stranger could fill every inbound slot with connections that never say anything.
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 const IDLE_TIMEOUT: Duration = Duration::from_secs(90);
 /// Messages queued for one peer before further ones are dropped.
 const PEER_QUEUE: usize = 2_048;
@@ -113,9 +122,6 @@ struct PeerHandle {
     node_id: Option<u64>,
     /// Where the peer accepts connections, as it told us.
     listen_addr: Option<SocketAddr>,
-    score: u32,
-    /// When the score last changed. It fades with time, so only sustained trouble adds up.
-    scored_at: Instant,
     /// Wakes the connection's task so it closes.
     shutdown: Arc<Notify>,
 }
@@ -136,6 +142,13 @@ pub struct PeerManager {
     self_addrs: Mutex<HashSet<SocketAddr>>,
     dialing: Mutex<HashSet<SocketAddr>>,
     banned: Mutex<HashMap<IpAddr, Instant>>,
+    /// Misbehaviour score per IP address, and when it last changed. Kept by address rather than
+    /// by connection, so a peer cannot wipe its record by reconnecting. Fades with time, so only
+    /// sustained trouble adds up.
+    scores: Mutex<HashMap<IpAddr, (u32, Instant)>>,
+    /// Transactions accepted for checking per IP address. Each costs signature checks under the
+    /// ledger lock; beyond the rate they are dropped unchecked, as relay policy allows.
+    tx_limit: crate::rpc::RateLimit,
     /// Blocks received before their parents, keyed by block hash.
     orphans: Mutex<HashMap<Hash, Orphan>>,
     /// False while the node still has to catch up with the peers it was told to connect to.
@@ -166,6 +179,8 @@ impl PeerManager {
             self_addrs: Mutex::new(HashSet::new()),
             dialing: Mutex::new(HashSet::new()),
             banned: Mutex::new(HashMap::new()),
+            scores: Mutex::new(HashMap::new()),
+            tx_limit: crate::rpc::RateLimit::new(TXS_PER_SECOND_PER_IP, TX_BURST_PER_IP),
             orphans: Mutex::new(HashMap::new()),
             synced: AtomicBool::new(true),
             sync_requested_at: Mutex::new(None),
@@ -192,6 +207,15 @@ impl PeerManager {
         *self.peer_store.lock().unwrap() = Some(path);
     }
 
+    /// Holds the miner back until the node has caught up, when there is any network to catch up
+    /// with: peers given on the command line, or ones remembered from earlier runs. A node with
+    /// neither is the first of its network and starts at once.
+    pub fn require_initial_sync_if_networked(&self, peers_configured: bool) {
+        if peers_configured || !self.known_addrs.lock().unwrap().is_empty() {
+            self.require_initial_sync();
+        }
+    }
+
     /// Writes the known peer addresses to the peer store, if one is configured.
     pub fn save_peers(&self) {
         let Some(path) = self.peer_store.lock().unwrap().clone() else {
@@ -202,16 +226,18 @@ impl PeerManager {
         let _ = std::fs::write(path, lines.join("\n"));
     }
 
-    /// Stops holding back the miner when no configured peer could be reached in time.
+    /// Stops holding back the miner when no peer this node dialed is connected after the wait.
     /// Without this, a node whose seeds are all down would wait forever and the chain would stall.
     fn give_up_waiting_for_sync(&self) {
         if self.is_synced() {
             return;
         }
-        let waited_long_enough =
-            self.sync_requested_at.lock().unwrap().is_some_and(|since| since.elapsed() > self.sync_wait);
-        let has_peer = self.peers.lock().unwrap().values().any(|p| p.node_id.is_some());
-        if waited_long_enough && !has_peer {
+        let waited_long_enough = self.sync_requested_at.lock().unwrap().is_some_and(|since| since.elapsed() > self.sync_wait);
+        // Only a link this node opened can mark it synced, so only those keep it waiting. Inbound
+        // links alone (the duplicate-link rule can leave a node with nothing else) would
+        // otherwise hold the miner back forever.
+        let has_outbound_peer = self.peers.lock().unwrap().values().any(|p| p.outbound && p.node_id.is_some());
+        if waited_long_enough && !has_outbound_peer {
             println!("[*] No configured peer reachable after {:?}; continuing without initial sync.", self.sync_wait);
             self.synced.store(true, Ordering::SeqCst);
         }
@@ -250,13 +276,7 @@ impl PeerManager {
 
     /// Returns list of currently connected peers.
     pub async fn get_connected_peers(&self) -> Vec<String> {
-        self.peers
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|(_, peer)| peer.node_id.is_some())
-            .map(|(addr, _)| addr.to_string())
-            .collect()
+        self.peers.lock().unwrap().iter().filter(|(_, peer)| peer.node_id.is_some()).map(|(addr, _)| addr.to_string()).collect()
     }
 
     /// Starts the incoming TCP P2P listener and the task that keeps outbound connections open.
@@ -378,15 +398,7 @@ impl PeerManager {
             }
             peers.insert(
                 peer_addr,
-                PeerHandle {
-                    sender: sender.clone(),
-                    outbound: is_outbound,
-                    node_id: None,
-                    listen_addr: None,
-                    score: 0,
-                    scored_at: Instant::now(),
-                    shutdown: shutdown.clone(),
-                },
+                PeerHandle { sender: sender.clone(), outbound: is_outbound, node_id: None, listen_addr: None, shutdown: shutdown.clone() },
             );
         }
 
@@ -423,8 +435,12 @@ impl PeerManager {
         let mut tip_poll = tokio::time::interval(self.tip_poll_interval);
         let mut last_heard = Instant::now();
         let mut handshaken = false;
+        // A connection that has not introduced itself by then gives up its slot
+        let handshake_deadline = tokio::time::sleep(HANDSHAKE_TIMEOUT);
+        tokio::pin!(handshake_deadline);
         loop {
             tokio::select! {
+                _ = &mut handshake_deadline, if !handshaken => break,
                 result = frames.read(&mut reader, magic) => {
                     match result {
                         Ok(Some(message)) => {
@@ -541,13 +557,26 @@ impl PeerManager {
 
     /// Raises a peer's misbehaviour score; at the threshold the peer is dropped and its IP banned.
     fn misbehave(&self, peer_addr: SocketAddr, points: u32) {
-        let mut peers = self.peers.lock().unwrap();
-        if let Some(peer) = peers.get_mut(&peer_addr) {
-            let faded = (peer.scored_at.elapsed().as_secs() / SCORE_FADE.as_secs()) as u32;
-            peer.score = peer.score.saturating_sub(faded) + points;
-            peer.scored_at = Instant::now();
-            if peer.score >= BAN_THRESHOLD {
-                self.banned.lock().unwrap().insert(peer_addr.ip(), Instant::now() + BAN_DURATION);
+        let ip = peer_addr.ip();
+        let banned = {
+            let mut scores = self.scores.lock().unwrap();
+            let faded = |(score, at): &(u32, Instant)| score.saturating_sub((at.elapsed().as_secs() / SCORE_FADE.as_secs()) as u32);
+            if scores.len() >= MAX_SCORED_IPS && !scores.contains_key(&ip) {
+                // Forget addresses whose score has faded away
+                scores.retain(|_, entry| faded(entry) > 0);
+            }
+            let entry = scores.entry(ip).or_insert((0, Instant::now()));
+            *entry = (faded(entry).saturating_add(points), Instant::now());
+            let banned = entry.0 >= BAN_THRESHOLD;
+            if banned {
+                scores.remove(&ip);
+            }
+            banned
+        };
+        if banned {
+            self.banned.lock().unwrap().insert(ip, Instant::now() + BAN_DURATION);
+            // Every connection from that address goes, not just the one that misbehaved
+            for peer in self.peers.lock().unwrap().iter().filter(|(addr, _)| addr.ip() == ip).map(|(_, peer)| peer) {
                 peer.shutdown.notify_one();
             }
         }
@@ -641,13 +670,7 @@ impl PeerManager {
             if ledger.has_block(&block.hash()) {
                 return;
             }
-            let missing: Vec<Hash> = block
-                .header
-                .parents
-                .iter()
-                .filter(|p| !ledger.has_block(p))
-                .copied()
-                .collect();
+            let missing: Vec<Hash> = block.header.parents.iter().filter(|p| !ledger.has_block(p)).copied().collect();
             if missing.is_empty() {
                 let (connected, penalty) = self.connect_block_and_orphans(&mut ledger, block);
                 (missing, connected, penalty)
@@ -763,6 +786,7 @@ impl PeerManager {
                     let _ = sender.try_send(Message::Tx(tx));
                 }
             }
+            Message::Tx(_) if !self.tx_limit.allow(peer_addr.ip()) => {}
             Message::Tx(tx) => {
                 // Duplicate, conflicting or underpaying transactions are simply not relayed
                 let admitted = self.ledger.write().await.broadcast_transaction(tx);
@@ -777,8 +801,7 @@ impl PeerManager {
                 }
             }
             Message::GetAddr => {
-                let addrs: Vec<SocketAddr> =
-                    self.known_addrs.lock().unwrap().iter().take(MAX_ADDRS_PER_REPLY).copied().collect();
+                let addrs: Vec<SocketAddr> = self.known_addrs.lock().unwrap().iter().take(MAX_ADDRS_PER_REPLY).copied().collect();
                 let _ = sender.try_send(Message::Addr(addrs));
             }
             Message::Addr(addrs) => {

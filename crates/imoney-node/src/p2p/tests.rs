@@ -36,8 +36,7 @@ impl TestNode {
         let ledger: SharedLedger = Arc::new(RwLock::new(ledger));
         let pow = Arc::new(HallmarkPow::new(PowParams::tiny(), Hash([1u8; 32]), PowMode::Full));
         let manager = Arc::new(
-            PeerManager::with_magic(ledger.clone(), pow.clone(), 0, magic)
-                .with_timing(Duration::from_millis(300), Duration::from_secs(1)),
+            PeerManager::with_magic(ledger.clone(), pow.clone(), 0, magic).with_timing(Duration::from_millis(300), Duration::from_secs(1)),
         );
         let addr = manager.clone().start_server("127.0.0.1:0".parse().unwrap()).await.unwrap();
         Self { manager, ledger, pow, addr }
@@ -51,10 +50,8 @@ impl TestNode {
     async fn mine_silently(&self, payout: &Address) -> Hash {
         let mut ledger = self.ledger.write().await;
         let template = ledger.get_mining_template(Some(payout));
-        let (nonce, _) = self
-            .pow
-            .mine(&template.pre_pow_hash, template.block.header.bits, 0, 1_000_000, Arc::new(AtomicBool::new(false)))
-            .unwrap();
+        let (nonce, _) =
+            self.pow.mine(&template.pre_pow_hash, template.block.header.bits, 0, 1_000_000, Arc::new(AtomicBool::new(false))).unwrap();
         ledger.add_block(template.into_block(nonce), &self.pow).unwrap()
     }
 
@@ -62,10 +59,8 @@ impl TestNode {
     async fn mine(&self, payout: &Address) -> Hash {
         let mut ledger = self.ledger.write().await;
         let template = ledger.get_mining_template(Some(payout));
-        let (nonce, _) = self
-            .pow
-            .mine(&template.pre_pow_hash, template.block.header.bits, 0, 1_000_000, Arc::new(AtomicBool::new(false)))
-            .unwrap();
+        let (nonce, _) =
+            self.pow.mine(&template.pre_pow_hash, template.block.header.bits, 0, 1_000_000, Arc::new(AtomicBool::new(false))).unwrap();
         let block = template.into_block(nonce);
         let hash = ledger.add_block(block.clone(), &self.pow).unwrap();
         drop(ledger);
@@ -335,10 +330,7 @@ async fn only_a_block_without_proof_of_work_bans_at_once() {
         let mut block = a.ledger.read().await.get_mining_template(Some(&miner)).block;
         block.header.blue_score += 1 + nonce;
         let pre_pow_hash = block.header.pre_pow_hash().unwrap();
-        let (found, _) = a
-            .pow
-            .mine(&pre_pow_hash, block.header.bits, 0, 1_000_000, Arc::new(AtomicBool::new(false)))
-            .unwrap();
+        let (found, _) = a.pow.mine(&pre_pow_hash, block.header.bits, 0, 1_000_000, Arc::new(AtomicBool::new(false))).unwrap();
         block.header.nonce = found;
         write_frame(&mut stream, MAGIC, &Message::Block(block)).await.unwrap();
     }
@@ -347,8 +339,7 @@ async fn only_a_block_without_proof_of_work_bans_at_once() {
     let good = a.ledger.read().await.get_mining_template(Some(&miner)).block;
     let pre_pow_hash = good.header.pre_pow_hash().unwrap();
     let mut good = good;
-    good.header.nonce =
-        a.pow.mine(&pre_pow_hash, good.header.bits, 0, 1_000_000, Arc::new(AtomicBool::new(false))).unwrap().0;
+    good.header.nonce = a.pow.mine(&pre_pow_hash, good.header.bits, 0, 1_000_000, Arc::new(AtomicBool::new(false))).unwrap().0;
     write_frame(&mut stream, MAGIC, &Message::Block(good)).await.unwrap();
     eventually!("the good block is added", a.block_count().await == 2);
     assert_eq!(a.peer_count().await, 1);
@@ -465,18 +456,71 @@ async fn an_inbound_peer_can_neither_hold_back_nor_fake_sync() {
     write_frame(&mut stream, MAGIC, &version).await.unwrap();
     eventually!("handshake completes", a.peer_count().await == 1);
 
-    // "I have nothing you lack", plus a properly mined block whose parent does not exist
+    // "I have nothing you lack": checked well inside the sync wait, since after it a node with
+    // only inbound peers stops waiting by design
     write_frame(&mut stream, MAGIC, &Message::Tips(vec![genesis])).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(!a.manager.is_synced(), "an inbound peer's word is not enough");
+
+    // A properly mined block whose parent does not exist
     let mut orphan = a.ledger.read().await.get_mining_template(Some(&miner)).block;
     orphan.header.parents = vec![Hash([7u8; 32])];
     let pre_pow_hash = orphan.header.pre_pow_hash().unwrap();
-    orphan.header.nonce =
-        a.pow.mine(&pre_pow_hash, orphan.header.bits, 0, 1_000_000, Arc::new(AtomicBool::new(false))).unwrap().0;
+    orphan.header.nonce = a.pow.mine(&pre_pow_hash, orphan.header.bits, 0, 1_000_000, Arc::new(AtomicBool::new(false))).unwrap().0;
     write_frame(&mut stream, MAGIC, &Message::Block(orphan)).await.unwrap();
-    tokio::time::sleep(Duration::from_secs(1)).await;
-    assert!(!a.manager.is_synced(), "an inbound peer's word is not enough");
 
     // The fresh orphan does not stop the peer the node dialed from confirming it is caught up
     a.connect(&b);
     eventually!("A syncs through the peer it dialed", a.manager.is_synced());
+}
+
+/// A node left with only inbound links (the duplicate-link rule can drop its own) must not wait
+/// for sync forever: with no peer it dialed, it stops waiting just as if none were reachable.
+#[tokio::test(flavor = "multi_thread")]
+async fn inbound_peers_alone_do_not_hold_back_the_miner_forever() {
+    let a = TestNode::start("inbound-only-a").await;
+    let b = TestNode::start("inbound-only-b").await;
+    a.manager.require_initial_sync();
+    // B dials A, so A's only peer is inbound
+    b.connect(&a);
+    eventually!("handshake completes", a.peer_count().await == 1);
+    eventually!("A stops waiting", a.manager.is_synced());
+}
+
+/// GHSA-6fx8-5qp5-3qrh: misbehaviour counts against the address, so reconnecting (a new port,
+/// a new connection) does not wipe the record.
+#[tokio::test(flavor = "multi_thread")]
+async fn reconnecting_does_not_reset_the_misbehaviour_score() {
+    let a = TestNode::start("score-a").await;
+    let ip: std::net::IpAddr = "203.0.113.7".parse().unwrap();
+    a.manager.misbehave(SocketAddr::new(ip, 40_001), 90);
+    assert!(!a.manager.is_banned(&ip));
+    // The same address on a fresh connection
+    a.manager.misbehave(SocketAddr::new(ip, 40_002), 20);
+    assert!(a.manager.is_banned(&ip));
+}
+
+/// N-10: a node started without --peers but with peers remembered from an earlier run waits to
+/// catch up before mining; one that knows of no network at all starts at once.
+#[tokio::test(flavor = "multi_thread")]
+async fn remembered_peers_also_hold_back_the_miner_until_synced() {
+    let first = TestNode::start("remembered-first").await;
+    first.manager.require_initial_sync_if_networked(false);
+    assert!(first.manager.is_synced());
+
+    let returning = TestNode::start("remembered-returning").await;
+    returning.manager.remember_addr("203.0.113.20:18555".parse().unwrap());
+    returning.manager.require_initial_sync_if_networked(false);
+    assert!(!returning.manager.is_synced());
+}
+
+/// N-11: a connection that never completes the handshake is dropped, freeing its inbound slot.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_silent_connection_gives_up_its_slot() {
+    let a = TestNode::start("silent-slot").await;
+    let _silent = TcpStream::connect(a.addr).await.unwrap();
+    eventually!("the connection takes a slot", a.manager.peers.lock().unwrap().len() == 1);
+    let started = Instant::now();
+    eventually!("the silent connection is dropped", a.manager.peers.lock().unwrap().is_empty());
+    assert!(started.elapsed() < Duration::from_secs(30));
 }

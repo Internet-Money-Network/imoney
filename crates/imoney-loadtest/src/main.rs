@@ -113,10 +113,7 @@ fn broadcast(agent: &ureq::Agent, node: &str, tx: &Transaction) -> Result<(), St
 fn spend(inputs: Vec<Outpoint>, outputs: Vec<TxOutput>, key: &SigningKey) -> Transaction {
     let mut tx = Transaction {
         version: 1,
-        inputs: inputs
-            .into_iter()
-            .map(|previous_outpoint| TxInput { previous_outpoint, signature_script: Vec::new() })
-            .collect(),
+        inputs: inputs.into_iter().map(|previous_outpoint| TxInput { previous_outpoint, signature_script: Vec::new() }).collect(),
         outputs,
         payload: Vec::new(),
         service: None,
@@ -129,10 +126,7 @@ fn spend(inputs: Vec<Outpoint>, outputs: Vec<TxOutput>, key: &SigningKey) -> Tra
 }
 
 fn confirmations(agent: &ureq::Agent, node: &str, tx_id: &Hash) -> u64 {
-    get(agent, &format!("{}/api/v1/tx/{}", node, tx_id.to_hex()))
-        .ok()
-        .and_then(|status| status["confirmations"].as_u64())
-        .unwrap_or(0)
+    get(agent, &format!("{}/api/v1/tx/{}", node, tx_id.to_hex())).ok().and_then(|status| status["confirmations"].as_u64()).unwrap_or(0)
 }
 
 fn percentile(sorted: &[f64], fraction: f64) -> f64 {
@@ -190,8 +184,7 @@ fn main() {
     println!("[1/4] Waiting for {} matured mining rewards...", fan_outs);
     let coins: Vec<UtxoItem> = loop {
         let utxos: Vec<UtxoItem> = serde_json::from_value(get(&agent, &utxo_url).unwrap_or_default()).unwrap_or_default();
-        let usable: Vec<UtxoItem> =
-            utxos.into_iter().filter(|u| u.spendable && u.value_atoms >= needed_per_coin).take(fan_outs).collect();
+        let usable: Vec<UtxoItem> = utxos.into_iter().filter(|u| u.spendable && u.value_atoms >= needed_per_coin).take(fan_outs).collect();
         if usable.len() >= fan_outs {
             break usable;
         }
@@ -208,7 +201,11 @@ fn main() {
         let keys: Vec<SigningKey> = (first..first + count).map(|i| key_for(&format!("wallet {}", i))).collect();
         let mut outputs: Vec<TxOutput> = keys
             .iter()
-            .map(|key| TxOutput { value_atoms: WALLET_FUNDS, script_public_key: ScriptPublicKey::pay_to_address(&address_of(key)), token: None })
+            .map(|key| TxOutput {
+                value_atoms: WALLET_FUNDS,
+                script_public_key: ScriptPublicKey::pay_to_address(&address_of(key)),
+                token: None,
+            })
             .collect();
         let change = coin.value_atoms - count as u64 * WALLET_FUNDS - FAN_OUT_FEE;
         outputs.push(TxOutput { value_atoms: change, script_public_key: funding_script.clone(), token: None });
@@ -309,7 +306,8 @@ fn main() {
     let api_ms = Arc::new(Mutex::new(Vec::<f64>::new()));
     let node_samples = Arc::new(Mutex::new(Vec::<(u64, u64)>::new())); // (blue score, mempool)
     let sampler = {
-        let (agent, node, running, api_ms, node_samples) = (agent.clone(), node.clone(), running.clone(), api_ms.clone(), node_samples.clone());
+        let (agent, node, running, api_ms, node_samples) =
+            (agent.clone(), node.clone(), running.clone(), api_ms.clone(), node_samples.clone());
         let invoice_url = format!("{}/api/v1/invoice/LOADTEST-1?address={}", node, funding_address.to_string().replace(':', "%3A"));
         std::thread::spawn(move || {
             while running.load(Ordering::Relaxed) {
@@ -318,7 +316,12 @@ fn main() {
                     api_ms.lock().unwrap().push(started.elapsed().as_secs_f64() * 1000.0);
                     let (score, mempool) = (stats["blue_score"].as_u64().unwrap_or(0), stats["mempool_size"].as_u64().unwrap_or(0));
                     node_samples.lock().unwrap().push((score, mempool));
-                    println!("      blue score {:>6}   mempool {:>6}   block time {:>5.1} s", score, mempool, stats["average_block_time_sec"].as_f64().unwrap_or(0.0));
+                    println!(
+                        "      blue score {:>6}   mempool {:>6}   block time {:>5.1} s",
+                        score,
+                        mempool,
+                        stats["average_block_time_sec"].as_f64().unwrap_or(0.0)
+                    );
                 }
                 let started = Instant::now();
                 if get(&agent, &invoice_url).is_ok() {
@@ -402,7 +405,11 @@ fn main() {
     summary("API response time", api_ms.lock().unwrap().clone(), "ms");
     summary("Time until in a block", confirm_s.lock().unwrap().clone(), "s ");
     println!("  Followed payments unconfirmed {}", unconfirmed);
-    println!("  Blocks during the run        {} (one per {:.1} s)", blocks, if blocks > 0 { (run_seconds + drain_seconds) / blocks as f64 } else { 0.0 });
+    println!(
+        "  Blocks during the run        {} (one per {:.1} s)",
+        blocks,
+        if blocks > 0 { (run_seconds + drain_seconds) / blocks as f64 } else { 0.0 }
+    );
     println!("  Largest mempool seen         {}", peak_mempool);
     println!("  Mempool emptied after        {:.0} s", drain_seconds);
     println!("  Watchers connected           {} of {}", watchers_connected.load(Ordering::Relaxed), args.watchers);

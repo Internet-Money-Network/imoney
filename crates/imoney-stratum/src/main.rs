@@ -52,10 +52,16 @@ const MAX_BAD_SHARES: u32 = 200;
 /// for hundreds of rigs behind one address at the usual share rate.
 const SUBMITS_PER_SECOND_PER_IP: f64 = 100.0;
 const SUBMIT_BURST_PER_IP: f64 = 500.0;
-/// Most connections from one IP address.
-const MAX_MINERS_PER_IP: usize = 256;
-/// How long an address is refused after one of its miners is dropped for bad shares.
+/// Most connections from one IP address, by default; well below the pool's total, so one
+/// address cannot take every slot. `--max-miners-per-ip` raises it for a farm behind one IP.
+const DEFAULT_MAX_MINERS_PER_IP: usize = 32;
+/// How long a payout address is refused at an IP after its miner is dropped for bad shares.
 const BAD_SHARE_BAN: Duration = Duration::from_secs(10 * 60);
+/// Banned payout addresses at one IP at which the whole IP is refused: someone switching
+/// addresses to dodge the ban.
+const BANNED_LOGINS_PER_IP: usize = 3;
+/// Longest a write to one miner may block before the miner is dropped.
+const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 
 const ERR_OTHER: i64 = 20;
 const ERR_STALE: i64 = 21;
@@ -78,6 +84,11 @@ struct Args {
     #[arg(long)]
     rpc_token: Option<String>,
 
+    /// Read the bearer token from this file instead, so it does not appear in the process
+    /// list or the container's settings
+    #[arg(long, conflicts_with = "rpc_token")]
+    rpc_token_file: Option<std::path::PathBuf>,
+
     /// Seconds between shares each miner is steered towards
     #[arg(long, default_value_t = 5)]
     share_interval: u64,
@@ -89,6 +100,10 @@ struct Args {
     /// Most miners connected at once
     #[arg(long, default_value_t = 256)]
     max_miners: usize,
+
+    /// Most miners connected at once from one IP address
+    #[arg(long, default_value_t = DEFAULT_MAX_MINERS_PER_IP)]
+    max_miners_per_ip: usize,
 
     /// Run as a pool: mine to the pool's own address and share out the rewards
     #[arg(long, default_value_t = false)]
@@ -167,10 +182,18 @@ struct MinerState {
 }
 
 impl Miner {
+    /// Writes one message. A miner that does not read within `WRITE_TIMEOUT` is cut off: its
+    /// socket is shut down, so later writes fail at once instead of stalling the work loop, and
+    /// its connection's thread sees the close and removes it.
     fn send(&self, message: &Value) -> bool {
         let mut line = message.to_string();
         line.push('\n');
-        self.writer.lock().unwrap().write_all(line.as_bytes()).is_ok()
+        let mut writer = self.writer.lock().unwrap();
+        let sent = writer.write_all(line.as_bytes()).is_ok();
+        if !sent {
+            let _ = writer.shutdown(std::net::Shutdown::Both);
+        }
+        sent
     }
 }
 
@@ -188,15 +211,14 @@ struct Bridge {
     /// Submit budget per IP address: tokens left and when last refilled.
     ip_budgets: Mutex<HashMap<IpAddr, (f64, Instant)>>,
     /// Addresses refused until the given time.
-    banned: Mutex<HashMap<IpAddr, Instant>>,
+    /// Payout addresses refused at an IP, and until when. One misbehaving worker behind a
+    /// shared address (NAT, a farm) does not shut out the others.
+    banned: Mutex<HashMap<(IpAddr, String), Instant>>,
 }
 
 /// `target` made `shift` bits easier, stopping at the largest possible target.
 fn shifted_target(target: &[u8; 32], shift: u32) -> [u8; 32] {
-    let leading_zero_bits = target
-        .iter()
-        .position(|byte| *byte != 0)
-        .map_or(256, |i| i as u32 * 8 + target[i].leading_zeros());
+    let leading_zero_bits = target.iter().position(|byte| *byte != 0).map_or(256, |i| i as u32 * 8 + target[i].leading_zeros());
     if shift >= leading_zero_bits {
         return [0xff; 32];
     }
@@ -246,13 +268,14 @@ impl Bridge {
     /// Fetches a template for `address` and, if it is new work, stores it and returns it.
     fn refresh(&self, address: &str, max_age: &mut HashMap<String, Instant>) -> Option<Arc<Job>> {
         let url = format!("{}/api/v1/mining/template?address={}", self.args.node, address);
-        let template: Template = match ureq::get(&url).call().map_err(|e| e.to_string()).and_then(|r| r.into_json().map_err(|e| e.to_string())) {
-            Ok(template) => template,
-            Err(e) => {
-                eprintln!("[-] Could not fetch work for {}: {}", address, e);
-                return None;
-            }
-        };
+        let template: Template =
+            match ureq::get(&url).call().map_err(|e| e.to_string()).and_then(|r| r.into_json().map_err(|e| e.to_string())) {
+                Ok(template) => template,
+                Err(e) => {
+                    eprintln!("[-] Could not fetch work for {}: {}", address, e);
+                    return None;
+                }
+            };
         let block = template.block;
         let current = self.latest_job(address);
         let fetched_at = max_age.get(address).copied();
@@ -301,8 +324,7 @@ impl Bridge {
         let mut last_tick = Instant::now();
         loop {
             let miners: Vec<Arc<Miner>> = self.miners.lock().unwrap().values().cloned().collect();
-            let addresses: HashSet<String> =
-                miners.iter().filter_map(|m| m.state.lock().unwrap().work_address.clone()).collect();
+            let addresses: HashSet<String> = miners.iter().filter_map(|m| m.state.lock().unwrap().work_address.clone()).collect();
 
             if let Some(pool) = &self.pool {
                 let mut live = runtime::Live::default();
@@ -398,11 +420,8 @@ impl Bridge {
             (payout, state.work_address.clone().ok_or((ERR_UNAUTHORIZED, "log in first"))?, state.shift)
         };
         let job_id = params.get(1).and_then(Value::as_str).ok_or((ERR_OTHER, "missing job id"))?;
-        let nonce = params
-            .get(2)
-            .and_then(Value::as_str)
-            .and_then(parse_nonce)
-            .ok_or((ERR_OTHER, "nonce must be 16 hexadecimal digits"))?;
+        let nonce =
+            params.get(2).and_then(Value::as_str).and_then(parse_nonce).ok_or((ERR_OTHER, "nonce must be 16 hexadecimal digits"))?;
         if (nonce >> 48) as u16 != miner.extranonce {
             return Err((ERR_OTHER, "nonce does not start with this connection's extranonce"));
         }
@@ -498,17 +517,17 @@ impl Bridge {
 
     fn handle_request(&self, miner: &Miner, method: &str, params: &[Value]) -> Result<Value, (i64, &'static str)> {
         match method {
-            "mining.subscribe" => Ok(json!([
-                [["mining.notify", format!("{:x}", miner.id)]],
-                format!("{:04x}", miner.extranonce),
-                6,
-                self.network
-            ])),
+            "mining.subscribe" => {
+                Ok(json!([[["mining.notify", format!("{:x}", miner.id)]], format!("{:04x}", miner.extranonce), 6, self.network]))
+            }
             "mining.authorize" => {
                 // "address" or "address.worker"; the worker name is only a label
                 let login = params.first().and_then(Value::as_str).ok_or((ERR_OTHER, "missing address"))?;
-                let address = login.split('.').next().unwrap_or(login);
-                Address::decode(address).map_err(|_| (ERR_UNAUTHORIZED, "the login must be a payout address"))?;
+                let address = canonical_login(login).ok_or((ERR_UNAUTHORIZED, "the login must be a payout address"))?;
+                let address = address.as_str();
+                if self.banned.lock().unwrap().get(&(miner.ip, address.to_string())).is_some_and(|until| *until > Instant::now()) {
+                    return Err((ERR_UNAUTHORIZED, "this address is refused for a while after too many bad shares"));
+                }
                 let mut state = miner.state.lock().unwrap();
                 state.address = Some(address.to_string());
                 state.work_address = Some(match &self.pool {
@@ -547,7 +566,8 @@ impl Bridge {
                 break;
             }
             if reply["error"][1] == "too many bad shares" {
-                self.banned.lock().unwrap().insert(miner.ip, Instant::now() + BAD_SHARE_BAN);
+                let login = miner.state.lock().unwrap().address.clone().unwrap_or_default();
+                self.banned.lock().unwrap().insert((miner.ip, login), Instant::now() + BAD_SHARE_BAN);
                 break;
             }
 
@@ -569,21 +589,28 @@ impl Bridge {
 
 fn main() {
     let mut args = Args::parse();
+    if let Some(path) = &args.rpc_token_file {
+        let token = std::fs::read_to_string(path).unwrap_or_else(|e| {
+            eprintln!("[-] Could not read {}: {}", path.display(), e);
+            std::process::exit(1);
+        });
+        args.rpc_token = Some(token.trim().to_string()).filter(|t| !t.is_empty());
+    }
     args.node = args.node.trim_end_matches('/').to_string();
 
     // The node's genesis hash seeds the proof of work for its network, and it reports the
     // dataset sizes the network uses
-    let info = ureq::get(&format!("{}/api/v1/info", args.node))
-        .call()
-        .ok()
-        .and_then(|response| response.into_json::<Value>().ok());
+    let info = ureq::get(&format!("{}/api/v1/info", args.node)).call().ok().and_then(|response| response.into_json::<Value>().ok());
     let genesis = info.as_ref().and_then(|info| info["genesis_hash"].as_str().and_then(|hex| Hash::from_hex(hex).ok()));
     let (Some(info), Some(genesis)) = (info, genesis) else {
         eprintln!("[-] Could not reach the node at {}", args.node);
         std::process::exit(1);
     };
     let params = match (info["pow_light_cache_items"].as_u64(), info["pow_dataset_items"].as_u64()) {
-        (Some(cache), Some(dataset)) => PowParams { light_cache_items: cache as u32, dataset_items: dataset as u32 },
+        (Some(cache), Some(dataset)) => PowParams::known(cache, dataset).unwrap_or_else(|| {
+            eprintln!("[-] The node reports a dataset of unknown size ({} cache items, {} dataset items)", cache, dataset);
+            std::process::exit(1);
+        }),
         _ => PowParams::dev(),
     };
     println!("[*] Building the verification cache...");
@@ -660,6 +687,8 @@ fn main() {
         let _ = stream.set_nodelay(true);
         // A miner that says nothing for ten minutes is gone
         let _ = stream.set_read_timeout(Some(Duration::from_secs(600)));
+        // One miner that stops reading must not hold up work and payouts for everyone
+        let _ = stream.set_write_timeout(Some(WRITE_TIMEOUT));
 
         let Ok(peer) = stream.peer_addr() else { continue };
         let ip = peer.ip();
@@ -667,14 +696,14 @@ fn main() {
             let now = Instant::now();
             let mut banned = bridge.banned.lock().unwrap();
             banned.retain(|_, until| *until > now);
-            if banned.contains_key(&ip) {
+            if banned.keys().filter(|(banned_ip, _)| *banned_ip == ip).count() >= BANNED_LOGINS_PER_IP {
                 continue; // Dropping the stream closes it
             }
             // Forget the budgets of addresses that have been quiet for a while
             bridge.ip_budgets.lock().unwrap().retain(|_, (_, refilled)| now.duration_since(*refilled) < Duration::from_secs(600));
         }
         let mut miners = bridge.miners.lock().unwrap();
-        if miners.len() >= bridge.args.max_miners || miners.values().filter(|m| m.ip == ip).count() >= MAX_MINERS_PER_IP {
+        if miners.len() >= bridge.args.max_miners || miners.values().filter(|m| m.ip == ip).count() >= bridge.args.max_miners_per_ip {
             continue;
         }
         // An extranonce no connected miner is using
@@ -712,9 +741,66 @@ fn main() {
     }
 }
 
+/// The payout address a login names, in its one standard spelling. Addresses are
+/// case-insensitive, so bans and earnings are keyed on this form: the same address in capitals
+/// is the same miner.
+fn canonical_login(login: &str) -> Option<String> {
+    let address = login.split('.').next().unwrap_or(login);
+    Address::decode(address).ok().map(|a| a.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// N-7: a banned address cannot come back spelled in capitals.
+    #[test]
+    fn a_login_is_keyed_on_its_standard_spelling() {
+        let address =
+            Address::new(imoney_core::Network::Testnet, imoney_core::AddressType::PubKeyHash, imoney_core::Hash([5u8; 32])).to_string();
+        let upper = address.to_uppercase();
+        assert_eq!(canonical_login(&upper), Some(address.clone()));
+        assert_eq!(canonical_login(&format!("{}.rig7", upper)), Some(address.clone()));
+        assert_eq!(canonical_login("not-an-address"), None);
+    }
+
+    /// GHSA-9wf9-25fw-5cmh: a miner that never reads is cut off within the write timeout, and
+    /// every later send to it fails at once instead of blocking.
+    #[test]
+    fn a_miner_that_never_reads_cannot_stall_sending() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let _silent = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (stream, _) = listener.accept().unwrap();
+        stream.set_write_timeout(Some(Duration::from_millis(200))).unwrap();
+        let miner = Miner {
+            id: 1,
+            ip: "127.0.0.1".parse().unwrap(),
+            extranonce: 0,
+            writer: Mutex::new(stream),
+            state: Mutex::new(MinerState {
+                address: None,
+                work_address: None,
+                shift: 12,
+                shares_since_retarget: 0,
+                last_retarget: Instant::now(),
+                accepted: 0,
+                work: 0.0,
+                connected: Instant::now(),
+                submit_budget: SUBMIT_BURST,
+                budget_refilled: Instant::now(),
+                bad_shares: 0,
+            }),
+        };
+        let big = json!({ "id": null, "method": "mining.notify", "params": ["x".repeat(64 * 1024)] });
+        let started = Instant::now();
+        // Fill the socket buffers until a write times out
+        while miner.send(&big) {
+            assert!(started.elapsed() < Duration::from_secs(30), "writes never timed out");
+        }
+        let after_cutoff = Instant::now();
+        assert!(!miner.send(&big));
+        assert!(after_cutoff.elapsed() < Duration::from_millis(100), "a send after the cut-off blocked");
+    }
 
     #[test]
     fn shifting_a_target_multiplies_it_by_a_power_of_two() {

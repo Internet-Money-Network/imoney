@@ -1,10 +1,10 @@
 use clap::Parser;
 use imoney_core::constants::{CURRENCY_NAME, TICKER};
 use imoney_core::{Address, AddressType, Network};
-use imoney_pow::{HallmarkPow, PowMode, PowParams};
 use imoney_node::p2p::PeerManager;
 use imoney_node::rpc::create_router;
 use imoney_node::state::{ConsensusParams, DagLedger, SharedLedger};
+use imoney_pow::{HallmarkPow, PowMode, PowParams};
 use std::fs;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -62,8 +62,14 @@ struct Args {
     #[arg(long)]
     rpc_token: Option<String>,
 
+    /// Read the bearer token from this file instead, so it does not appear in the process
+    /// list or the container's settings
+    #[arg(long, conflicts_with = "rpc_token")]
+    rpc_token_file: Option<std::path::PathBuf>,
+
     /// Websites allowed to use this node's API from a browser, comma-separated
-    /// (e.g. https://shop.example). Default: any website.
+    /// (e.g. https://shop.example). Default: any website for the HTTP API; the address
+    /// WebSocket always accepts only the node's own pages and the websites named here.
     #[arg(long, value_delimiter = ',')]
     allowed_origins: Vec<String>,
 
@@ -71,7 +77,6 @@ struct Args {
     #[arg(long, default_value_t = false)]
     auto_mine: bool,
 }
-
 
 /// Writes a file only its owner can read: it holds a private key.
 fn write_private(path: &std::path::Path, contents: &str) -> std::io::Result<()> {
@@ -88,9 +93,7 @@ fn load_or_create_miner_key(data_dir: &Path, network: Network) -> Result<(Addres
     let key_path = data_dir.join("miner-key.hex");
     let signing_key = if key_path.exists() {
         let bytes = hex::decode(fs::read_to_string(&key_path)?.trim())?;
-        let key_bytes: [u8; 32] = bytes
-            .try_into()
-            .map_err(|_| "miner-key.hex must contain a 32-byte hex private key")?;
+        let key_bytes: [u8; 32] = bytes.try_into().map_err(|_| "miner-key.hex must contain a 32-byte hex private key")?;
         ed25519_dalek::SigningKey::from_bytes(&key_bytes)
     } else {
         let key = ed25519_dalek::SigningKey::generate(&mut rand::rngs::OsRng);
@@ -98,17 +101,17 @@ fn load_or_create_miner_key(data_dir: &Path, network: Network) -> Result<(Addres
         key
     };
 
-    let addr = Address::from_public_key(
-        network,
-        AddressType::PubKeyHash,
-        signing_key.verifying_key().as_bytes(),
-    );
+    let addr = Address::from_public_key(network, AddressType::PubKeyHash, signing_key.verifying_key().as_bytes());
     Ok((addr, key_path))
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args = Args::parse();
+    let mut args = Args::parse();
+    if let Some(path) = &args.rpc_token_file {
+        let token = std::fs::read_to_string(path).map_err(|e| format!("Could not read {}: {}", path.display(), e))?;
+        args.rpc_token = Some(token.trim().to_string()).filter(|t| !t.is_empty());
+    }
 
     println!("============================================================");
     println!("  {} ({}) - Full Node Daemon [TESTNET]", CURRENCY_NAME, TICKER);
@@ -146,7 +149,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pow_mode = if args.auto_mine { PowMode::Full } else { PowMode::Light };
     let pow = Arc::new(HallmarkPow::new(pow_params, consensus.genesis.hash(), pow_mode));
     if pow_mode == PowMode::Full && args.devnet.is_none() {
-        println!("[*] --auto-mine on the public network builds the 4.6 GB mining dataset on the CPU. This takes minutes and that much memory.");
+        println!(
+            "[*] --auto-mine on the public network builds the 4.6 GB mining dataset on the CPU. This takes minutes and that much memory."
+        );
     }
     println!("[*] Building Hallmark (FishHash) memory in {:?} mode...", pow_mode);
     pow.context();
@@ -168,11 +173,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ledger: SharedLedger = Arc::new(RwLock::new(ledger_instance));
     {
         let r = ledger.read().await;
-        println!(
-            "[+] Persistent ledger active: {} blocks loaded | Blue Score: {}",
-            r.block_count(),
-            r.virtual_blue_score
-        );
+        println!("[+] Persistent ledger active: {} blocks loaded | Blue Score: {}", r.block_count(), r.virtual_blue_score);
     }
 
     // Initialize P2P PeerManager
@@ -186,7 +187,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         None => PeerManager::new(ledger.clone(), pow.clone(), p2p_bind_addr.port()),
     });
-    
+
     // Start incoming P2P TCP gossip server
     p2p_manager.clone().start_server(p2p_bind_addr).await?;
 
@@ -197,8 +198,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // what it resolves to can change, so names are looked up again from time to time. A lookup
     // that fails at startup (the network may not be up yet) is simply tried again.
     let peer_names: Vec<String> = args.peers.iter().map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect();
+    p2p_manager.require_initial_sync_if_networked(!peer_names.is_empty());
     if !peer_names.is_empty() {
-        p2p_manager.require_initial_sync();
         let manager = p2p_manager.clone();
         tokio::spawn(async move {
             let mut warned = false;
@@ -259,14 +260,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             // Gossip block across P2P network
                             p2p_clone.broadcast_block(candidate);
 
-                            let balance_info = writer.mining_address.as_ref().and_then(|a| writer.get_balance(a).ok()).map(|(_, coins)| coins).unwrap_or(0.0);
+                            let balance_info = writer
+                                .mining_address
+                                .as_ref()
+                                .and_then(|a| writer.get_balance(a).ok())
+                                .map(|(_, coins)| coins)
+                                .unwrap_or(0.0);
                             println!(
                                 "[+] Mined Block #{} | Hash: {} | Blue Score: {} | Bits: 0x{:08x} | Miner Balance: {:.2} IMN",
-                                writer.virtual_daa_score,
-                                new_hash,
-                                writer.virtual_blue_score,
-                                bits,
-                                balance_info
+                                writer.virtual_daa_score, new_hash, writer.virtual_blue_score, bits, balance_info
                             );
                         }
                         Err(e) => {
@@ -301,4 +303,3 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     shutdown_peers.save_peers();
     Ok(())
 }
-

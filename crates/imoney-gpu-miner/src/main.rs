@@ -22,8 +22,8 @@ use opencl3::types::{cl_uint, cl_ulong, CL_BLOCKING};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Read, Write};
-use std::path::PathBuf;
 use std::net::TcpStream;
+use std::path::PathBuf;
 use std::ptr;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -60,6 +60,10 @@ struct Args {
     /// Bearer token, if the node was started with --rpc-token
     #[arg(long)]
     rpc_token: Option<String>,
+
+    /// Read the bearer token from this file instead, so it does not appear in the process list
+    #[arg(long, conflicts_with = "rpc_token")]
+    rpc_token_file: Option<PathBuf>,
 
     /// List the graphics cards OpenCL can see and exit
     #[arg(long, default_value_t = false)]
@@ -165,8 +169,7 @@ impl GpuSearcher {
             queue.enqueue_write_buffer(&mut dataset, CL_BLOCKING, 0, flat, &[])?;
             let header = Buffer::<cl_uint>::create(&context, CL_MEM_READ_ONLY, 8, ptr::null_mut())?;
             let target = Buffer::<cl_uint>::create(&context, CL_MEM_READ_ONLY, 8, ptr::null_mut())?;
-            let mut results =
-                Buffer::<cl_uint>::create(&context, CL_MEM_READ_WRITE, 1 + 2 * MAX_RESULTS, ptr::null_mut())?;
+            let mut results = Buffer::<cl_uint>::create(&context, CL_MEM_READ_WRITE, 1 + 2 * MAX_RESULTS, ptr::null_mut())?;
             queue.enqueue_write_buffer(&mut results, CL_BLOCKING, 0, &[0; 1 + 2 * MAX_RESULTS], &[])?;
             (dataset, header, target, results)
         };
@@ -261,7 +264,17 @@ impl GpuSearcher {
 }
 
 fn main() {
-    if let Err(e) = run(Args::parse()) {
+    let mut args = Args::parse();
+    if let Some(path) = &args.rpc_token_file {
+        match std::fs::read_to_string(path) {
+            Ok(token) => args.rpc_token = Some(token.trim().to_string()).filter(|t| !t.is_empty()),
+            Err(e) => {
+                eprintln!("[-] Could not read {}: {}", path.display(), e);
+                std::process::exit(1);
+            }
+        }
+    }
+    if let Err(e) = run(args) {
         eprintln!("[-] {}", e);
         std::process::exit(1);
     }
@@ -315,21 +328,43 @@ fn run(args: Args) -> Result<(), Error> {
         return benchmark(&mut gpu, &pow, batch);
     };
 
+    if args.rpc_token.is_some() && node.starts_with("http://") && !is_this_machine(node) {
+        eprintln!("[!] The token goes to {} unencrypted. Use an SSH tunnel or HTTPS to reach a node on another machine.", node);
+    }
     // The node's genesis hash seeds the proof of work for its network
     let info: serde_json::Value = ureq::get(&format!("{}/api/v1/info", node)).call()?.into_json()?;
     let genesis = Hash::from_hex(info["genesis_hash"].as_str().ok_or("node did not report a genesis hash")?)?;
-    let (mut gpu, pow) = load(device, pow_params_of(&info), genesis, &args)?;
+    let (mut gpu, pow) = load(device, pow_params_of(&info)?, genesis, &args)?;
     println!("[+] Connected to {} ({})", node, info["network"].as_str().unwrap_or("unknown network"));
     mine(&mut gpu, &pow, node, &args, batch)
 }
 
 /// The dataset sizes a node reports for its network. A node from before it reported them
 /// is a small-dataset one.
-fn pow_params_of(info: &serde_json::Value) -> PowParams {
+fn pow_params_of(info: &serde_json::Value) -> Result<PowParams, Error> {
     match (info["pow_light_cache_items"].as_u64(), info["pow_dataset_items"].as_u64()) {
-        (Some(cache), Some(dataset)) => PowParams { light_cache_items: cache as u32, dataset_items: dataset as u32 },
-        _ => PowParams::dev(),
+        (Some(cache), Some(dataset)) => known_pow_params(cache, dataset),
+        _ => Ok(PowParams::dev()),
     }
+}
+
+/// See `PowParams::known`.
+fn known_pow_params(light_cache_items: u64, dataset_items: u64) -> Result<PowParams, Error> {
+    PowParams::known(light_cache_items, dataset_items).ok_or_else(|| {
+        format!("the server asks for a dataset of unknown size ({} cache items, {} dataset items)", light_cache_items, dataset_items).into()
+    })
+}
+
+/// True when an http:// address names this machine.
+fn is_this_machine(url: &str) -> bool {
+    let rest = url.trim_start_matches("http://");
+    let authority = rest.split('/').next().unwrap_or(rest);
+    let host = match authority.rsplit_once(':') {
+        Some((host, port)) if port.bytes().all(|b| b.is_ascii_digit()) => host,
+        _ => authority,
+    };
+    let host = host.trim_start_matches('[').trim_end_matches(']');
+    host.eq_ignore_ascii_case("localhost") || host.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback())
 }
 
 /// Datasets smaller than this build in a moment and are not worth keeping on disk.
@@ -348,12 +383,7 @@ fn cache_path(args: &Args, params: PowParams, genesis: &Hash) -> Option<PathBuf>
         // Beside the program: on the drive the user chose to put it on, and easy to find
         None => std::env::current_exe().ok()?.parent()?.join("imoney-cache"),
     };
-    Some(dir.join(format!(
-        "hallmark-{}-{}-{}.dataset",
-        &genesis.to_hex()[..16],
-        params.light_cache_items,
-        params.dataset_items
-    )))
+    Some(dir.join(format!("hallmark-{}-{}-{}.dataset", &genesis.to_hex()[..16], params.light_cache_items, params.dataset_items)))
 }
 
 /// The bytes of a dataset as they are stored: each word little-endian.
@@ -409,7 +439,12 @@ fn load(device: &Device, params: PowParams, genesis: Hash, args: &Args) -> Resul
             gpu.set_power(args.power);
             match check_against_cpu(&mut gpu, &light) {
                 Ok(()) => {
-                    println!("[+] Dataset ({} MB) loaded from {} in {:.1?}; the card matches the CPU", megabytes, path.display(), started.elapsed());
+                    println!(
+                        "[+] Dataset ({} MB) loaded from {} in {:.1?}; the card matches the CPU",
+                        megabytes,
+                        path.display(),
+                        started.elapsed()
+                    );
                     return Ok((gpu, light));
                 }
                 Err(e) => {
@@ -500,11 +535,33 @@ struct StratumWork {
     disconnected: bool,
 }
 
+/// Longest message accepted from a Stratum server. Its replies and jobs are a few hundred
+/// bytes; without a limit a hostile server could send one endless line and fill memory.
+const MAX_STRATUM_LINE: u64 = 16 * 1024;
+/// A Stratum server silent for this long is treated as gone.
+const STRATUM_SILENCE: Duration = Duration::from_secs(5 * 60);
+
+/// Reads one JSON message from a Stratum server, refusing one longer than `MAX_STRATUM_LINE`.
+fn read_stratum_line(reader: &mut impl BufRead) -> Result<Value, Error> {
+    let mut line = String::new();
+    let read = reader.by_ref().take(MAX_STRATUM_LINE).read_line(&mut line)?;
+    if read == 0 {
+        return Err("the server closed the connection".into());
+    }
+    if !line.ends_with('\n') {
+        return Err("the server sent a message that is too long".into());
+    }
+    Ok(serde_json::from_str(&line)?)
+}
+
 /// Mines through a Stratum bridge or pool (see docs/STRATUM.md).
 fn mine_stratum(device: &Device, server: &str, args: &Args, batch: usize) -> Result<(), Error> {
     let address = args.address.as_deref().ok_or("--stratum needs --address, the address to be paid")?;
     let stream = TcpStream::connect(server).map_err(|e| format!("could not connect to {}: {}", server, e))?;
     stream.set_nodelay(true)?;
+    // A pool sends new work every few seconds; one silent this long is gone, so reconnect
+    // rather than hash stale work
+    stream.set_read_timeout(Some(STRATUM_SILENCE))?;
     let mut writer = stream.try_clone()?;
     let mut reader = BufReader::new(stream);
     let mut send = |message: Value| -> Result<(), Error> {
@@ -512,27 +569,19 @@ fn mine_stratum(device: &Device, server: &str, args: &Args, batch: usize) -> Res
         line.push('\n');
         Ok(writer.write_all(line.as_bytes())?)
     };
-    let read = |reader: &mut BufReader<TcpStream>| -> Result<Value, Error> {
-        let mut line = String::new();
-        if reader.read_line(&mut line)? == 0 {
-            return Err("the server closed the connection".into());
-        }
-        Ok(serde_json::from_str(&line)?)
-    };
+    let read = |reader: &mut BufReader<TcpStream>| -> Result<Value, Error> { read_stratum_line(reader) };
 
     send(json!({ "id": 1, "method": "mining.subscribe", "params": [concat!("imoney-gpu-miner/", env!("CARGO_PKG_VERSION"))] }))?;
     let subscribed = read(&mut reader)?;
     let result = &subscribed["result"];
-    let extranonce = result[1]
-        .as_str()
-        .and_then(|hex| u16::from_str_radix(hex, 16).ok())
-        .ok_or("the server did not assign an extranonce")?;
+    let extranonce =
+        result[1].as_str().and_then(|hex| u16::from_str_radix(hex, 16).ok()).ok_or("the server did not assign an extranonce")?;
     let network = &result[3];
     let genesis = Hash::from_hex(network["genesis_hash"].as_str().ok_or("the server did not name its network")?)?;
-    let params = PowParams {
-        light_cache_items: network["light_cache_items"].as_u64().ok_or("the server did not give the cache size")? as u32,
-        dataset_items: network["dataset_items"].as_u64().ok_or("the server did not give the dataset size")? as u32,
-    };
+    let params = known_pow_params(
+        network["light_cache_items"].as_u64().ok_or("the server did not give the cache size")?,
+        network["dataset_items"].as_u64().ok_or("the server did not give the dataset size")?,
+    )?;
 
     let (mut gpu, pow) = load(device, params, genesis, args)?;
 
@@ -723,5 +772,41 @@ fn mine(gpu: &mut GpuSearcher, pow: &HallmarkPow, node: &str, args: &Args, batch
             println!("[*] {:.2} MH/s", hashes as f64 / started.elapsed().as_secs_f64() / 1e6);
             last_report = Instant::now();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A server can only pick one of the dataset sizes the networks use.
+    #[test]
+    fn only_known_dataset_sizes_are_accepted() {
+        let mainnet = PowParams::mainnet();
+        assert_eq!(known_pow_params(mainnet.light_cache_items as u64, mainnet.dataset_items as u64).unwrap(), mainnet);
+        assert_eq!(known_pow_params(16_411, 262_147).unwrap(), PowParams::dev());
+        assert!(known_pow_params(0, 0).is_err());
+        assert!(known_pow_params(16_411, u32::MAX as u64).is_err());
+        // A size that a cast to 32 bits would have turned into a known one
+        assert!(known_pow_params(16_411, (1u64 << 32) + 262_147).is_err());
+    }
+
+    /// An endless line from a server is refused instead of filling memory.
+    #[test]
+    fn stratum_messages_have_a_length_limit() {
+        let ok = b"{\"id\":1,\"result\":true}\n".to_vec();
+        assert_eq!(read_stratum_line(&mut BufReader::new(&ok[..])).unwrap()["result"], json!(true));
+        let endless = vec![b'x'; MAX_STRATUM_LINE as usize * 4];
+        let err = read_stratum_line(&mut BufReader::new(&endless[..])).unwrap_err().to_string();
+        assert!(err.contains("too long"), "{}", err);
+    }
+
+    #[test]
+    fn a_token_is_only_sent_in_the_clear_to_this_machine() {
+        assert!(is_this_machine("http://127.0.0.1:18556"));
+        assert!(is_this_machine("http://localhost:18556/"));
+        assert!(is_this_machine("http://[::1]:18556"));
+        assert!(!is_this_machine("http://192.168.1.69:18556"));
+        assert!(!is_this_machine("http://node.example:18556"));
     }
 }

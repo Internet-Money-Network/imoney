@@ -38,12 +38,7 @@ pub struct Dag {
 
 impl Dag {
     pub fn new(params: GhostdagParams) -> Self {
-        Self {
-            params,
-            blocks: HashMap::new(),
-            loader: None,
-            recalled: Mutex::new(HashMap::new()),
-        }
+        Self { params, blocks: HashMap::new(), loader: None, recalled: Mutex::new(HashMap::new()) }
     }
 
     /// Sets where blocks that were forgotten are read from.
@@ -119,18 +114,8 @@ impl Dag {
     /// Inserts a validated block whose parents are all present.
     pub fn insert(&mut self, hash: Hash, parents: Vec<Hash>, timestamp_ms: u64, bits: u32, daa_score: u64, ghostdag: GhostdagData) {
         let level = 1 + parents.iter().map(|p| self.get(p).level).max().unwrap_or(0);
-        self.blocks.insert(
-            hash,
-            Arc::new(DagBlock {
-                parents,
-                level,
-                timestamp_ms,
-                bits,
-                daa_score,
-                work: work_from_bits(bits),
-                ghostdag,
-            }),
-        );
+        self.blocks
+            .insert(hash, Arc::new(DagBlock { parents, level, timestamp_ms, bits, daa_score, work: work_from_bits(bits), ghostdag }));
     }
 
     /// Removes a block that was inserted but could not be committed.

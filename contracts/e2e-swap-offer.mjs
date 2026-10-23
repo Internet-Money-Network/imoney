@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { BrowserProvider, Contract, ContractFactory } from 'ethers';
-import ganache from 'ganache';
+import { network } from 'hardhat';
 import { SWAP_ABI, SwapMaker, loadWasm } from './swap-maker.mjs';
 
 const imn = await loadWasm();
@@ -36,7 +36,7 @@ const until = async (what, check) => {
 };
 
 // The other chain, with the swap contract and a token the buyer holds 1,000,000 units of
-const chain = ganache.provider({ logging: { quiet: true }, chain: { hardfork: 'london' } });
+const chain = (await network.connect()).provider;
 const provider = new BrowserProvider(chain, undefined, { cacheTimeout: -1 });
 const [buyerEvm, sellerEvm] = [await provider.getSigner(0), await provider.getSigner(1)];
 const build = (name) => JSON.parse(readFileSync(`out/${name}.json`, 'utf8'));

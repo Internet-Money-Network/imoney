@@ -4,14 +4,14 @@ import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { BrowserProvider, ContractFactory, Interface, ZeroAddress, parseEther } from 'ethers';
-import ganache from 'ganache';
+import { network } from 'hardhat';
 
 const artifact = (name) => JSON.parse(readFileSync(`out/${name}.json`, 'utf8'));
 const sha256 = (hex) => '0x' + createHash('sha256').update(Buffer.from(hex.slice(2), 'hex')).digest('hex');
 const HOUR = 3600;
 
 async function setup() {
-  const chain = ganache.provider({ logging: { quiet: true }, chain: { hardfork: 'london' } });
+  const chain = (await network.connect()).provider;
   // Ethers remembers identical requests for a moment; the tests read balances either side of a
   // transaction, so that is switched off
   const provider = new BrowserProvider(chain, undefined, { cacheTimeout: -1 });

@@ -2,9 +2,9 @@ use crate::p2p::PeerManager;
 use crate::state::{LedgerEvent, MiningTemplate, NetworkStats, SharedLedger};
 use axum::extract::ws::{Message as WsMessage, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, Query, Request, State};
+use axum::http::StatusCode;
 use axum::middleware::{self, Next};
 use axum::response::Response;
-use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Json};
 use axum::routing::{get, post};
 use axum::Router;
@@ -31,12 +31,18 @@ pub struct AppState {
     pub broadcast_limit: RateLimit,
     /// Open address WebSockets, each holding a task and a ledger subscription.
     pub sockets_open: std::sync::atomic::AtomicUsize,
+    /// Open address WebSockets per client, so one client cannot take every slot.
+    pub sockets_per_client: std::sync::Mutex<std::collections::HashMap<std::net::IpAddr, usize>>,
     /// Websites allowed to call the API from a browser; empty means any.
     pub allowed_origins: Vec<String>,
 }
 
 /// Most address WebSockets open at once.
 const MAX_SOCKETS: usize = 1_024;
+/// Most tokens listed for one address.
+const MAX_TOKENS_LISTED: usize = 1_000;
+/// Most address WebSockets one client may hold open at once.
+const MAX_SOCKETS_PER_CLIENT: usize = 16;
 
 /// Token buckets per client IP: `rate` requests per second on average, up to `burst` at once,
 /// for each address. Per address, so one client using up its share leaves the others theirs.
@@ -50,6 +56,34 @@ pub struct RateLimit {
 /// Most client addresses tracked; beyond this, idle ones are forgotten.
 const MAX_TRACKED_CLIENTS: usize = 10_000;
 
+/// Whether a WebSocket from `origin` may open: no Origin (not a browser), the node's own pages,
+/// or a website the operator named.
+///
+/// A page counts as the node's own only when it was loaded by IP address or as `localhost`.
+/// Under DNS rebinding a hostile site points its own name at the node, and the browser then
+/// sends that name as both Host and Origin, so a match between the two proves nothing unless
+/// the name is one no outside site can control.
+fn socket_origin_allowed(origin: Option<&str>, host: Option<&str>, allowed: &[String]) -> bool {
+    let Some(origin) = origin else { return true };
+    if allowed.iter().any(|a| a == origin) {
+        return true;
+    }
+    let Some(host) = host else { return false };
+    origin.split_once("://").is_some_and(|(_, rest)| rest == host) && host_names_this_machine(host)
+}
+
+/// The client an address belongs to for limiting. One IPv6 subscriber usually holds a whole
+/// /64, so its addresses count as one client.
+fn client_key(ip: std::net::IpAddr) -> std::net::IpAddr {
+    match ip {
+        std::net::IpAddr::V6(v6) => {
+            let s = v6.segments();
+            std::net::IpAddr::V6(std::net::Ipv6Addr::new(s[0], s[1], s[2], s[3], 0, 0, 0, 0))
+        }
+        v4 => v4,
+    }
+}
+
 impl RateLimit {
     pub fn new(rate: f64, burst: f64) -> Self {
         RateLimit { rate, burst, buckets: std::sync::Mutex::new(std::collections::HashMap::new()) }
@@ -60,12 +94,18 @@ impl RateLimit {
         if ip.is_loopback() {
             return true;
         }
+        let ip = client_key(ip);
         let mut buckets = self.buckets.lock().unwrap();
         let now = std::time::Instant::now();
-        if buckets.len() >= MAX_TRACKED_CLIENTS {
+        if buckets.len() >= MAX_TRACKED_CLIENTS && !buckets.contains_key(&ip) {
             // A full bucket is the same as no entry: forget those
             let (rate, burst) = (self.rate, self.burst);
             buckets.retain(|_, (tokens, at)| *tokens + now.duration_since(*at).as_secs_f64() * rate < burst);
+            // Still full: every tracked client is busy. Turn the newcomer away rather than let
+            // the table (and the cost of this sweep) grow without bound.
+            if buckets.len() >= MAX_TRACKED_CLIENTS {
+                return false;
+            }
         }
         let (tokens, at) = buckets.entry(ip).or_insert((self.burst, now));
         *tokens = (*tokens + now.duration_since(*at).as_secs_f64() * self.rate).min(self.burst);
@@ -77,7 +117,6 @@ impl RateLimit {
         true
     }
 }
-
 
 #[derive(Deserialize)]
 pub struct TemplateQuery {
@@ -438,6 +477,7 @@ pub fn create_router(
         submit_limit: RateLimit::new(50.0, 200.0),
         broadcast_limit: RateLimit::new(20.0, 100.0),
         sockets_open: std::sync::atomic::AtomicUsize::new(0),
+        sockets_per_client: std::sync::Mutex::new(std::collections::HashMap::new()),
         allowed_origins,
     });
 
@@ -450,10 +490,7 @@ pub fn create_router(
         .route("/api/v1/stats", get(stats_handler))
         .route("/api/v1/blocks", get(blocks_handler))
         .route("/api/v1/block/:hash", get(block_handler))
-        .route(
-            "/api/v1/tx/broadcast",
-            post(broadcast_handler).layer(middleware::from_fn_with_state(state.clone(), limit_broadcasts)),
-        )
+        .route("/api/v1/tx/broadcast", post(broadcast_handler).layer(middleware::from_fn_with_state(state.clone(), limit_broadcasts)))
         .route("/api/v1/tx/:txid", get(tx_status_handler))
         .route("/api/v1/address/:addr/balance", get(balance_handler))
         .route("/api/v1/address/:addr/utxos", get(utxos_handler))
@@ -489,7 +526,42 @@ pub fn create_router(
         .merge(public)
         .merge(restricted)
         .merge(mining)
+        .layer(middleware::from_fn(refuse_rebound_hosts))
         .with_state(state)
+}
+
+/// Refuses a request from this machine or the local network that names the node by a host name
+/// other than `localhost`. A web page cannot read a node's API from another site, unless DNS
+/// rebinding points the page's own name at the node: then the browser sends that name as Host.
+/// Local programs use an IP address or `localhost`. Private addresses count as local because a
+/// node in Docker sees this machine's requests come from the Docker network, not 127.0.0.1.
+/// Requests from the internet (a reverse proxy such as Cloudflare) are not affected.
+async fn refuse_rebound_hosts(
+    axum::extract::ConnectInfo(client): axum::extract::ConnectInfo<std::net::SocketAddr>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let local = match client.ip() {
+        std::net::IpAddr::V4(ip) => ip.is_loopback() || ip.is_private() || ip.is_link_local(),
+        std::net::IpAddr::V6(ip) => ip.is_loopback() || ip.is_unique_local() || ip.is_unicast_link_local(),
+    };
+    if local {
+        let host = request.headers().get(axum::http::header::HOST).and_then(|h| h.to_str().ok());
+        if host.is_some_and(|h| !host_names_this_machine(h)) {
+            return StatusCode::FORBIDDEN.into_response();
+        }
+    }
+    next.run(request).await
+}
+
+/// True for `localhost` or an IP address, with or without a port.
+fn host_names_this_machine(authority: &str) -> bool {
+    let name = match authority.rsplit_once(':') {
+        Some((name, port)) if port.bytes().all(|b| b.is_ascii_digit()) => name,
+        _ => authority,
+    };
+    let name = name.trim_start_matches('[').trim_end_matches(']');
+    name.eq_ignore_ascii_case("localhost") || name.parse::<std::net::IpAddr>().is_ok()
 }
 
 async fn limit_templates(
@@ -538,8 +610,8 @@ async fn require_token(State(state): State<Arc<AppState>>, request: Request, nex
             .and_then(|value| value.strip_prefix("Bearer "))
             .unwrap_or("");
         // Compare without stopping at the first difference
-        let matches = presented.len() == expected.len()
-            && presented.bytes().zip(expected.bytes()).fold(0u8, |diff, (a, b)| diff | (a ^ b)) == 0;
+        let matches =
+            presented.len() == expected.len() && presented.bytes().zip(expected.bytes()).fold(0u8, |diff, (a, b)| diff | (a ^ b)) == 0;
         if !matches {
             return StatusCode::UNAUTHORIZED.into_response();
         }
@@ -604,32 +676,18 @@ async fn stats_handler(State(state): State<Arc<AppState>>) -> Result<Json<StatsR
 }
 
 /// Most recent blocks, newest first. `limit` defaults to 50 and is capped at 500.
-async fn blocks_handler(
-    State(state): State<Arc<AppState>>,
-    Query(query): Query<BlocksQuery>,
-) -> Json<Vec<BlockSummary>> {
+async fn blocks_handler(State(state): State<Arc<AppState>>, Query(query): Query<BlocksQuery>) -> Json<Vec<BlockSummary>> {
     let ledger = state.ledger.read().await;
     let limit = query.limit.unwrap_or(50).min(500);
-    let blocks = ledger
-        .recent_blocks(limit)
-        .into_iter()
-        .map(|(hash, header)| block_summary(&ledger, &hash, header))
-        .collect();
+    let blocks = ledger.recent_blocks(limit).into_iter().map(|(hash, header)| block_summary(&ledger, &hash, header)).collect();
     Json(blocks)
 }
 
-async fn block_handler(
-    State(state): State<Arc<AppState>>,
-    Path(hash_hex): Path<String>,
-) -> Result<Json<BlockDetailResponse>, StatusCode> {
+async fn block_handler(State(state): State<Arc<AppState>>, Path(hash_hex): Path<String>) -> Result<Json<BlockDetailResponse>, StatusCode> {
     let hash = Hash::from_hex(&hash_hex).map_err(|_| StatusCode::BAD_REQUEST)?;
     let ledger = state.ledger.read().await;
     let header = &ledger.header(&hash).ok_or(StatusCode::NOT_FOUND)?;
-    let block = ledger
-        .storage
-        .get_block(&hash)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+    let block = ledger.storage.get_block(&hash).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.ok_or(StatusCode::NOT_FOUND)?;
     let dag_block = ledger.dag.get(&hash);
     let ghostdag = &dag_block.ghostdag;
 
@@ -692,10 +750,6 @@ async fn wallet_sdk_handler() -> impl IntoResponse {
     ([(axum::http::header::CONTENT_TYPE, "text/javascript")], SDK_JS)
 }
 
-
-
-
-
 const HOME_HTML: &str = include_str!("../../../apps/imoney-home/index.html");
 
 /// The node's front page. It reads the node's status from the API like any other client.
@@ -720,10 +774,7 @@ async fn tips_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
 
 async fn peers_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let peers = state.p2p.get_connected_peers().await;
-    Json(PeersResponse {
-        total_connected: peers.len(),
-        peers,
-    })
+    Json(PeersResponse { total_connected: peers.len(), peers })
 }
 
 async fn template_handler(
@@ -746,30 +797,29 @@ async fn submit_handler(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<SubmitBlockRequest>,
 ) -> (StatusCode, Json<SubmitBlockResponse>) {
+    // The proof of work is checked before the ledger is locked: it costs a memory-hard hash,
+    // and a block without valid work must not hold up everything else while it is refused
+    let refuse =
+        |error: String| (StatusCode::BAD_REQUEST, Json(SubmitBlockResponse { success: false, block_hash: None, error: Some(error) }));
+    let max_target_bits = state.ledger.read().await.params.daa.max_target_bits;
+    let header = &payload.block.header;
+    if imoney_pow::compact_to_u256(header.bits) > imoney_pow::compact_to_u256(max_target_bits) {
+        return refuse("Difficulty is easier than the network allows".to_string());
+    }
+    match header.pre_pow_hash() {
+        Ok(pre_pow_hash) if imoney_pow::is_valid_pow(&state.pow.calculate_hash(&pre_pow_hash, header.nonce), header.bits) => {}
+        Ok(_) => return refuse(format!("Invalid proof of work for block: {}", header.hash())),
+        Err(e) => return refuse(e.to_string()),
+    }
     let mut ledger = state.ledger.write().await;
     match ledger.add_block(payload.block.clone(), &state.pow) {
         Ok(hash) => {
             state.p2p.broadcast_block(payload.block);
-            (
-                StatusCode::OK,
-                Json(SubmitBlockResponse {
-                    success: true,
-                    block_hash: Some(hash.to_hex()),
-                    error: None,
-                }),
-            )
+            (StatusCode::OK, Json(SubmitBlockResponse { success: true, block_hash: Some(hash.to_hex()), error: None }))
         }
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(SubmitBlockResponse {
-                success: false,
-                block_hash: None,
-                error: Some(e.to_string()),
-            }),
-        ),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(SubmitBlockResponse { success: false, block_hash: None, error: Some(e.to_string()) })),
     }
 }
-
 
 async fn balance_handler(
     State(state): State<Arc<AppState>>,
@@ -779,11 +829,7 @@ async fn balance_handler(
     let ledger = state.ledger.read().await;
     let (atoms, coins) = ledger.get_balance(&address).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    Ok(Json(AddressBalanceResponse {
-        address: addr_str,
-        balance_imn: coins,
-        balance_atoms: atoms,
-    }))
+    Ok(Json(AddressBalanceResponse { address: addr_str, balance_imn: coins, balance_atoms: atoms }))
 }
 
 async fn utxos_handler(
@@ -835,7 +881,10 @@ fn parse_asset(text: &str) -> Result<imoney_core::Asset, StatusCode> {
 }
 
 /// The open offers, cheapest first: the order book. Filter by what they give and want.
-async fn offers_handler(State(state): State<Arc<AppState>>, Query(query): Query<OffersQuery>) -> Result<Json<Vec<OfferResponse>>, StatusCode> {
+async fn offers_handler(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<OffersQuery>,
+) -> Result<Json<Vec<OfferResponse>>, StatusCode> {
     let give = query.give.as_deref().map(parse_asset).transpose()?;
     let want = query.want.as_deref().map(parse_asset).transpose()?;
     let ledger = state.ledger.read().await;
@@ -891,7 +940,10 @@ pub struct SwapOfferResponse {
 }
 
 /// The open swap offers, cheapest first. Filter by chain and token.
-async fn swap_offers_handler(State(state): State<Arc<AppState>>, Query(query): Query<SwapOffersQuery>) -> Result<Json<Vec<SwapOfferResponse>>, StatusCode> {
+async fn swap_offers_handler(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<SwapOffersQuery>,
+) -> Result<Json<Vec<SwapOfferResponse>>, StatusCode> {
     let ledger = state.ledger.read().await;
     let mut book = Vec::new();
     for (outpoint, entry) in ledger.storage.get_swap_offers().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)? {
@@ -924,7 +976,9 @@ async fn token_handler(State(state): State<Arc<AppState>>, Path(id_hex): Path<St
     let id = Hash::from_hex(&id_hex).map_err(|_| StatusCode::BAD_REQUEST)?;
     let ledger = state.ledger.read().await;
     let (token, info) = ledger.token_info(&id).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.ok_or(StatusCode::NOT_FOUND)?;
-    let created = |want_authority: bool| info.tx.outputs.iter().filter_map(|o| o.token.as_ref()).filter(move |t| t.id == id && t.mint_authority == want_authority);
+    let created = |want_authority: bool| {
+        info.tx.outputs.iter().filter_map(|o| o.token.as_ref()).filter(move |t| t.id == id && t.mint_authority == want_authority)
+    };
     Ok(Json(TokenResponse {
         token_id: id.to_hex(),
         name: token.name,
@@ -946,16 +1000,11 @@ async fn token_balances_handler(
 ) -> Result<Json<Vec<TokenBalanceResponse>>, StatusCode> {
     let address = Address::decode(&addr_str).map_err(|_| StatusCode::BAD_REQUEST)?;
     let ledger = state.ledger.read().await;
-    let mut held: std::collections::BTreeMap<Hash, (u64, bool)> = std::collections::BTreeMap::new();
-    for (_, output) in ledger.get_utxos(&address).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)? {
-        if let Some(token) = output.token {
-            let entry = held.entry(token.id).or_default();
-            entry.0 = entry.0.saturating_add(token.amount);
-            entry.1 |= token.mint_authority;
-        }
-    }
+    // From the running holdings, not the address's coins: anyone can send an address many
+    // tiny coins, but each token listed had to be issued. The list is capped all the same.
+    let held = ledger.storage.get_token_holdings(&address).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let mut balances = Vec::new();
-    for (id, (amount, mint_authority)) in held {
+    for (id, amount, mint_authority) in held.into_iter().take(MAX_TOKENS_LISTED) {
         let info = ledger.token_info(&id).ok().flatten().map(|(info, _)| info);
         balances.push(TokenBalanceResponse {
             token_id: id.to_hex(),
@@ -983,9 +1032,7 @@ async fn history_handler(
         None => None,
     };
     let ledger = state.ledger.read().await;
-    let rows = ledger
-        .address_history(&address, limit, before.as_deref())
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let rows = ledger.address_history(&address, limit, before.as_deref()).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let next = (rows.len() == limit).then(|| rows.last().map(|(row, _)| hex::encode(row.position()))).flatten();
     let items = rows
@@ -1072,31 +1119,13 @@ async fn broadcast_handler(
     match ledger.broadcast_transaction(payload.transaction.clone()) {
         Ok(tx_id) => {
             state.p2p.broadcast_transaction(payload.transaction);
-            (
-                StatusCode::OK,
-                Json(BroadcastTxResponse {
-                    success: true,
-                    tx_id: Some(tx_id.to_hex()),
-                    error: None,
-                }),
-            )
+            (StatusCode::OK, Json(BroadcastTxResponse { success: true, tx_id: Some(tx_id.to_hex()), error: None }))
         }
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(BroadcastTxResponse {
-                success: false,
-                tx_id: None,
-                error: Some(e.to_string()),
-            }),
-        ),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(BroadcastTxResponse { success: false, tx_id: None, error: Some(e.to_string()) })),
     }
 }
 
-
-async fn tx_status_handler(
-    State(state): State<Arc<AppState>>,
-    Path(txid_hex): Path<String>,
-) -> Result<Json<TxStatusResponse>, StatusCode> {
+async fn tx_status_handler(State(state): State<Arc<AppState>>, Path(txid_hex): Path<String>) -> Result<Json<TxStatusResponse>, StatusCode> {
     let tx_hash = Hash::from_hex(&txid_hex).map_err(|_| StatusCode::BAD_REQUEST)?;
     let ledger = state.ledger.read().await;
 
@@ -1177,26 +1206,48 @@ async fn ws_address_handler(
     ws: WebSocketUpgrade,
     Path(addr_str): Path<String>,
     State(state): State<Arc<AppState>>,
+    axum::extract::ConnectInfo(client): axum::extract::ConnectInfo<std::net::SocketAddr>,
     headers: axum::http::HeaderMap,
 ) -> Response {
     use std::sync::atomic::Ordering;
-    // Browsers do not apply CORS to WebSockets, so the allowed websites are checked here
-    if !state.allowed_origins.is_empty() {
+    // Browsers do not apply CORS to WebSockets, so the website is checked here, whatever the
+    // allow list says: a page from another site may only listen if the operator named it.
+    // Programs that are not browsers send no Origin and are unaffected.
+    {
         let origin = headers.get(axum::http::header::ORIGIN).and_then(|o| o.to_str().ok());
         let host = headers.get(axum::http::header::HOST).and_then(|h| h.to_str().ok());
-        // The node's own pages (the wallet) are always allowed
-        let same_site = |o: &str| host.is_some_and(|h| o.split_once("://").is_some_and(|(_, rest)| rest == h));
-        if origin.is_some_and(|o| !same_site(o) && !state.allowed_origins.iter().any(|allowed| allowed == o)) {
+        if !socket_origin_allowed(origin, host, &state.allowed_origins) {
             return StatusCode::FORBIDDEN.into_response();
         }
     }
+    // Loopback gets no exemption: a web page in the operator's browser connects from there too
+    let client = client_key(client.ip());
+    {
+        let mut per_client = state.sockets_per_client.lock().unwrap();
+        let open = per_client.entry(client).or_insert(0);
+        if *open >= MAX_SOCKETS_PER_CLIENT {
+            return StatusCode::TOO_MANY_REQUESTS.into_response();
+        }
+        *open += 1;
+    }
+    let release_client = move |state: &AppState| {
+        let mut per_client = state.sockets_per_client.lock().unwrap();
+        if let Some(open) = per_client.get_mut(&client) {
+            *open -= 1;
+            if *open == 0 {
+                per_client.remove(&client);
+            }
+        }
+    };
     if state.sockets_open.fetch_add(1, Ordering::SeqCst) >= MAX_SOCKETS {
         state.sockets_open.fetch_sub(1, Ordering::SeqCst);
+        release_client(&state);
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     }
     ws.on_upgrade(move |socket| async move {
         handle_address_socket(socket, addr_str, state.clone()).await;
         state.sockets_open.fetch_sub(1, Ordering::SeqCst);
+        release_client(&state);
     })
 }
 
@@ -1204,9 +1255,7 @@ async fn handle_address_socket(mut socket: WebSocket, addr_str: String, state: A
     let address = match Address::decode(&addr_str) {
         Ok(a) => a,
         Err(_) => {
-            let _ = socket
-                .send(WsMessage::Text(r#"{"error":"Invalid address"}"#.to_string()))
-                .await;
+            let _ = socket.send(WsMessage::Text(r#"{"error":"Invalid address"}"#.to_string())).await;
             return;
         }
     };
@@ -1284,5 +1333,60 @@ async fn handle_address_socket(mut socket: WebSocket, addr_str: String, state: A
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+
+    /// Many distinct clients, each using its bucket, must not grow the table past its limit.
+    #[test]
+    fn rate_limit_table_stays_bounded() {
+        let limit = RateLimit::new(1.0, 1.0);
+        for n in 0..(MAX_TRACKED_CLIENTS as u32 + 500) {
+            limit.allow(IpAddr::V4(Ipv4Addr::from(0x0a00_0000 + n)));
+        }
+        assert!(limit.buckets.lock().unwrap().len() <= MAX_TRACKED_CLIENTS);
+    }
+
+    /// Another website may not open an address socket unless the operator named it, even when
+    /// no allow list is set.
+    #[test]
+    fn address_socket_checks_the_website() {
+        let none: Vec<String> = Vec::new();
+        let host = Some("127.0.0.1:18556");
+        assert!(socket_origin_allowed(None, host, &none));
+        assert!(socket_origin_allowed(Some("http://127.0.0.1:18556"), host, &none));
+        assert!(!socket_origin_allowed(Some("http://evil.example"), host, &none));
+        // DNS rebinding: a hostile name pointed at the node, sent as both Host and Origin
+        assert!(!socket_origin_allowed(Some("http://rebind.example:18556"), Some("rebind.example:18556"), &none));
+        assert!(socket_origin_allowed(Some("http://localhost:18556"), Some("localhost:18556"), &none));
+        assert!(socket_origin_allowed(Some("http://[::1]:18556"), Some("[::1]:18556"), &none));
+        let shop = vec!["https://shop.example".to_string()];
+        assert!(socket_origin_allowed(Some("https://shop.example"), host, &shop));
+        assert!(!socket_origin_allowed(Some("https://other.example"), host, &shop));
+    }
+
+    /// Round 3, M6: only `localhost` and IP addresses name this machine; a rebound name does not.
+    #[test]
+    fn only_localhost_and_addresses_name_this_machine() {
+        for good in ["127.0.0.1:18556", "localhost:18556", "LOCALHOST", "[::1]:18556", "192.168.1.69:18556"] {
+            assert!(host_names_this_machine(good), "{}", good);
+        }
+        for bad in ["rebind.example:18556", "evil.example", "localhost.evil.example:18556"] {
+            assert!(!host_names_this_machine(bad), "{}", bad);
+        }
+    }
+
+    /// Addresses within one IPv6 /64 share a bucket.
+    #[test]
+    fn ipv6_slash_64_counts_as_one_client() {
+        let limit = RateLimit::new(0.0, 2.0);
+        let ip = |last: u16| IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 1, 2, 0, 0, 0, last));
+        assert!(limit.allow(ip(1)));
+        assert!(limit.allow(ip(2)));
+        assert!(!limit.allow(ip(3)));
     }
 }

@@ -28,7 +28,8 @@ fn main() -> Result<(), String> {
     // Picks coins, pays the recipient, returns the change to the sender and signs every input.
     // A payment that spends many small coins is larger and needs a larger fee: nodes ask for
     // at least 10 atoms per byte, so build once, check the size, and rebuild if needed.
-    let build = |fee: u64| Transaction::build_invoice_payment(&key, NETWORK, &recipient, amount_atoms, fee, coins.clone(), None, invoice_id);
+    let build =
+        |fee: u64| Transaction::build_invoice_payment(&key, NETWORK, &recipient, amount_atoms, fee, coins.clone(), None, invoice_id);
     let mut fee = FEE_ATOMS;
     let mut tx = build(fee)?;
     while fee < 20 * tx.to_bytes().len() as u64 {

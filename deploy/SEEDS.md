@@ -1,6 +1,6 @@
 # Seed nodes
 
-The public test network (testnet-3) has four seed hostnames, all on P2P port 18555.
+The public test network (testnet-4) has four seed hostnames, all on P2P port 18555.
 
 | Hostname | Address | Machine |
 |---|---|---|
@@ -15,8 +15,11 @@ The public test network (testnet-3) has four seed hostnames, all on P2P port 185
 - Every VM boots with [`gcloud-seed-startup.sh`](gcloud-seed-startup.sh), stored as the instance's
   `startup-script` metadata. Keep that metadata in sync with the file in this repository whenever the
   script changes; a VM runs the copy in its metadata, not the one in git.
-- Instance metadata: `imn-peers` (all three VMs list the four seeds), `imn-api-public` and
-  `imn-rpc-token` (only `imn-seed-us`). The token is a secret and is not recorded here.
+- Instance metadata: `imn-ref` (the release tag or commit to build; required, so a seed never
+  builds whatever the default branch happens to hold), `imn-peers` (all three VMs list the four
+  seeds), `imn-api-public`, `imn-rpc-token` and optionally `imn-origins` (only `imn-seed-us`). The
+  token is a secret and is not recorded here. To upgrade, set `imn-ref` to the new tag, then
+  rebuild as below.
 - The Cloud Resource Manager API is disabled in the project, so `gcloud projects list` fails; address
   the project by its ID.
 

@@ -35,6 +35,15 @@ impl PowParams {
     pub const fn tiny() -> Self {
         Self { light_cache_items: 257, dataset_items: 1_031 }
     }
+
+    /// The sizes a node or pool reports, if they are ones a network uses. Miners take the sizes
+    /// from whatever server they connect to, and a pool is often someone else's: any size it
+    /// liked could make a miner try to build hundreds of gigabytes, or crash it with zero.
+    pub fn known(light_cache_items: u64, dataset_items: u64) -> Option<Self> {
+        [Self::mainnet(), Self::dev()]
+            .into_iter()
+            .find(|known| known.light_cache_items as u64 == light_cache_items && known.dataset_items as u64 == dataset_items)
+    }
 }
 
 /// Whether to hold the full dataset in memory or compute items from the cache on demand.
@@ -186,9 +195,8 @@ mod tests {
     #[test]
     fn output_bits_are_balanced() {
         let pow = engine(PowMode::Full);
-        let ones: u32 = (0..500u64)
-            .map(|nonce| pow.calculate_hash(&Hash([3u8; 32]), nonce).0.iter().map(|b| b.count_ones()).sum::<u32>())
-            .sum();
+        let ones: u32 =
+            (0..500u64).map(|nonce| pow.calculate_hash(&Hash([3u8; 32]), nonce).0.iter().map(|b| b.count_ones()).sum::<u32>()).sum();
         // 128,000 output bits: expect about half set
         assert!((62_000..66_000).contains(&ones), "{}", ones);
     }

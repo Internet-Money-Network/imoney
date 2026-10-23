@@ -17,9 +17,7 @@ pub const MAX_INVOICE_ID_BYTES: usize = 64;
 
 /// An invoice ID is 1 to 64 characters from `A-Z a-z 0-9 - _ .`
 pub fn is_valid_invoice_id(id: &str) -> bool {
-    !id.is_empty()
-        && id.len() <= MAX_INVOICE_ID_BYTES
-        && id.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
+    !id.is_empty() && id.len() <= MAX_INVOICE_ID_BYTES && id.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
 }
 
 /// Most outputs one consolidation transaction may merge; keeps it under `MAX_TX_BYTES`.
@@ -84,10 +82,7 @@ pub struct ScriptPublicKey {
 impl ScriptPublicKey {
     /// The script that pays to `address`.
     pub fn pay_to_address(address: &Address) -> Self {
-        Self {
-            version: address.address_type as u8,
-            script: address.hash.0.to_vec(),
-        }
+        Self { version: address.address_type as u8, script: address.hash.0.to_vec() }
     }
 }
 
@@ -124,14 +119,7 @@ impl Transaction {
     pub fn coinbase(daa_score: u64, outputs: Vec<TxOutput>, extra_data: &[u8]) -> Self {
         let mut payload = daa_score.to_be_bytes().to_vec();
         payload.extend_from_slice(extra_data);
-        Self {
-            version: 1,
-            inputs: Vec::new(),
-            outputs,
-            payload,
-            service: None,
-            issue: None,
-        }
+        Self { version: 1, inputs: Vec::new(), outputs, payload, service: None, issue: None }
     }
 
     pub fn is_coinbase(&self) -> bool {
@@ -208,19 +196,11 @@ impl Transaction {
     /// Computes the signing hash for an input. It commits to the network, so a signature
     /// made on one network is not valid on another.
     pub fn sig_hash(&self, network: Network, input_index: usize) -> Hash {
-        tagged_hash(
-            SIG_HASH_CONTEXT,
-            &[&[network.id()], &self.unsigned_bytes(), &(input_index as u32).to_be_bytes()],
-        )
+        tagged_hash(SIG_HASH_CONTEXT, &[&[network.id()], &self.unsigned_bytes(), &(input_index as u32).to_be_bytes()])
     }
 
     /// Signs an input using the specified private key.
-    pub fn sign_input(
-        &mut self,
-        network: Network,
-        input_index: usize,
-        signing_key: &SigningKey,
-    ) -> Result<(), TransactionError> {
+    pub fn sign_input(&mut self, network: Network, input_index: usize, signing_key: &SigningKey) -> Result<(), TransactionError> {
         if input_index >= self.inputs.len() {
             return Err(TransactionError::EmptyInputs);
         }
@@ -255,12 +235,7 @@ impl Transaction {
     }
 
     /// Verifies the signature of an input against the script of the UTXO it spends.
-    pub fn verify_input(
-        &self,
-        network: Network,
-        input_index: usize,
-        spent_script: &ScriptPublicKey,
-    ) -> Result<(), TransactionError> {
+    pub fn verify_input(&self, network: Network, input_index: usize, spent_script: &ScriptPublicKey) -> Result<(), TransactionError> {
         // With no block to judge a deadline by, nothing time-locked has matured
         self.verify_input_at(network, input_index, spent_script, 0)
     }
@@ -274,7 +249,8 @@ impl Transaction {
         spent_script: &ScriptPublicKey,
         spending_blue_score: u64,
     ) -> Result<(), TransactionError> {
-        if spent_script.version == crate::vault::SCRIPT_VERSION_VAULT || spent_script.version == crate::vault::SCRIPT_VERSION_VAULT_PENDING {
+        if spent_script.version == crate::vault::SCRIPT_VERSION_VAULT || spent_script.version == crate::vault::SCRIPT_VERSION_VAULT_PENDING
+        {
             return self.verify_vault_input(network, input_index, spent_script, spending_blue_score);
         }
         if spent_script.version == crate::subscription::SCRIPT_VERSION_SUBSCRIPTION {
@@ -316,14 +292,11 @@ impl Transaction {
         // 2. Verify the signature on sig_hash. The strict check refuses keys and signature
         // points of small order, for which a fixed signature would pass for any message, and
         // has one answer for every signature where the lenient check leaves room to differ.
-        let verifying_key = VerifyingKey::from_bytes(&pubkey_bytes)
-            .map_err(|e| TransactionError::InvalidSignature(e.to_string()))?;
+        let verifying_key = VerifyingKey::from_bytes(&pubkey_bytes).map_err(|e| TransactionError::InvalidSignature(e.to_string()))?;
         let signature = Signature::from_bytes(&sig_bytes);
 
         let sighash = self.sig_hash(network, input_index);
-        verifying_key
-            .verify_strict(sighash.as_bytes(), &signature)
-            .map_err(|e| TransactionError::InvalidSignature(e.to_string()))?;
+        verifying_key.verify_strict(sighash.as_bytes(), &signature).map_err(|e| TransactionError::InvalidSignature(e.to_string()))?;
 
         Ok(())
     }
@@ -355,18 +328,18 @@ impl Transaction {
 
         let mut tx = Transaction {
             version: 1,
-            inputs: utxos
-                .into_iter()
-                .map(|(outpoint, _)| TxInput { previous_outpoint: outpoint, signature_script: Vec::new() })
-                .collect(),
-            outputs: vec![TxOutput { value_atoms: total - fee_atoms, script_public_key: ScriptPublicKey::pay_to_address(&owner), token: None }],
+            inputs: utxos.into_iter().map(|(outpoint, _)| TxInput { previous_outpoint: outpoint, signature_script: Vec::new() }).collect(),
+            outputs: vec![TxOutput {
+                value_atoms: total - fee_atoms,
+                script_public_key: ScriptPublicKey::pay_to_address(&owner),
+                token: None,
+            }],
             payload: Vec::new(),
             service: service.map(ScriptPublicKey::pay_to_address),
             issue: None,
         };
         for i in 0..tx.inputs.len() {
-            tx.sign_input(network, i, signing_key)
-                .map_err(|e| format!("Failed to sign input {}: {}", i, e))?;
+            tx.sign_input(network, i, signing_key).map_err(|e| format!("Failed to sign input {}: {}", i, e))?;
         }
         Ok(tx)
     }
@@ -404,18 +377,14 @@ impl Transaction {
         let verifying_key = signing_key.verifying_key();
         let sender_addr = Address::from_public_key(network, AddressType::PubKeyHash, verifying_key.as_bytes());
 
-        let total_required = amount_atoms
-            .checked_add(fee_atoms)
-            .ok_or_else(|| "Amount plus fee overflows".to_string())?;
+        let total_required = amount_atoms.checked_add(fee_atoms).ok_or_else(|| "Amount plus fee overflows".to_string())?;
         let mut accumulated: u64 = 0;
         let mut selected_utxos = Vec::new();
 
         // Coins that carry a token are moved by the token builders, never spent as plain IMN
         let available_utxos: Vec<_> = available_utxos.into_iter().filter(|(_, o)| o.token.is_none()).collect();
         for (outpoint, output) in available_utxos {
-            accumulated = accumulated
-                .checked_add(output.value_atoms)
-                .ok_or_else(|| "Selected inputs overflow".to_string())?;
+            accumulated = accumulated.checked_add(output.value_atoms).ok_or_else(|| "Selected inputs overflow".to_string())?;
             selected_utxos.push((outpoint, output));
             if accumulated >= total_required {
                 break;
@@ -423,29 +392,21 @@ impl Transaction {
         }
 
         if accumulated < total_required {
-            return Err(format!(
-                "Insufficient funds: have {} atoms, require {} atoms",
-                accumulated, total_required
-            ));
+            return Err(format!("Insufficient funds: have {} atoms, require {} atoms", accumulated, total_required));
         }
 
         let change_atoms = accumulated - total_required;
 
         let inputs: Vec<TxInput> = selected_utxos
             .iter()
-            .map(|(outpoint, _)| TxInput {
-                previous_outpoint: outpoint.clone(),
-                signature_script: Vec::new(),
-            })
+            .map(|(outpoint, _)| TxInput { previous_outpoint: outpoint.clone(), signature_script: Vec::new() })
             .collect();
 
-        let mut outputs = vec![TxOutput {
-            value_atoms: amount_atoms,
-            script_public_key: ScriptPublicKey::pay_to_address(recipient_addr),
-            token: None,
-        }];
+        let mut outputs =
+            vec![TxOutput { value_atoms: amount_atoms, script_public_key: ScriptPublicKey::pay_to_address(recipient_addr), token: None }];
 
-        if change_atoms > 0 {
+        // Change too small to be worth spending goes to the fee instead
+        if change_atoms >= crate::constants::MIN_OUTPUT_ATOMS {
             outputs.push(TxOutput {
                 value_atoms: change_atoms,
                 script_public_key: ScriptPublicKey::pay_to_address(&sender_addr),
@@ -453,18 +414,11 @@ impl Transaction {
             });
         }
 
-        let mut tx = Transaction {
-            version: 1,
-            inputs,
-            outputs,
-            payload,
-            service: service.map(ScriptPublicKey::pay_to_address),
-            issue: None,
-        };
+        let mut tx =
+            Transaction { version: 1, inputs, outputs, payload, service: service.map(ScriptPublicKey::pay_to_address), issue: None };
 
         for i in 0..tx.inputs.len() {
-            tx.sign_input(network, i, signing_key)
-                .map_err(|e| format!("Failed to sign input {}: {}", i, e))?;
+            tx.sign_input(network, i, signing_key).map_err(|e| format!("Failed to sign input {}: {}", i, e))?;
         }
 
         Ok(tx)
@@ -480,10 +434,7 @@ impl Encode for Outpoint {
 
 impl Decode for Outpoint {
     fn decode(reader: &mut Reader<'_>) -> Result<Self, DecodeError> {
-        Ok(Self {
-            transaction_id: reader.hash()?,
-            index: reader.u32()?,
-        })
+        Ok(Self { transaction_id: reader.hash()?, index: reader.u32()? })
     }
 }
 
@@ -496,10 +447,7 @@ impl Encode for TxInput {
 
 impl Decode for TxInput {
     fn decode(reader: &mut Reader<'_>) -> Result<Self, DecodeError> {
-        Ok(Self {
-            previous_outpoint: Outpoint::decode(reader)?,
-            signature_script: reader.bytes(MAX_TX_BYTES)?,
-        })
+        Ok(Self { previous_outpoint: Outpoint::decode(reader)?, signature_script: reader.bytes(MAX_TX_BYTES)? })
     }
 }
 
@@ -522,10 +470,7 @@ impl Decode for TxOutput {
     fn decode(reader: &mut Reader<'_>) -> Result<Self, DecodeError> {
         Ok(Self {
             value_atoms: reader.u64()?,
-            script_public_key: ScriptPublicKey {
-                version: reader.u8()?,
-                script: reader.bytes(MAX_TX_BYTES)?,
-            },
+            script_public_key: ScriptPublicKey { version: reader.u8()?, script: reader.bytes(MAX_TX_BYTES)? },
             token: match reader.u8()? {
                 0 => None,
                 1 => Some(crate::token::TokenAmount::decode(reader)?),
@@ -586,39 +531,17 @@ mod tests {
     fn signed_payment() -> (Transaction, Address) {
         let mut csprng = OsRng;
         let signing_key = SigningKey::generate(&mut csprng);
-        let sender_addr = Address::from_public_key(
-            Network::Testnet,
-            AddressType::PubKeyHash,
-            signing_key.verifying_key().as_bytes(),
-        );
+        let sender_addr = Address::from_public_key(Network::Testnet, AddressType::PubKeyHash, signing_key.verifying_key().as_bytes());
 
-        let outpoint = Outpoint {
-            transaction_id: Hash([7u8; 32]),
-            index: 0,
-        };
-        let utxo = TxOutput {
-            value_atoms: 10_000_000,
-            script_public_key: ScriptPublicKey::pay_to_address(&sender_addr),
-            token: None,
-        };
+        let outpoint = Outpoint { transaction_id: Hash([7u8; 32]), index: 0 };
+        let utxo = TxOutput { value_atoms: 10_000_000, script_public_key: ScriptPublicKey::pay_to_address(&sender_addr), token: None };
 
         let recipient_key = SigningKey::generate(&mut csprng);
-        let recipient_addr = Address::from_public_key(
-            Network::Testnet,
-            AddressType::PubKeyHash,
-            recipient_key.verifying_key().as_bytes(),
-        );
+        let recipient_addr = Address::from_public_key(Network::Testnet, AddressType::PubKeyHash, recipient_key.verifying_key().as_bytes());
 
-        let tx = Transaction::build_payment(
-            &signing_key,
-            Network::Testnet,
-            &recipient_addr,
-            6_000_000,
-            1_000,
-            vec![(outpoint, utxo)],
-            None,
-        )
-        .expect("build_payment failed");
+        let tx =
+            Transaction::build_payment(&signing_key, Network::Testnet, &recipient_addr, 6_000_000, 1_000, vec![(outpoint, utxo)], None)
+                .expect("build_payment failed");
         (tx, sender_addr)
     }
 
@@ -642,10 +565,7 @@ mod tests {
         let script = ScriptPublicKey::pay_to_address(&sender_addr);
 
         assert!(tx.verify_input(Network::Testnet, 0, &script).is_ok());
-        assert!(matches!(
-            tx.verify_input(Network::Mainnet, 0, &script),
-            Err(TransactionError::InvalidSignature(_))
-        ));
+        assert!(matches!(tx.verify_input(Network::Mainnet, 0, &script), Err(TransactionError::InvalidSignature(_))));
     }
 
     #[test]
@@ -697,28 +617,28 @@ mod tests {
             issue: Some(crate::TokenInfo { name: "Abc".into(), ticker: "AB".into(), decimals: 2, url: String::new() }),
         };
         let expected = [
-            "0001",                 // version
-            "00000001",             // input count
-            &"aa".repeat(32),       // previous transaction id
-            "00000002",             // previous output index
-            "00000003bbbbbb",       // signature script
-            "00000001",             // output count
-            "0000000000000102",     // value
-            "00",                   // script version
-            "00000002cccc",         // script
-            "01",                   // carries a token
-            &"11".repeat(32),       // token id
-            "0000000000000005",     // token amount
-            "00",                   // not a mint authority
-            "00000001dd",           // payload
-            "01",                   // service script present
-            "00",                   // service script version
-            "00000002eeee",         // service script
-            "01",                   // issues a token
-            "00000003416263",       // name "Abc"
-            "000000024142",         // ticker "AB"
-            "02",                   // decimals
-            "00000000",             // no URL
+            "0001",             // version
+            "00000001",         // input count
+            &"aa".repeat(32),   // previous transaction id
+            "00000002",         // previous output index
+            "00000003bbbbbb",   // signature script
+            "00000001",         // output count
+            "0000000000000102", // value
+            "00",               // script version
+            "00000002cccc",     // script
+            "01",               // carries a token
+            &"11".repeat(32),   // token id
+            "0000000000000005", // token amount
+            "00",               // not a mint authority
+            "00000001dd",       // payload
+            "01",               // service script present
+            "00",               // service script version
+            "00000002eeee",     // service script
+            "01",               // issues a token
+            "00000003416263",   // name "Abc"
+            "000000024142",     // ticker "AB"
+            "02",               // decimals
+            "00000000",         // no URL
         ]
         .concat();
         assert_eq!(hex::encode(tx.to_bytes()), expected);
@@ -732,11 +652,10 @@ mod tests {
         let key = SigningKey::from_bytes(&[5u8; 32]);
         let me = Address::from_public_key(Network::Testnet, AddressType::PubKeyHash, key.verifying_key().as_bytes());
         let node = Address::from_public_key(Network::Testnet, AddressType::PubKeyHash, &[9u8; 32]);
-        let utxo = TxOutput { value_atoms: 50_000, script_public_key: ScriptPublicKey::pay_to_address(&me), token: None };
+        let utxo = TxOutput { value_atoms: 5_000_000, script_public_key: ScriptPublicKey::pay_to_address(&me), token: None };
         let outpoint = Outpoint { transaction_id: Hash([7u8; 32]), index: 0 };
         let mut with_service =
-            Transaction::build_payment(&key, Network::Testnet, &sender_addr, 10_000, 1_001, vec![(outpoint, utxo)], Some(&node))
-                .unwrap();
+            Transaction::build_payment(&key, Network::Testnet, &sender_addr, 10_000, 1_001, vec![(outpoint, utxo)], Some(&node)).unwrap();
 
         assert_eq!(with_service.service_share(1_001), 500);
         assert_eq!(with_service.service_outpoint().index, 2);
@@ -789,9 +708,8 @@ mod tests {
                 TxOutput { value_atoms: 50_000, script_public_key: script.clone(), token: None },
             )]
         };
-        let build = |invoice: Option<&str>| {
-            Transaction::build_invoice_payment(&key, Network::Testnet, &me, 10_000, 1_000, utxo(), None, invoice)
-        };
+        let build =
+            |invoice: Option<&str>| Transaction::build_invoice_payment(&key, Network::Testnet, &me, 10_000, 1_000, utxo(), None, invoice);
 
         let mut tx = build(Some("INV-1042")).unwrap();
         assert_eq!(tx.invoice_id(), Some("INV-1042"));
@@ -818,12 +736,19 @@ mod tests {
         let maker = SigningKey::generate(&mut OsRng).verifying_key().to_bytes();
         let token = Hash([5u8; 32]);
         let terms = OfferTerms::new(maker, Some(token), None, 1, 1).unwrap();
-        let offer_coin = TxOutput { value_atoms: 0, script_public_key: terms.script(), token: Some(crate::TokenAmount { id: token, amount: 1_000, mint_authority: false }) };
+        let offer_coin = TxOutput {
+            value_atoms: 0,
+            script_public_key: terms.script(),
+            token: Some(crate::TokenAmount { id: token, amount: 1_000, mint_authority: false }),
+        };
         let pending = PendingWithdrawal { destination: terms.maker_script(net), unlock_at: 10, backup: [9u8; 32] };
         let vault_coin = TxOutput::new(1_000, pending.locking_script());
 
         let thief = ScriptPublicKey::pay_to_address(&Address::from_public_key(net, AddressType::PubKeyHash, &[3u8; 32]));
-        let take = TxInput { previous_outpoint: Outpoint { transaction_id: Hash([1u8; 32]), index: 0 }, signature_script: vec![0, 0, 0, 0xff, 0xff] };
+        let take = TxInput {
+            previous_outpoint: Outpoint { transaction_id: Hash([1u8; 32]), index: 0 },
+            signature_script: vec![0, 0, 0, 0xff, 0xff],
+        };
         let complete = TxInput {
             previous_outpoint: Outpoint { transaction_id: Hash([2u8; 32]), index: 0 },
             signature_script: [pending.to_bytes(), vec![0, 0, 0]].concat(),
@@ -833,7 +758,11 @@ mod tests {
             inputs: vec![take, complete],
             outputs: vec![
                 TxOutput::new(1_000, terms.maker_script(net)),
-                TxOutput { value_atoms: 0, script_public_key: thief, token: Some(crate::TokenAmount { id: token, amount: 1_000, mint_authority: false }) },
+                TxOutput {
+                    value_atoms: 0,
+                    script_public_key: thief,
+                    token: Some(crate::TokenAmount { id: token, amount: 1_000, mint_authority: false }),
+                },
             ],
             payload: Vec::new(),
             service: None,

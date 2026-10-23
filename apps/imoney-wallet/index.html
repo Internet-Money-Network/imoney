@@ -1672,7 +1672,9 @@
         const now = await blueScore();
         const program = JSON.parse(wasm.subscription_terms(wallet.public_key_hex, needCode('sub-shop'), BigInt(amount), BigInt(days * 24 * BLOCKS_PER_HOUR), BigInt(now), `${wallet.address}:${now}`, TESTNET));
         await refreshBalance();
-        await broadcast(wasm.build_payment(wallet.private_key_hex, TESTNET, program.address, BigInt(amount * periods), 0n, JSON.stringify(spendable), undefined, undefined));
+        // A subscription holds exactly one coin: check the address is still empty first
+        const held = await (await fetch(`${nodeUrl()}/api/v1/address/${program.address}/balance`)).json();
+        await broadcast(wasm.subscription_fund(wallet.private_key_hex, TESTNET, program.terms_hex, BigInt(amount * periods), BigInt(held.balance_atoms || 0), JSON.stringify(spendable)));
         addDeal({ kind: 'subscription', terms_hex: program.terms_hex });
         show($('deals-status'), 'Subscribed. Press Share on it and send the code to the shop.', true);
         setTimeout(renderDeals, 6000);
@@ -1796,7 +1798,13 @@
     // Shows what the proposal in the box does, as checked against this wallet's own node
     function showSummary(proposalJson, coins) {
       const summary = JSON.parse(wasm.shared_summary(proposalJson, JSON.stringify(coins)));
-      const rows = summary.payments.map((p) => ['Pays', `${formatImn(p.amount_atoms)} IMN to ${p.address || 'an unknown kind of address'}`]);
+      const rows = summary.payments.map((p) => {
+        const to = p.address || 'an unknown kind of address';
+        if (!p.token_id) return ['Pays', `${formatImn(p.amount_atoms)} IMN to ${to}`];
+        // Tokens are shown as plainly as IMN: a 0 IMN output can still move them all
+        const token = p.mint_authority ? `the right to create more of token ${p.token_id.slice(0, 12)}…` : `${p.token_amount} of token ${p.token_id.slice(0, 12)}…`;
+        return ['Pays', `${token}${p.amount_atoms ? ` and ${formatImn(p.amount_atoms)} IMN` : ''} to ${to}`];
+      });
       rows.push(['Fee', `${formatImn(summary.fee_atoms)} IMN`]);
       if (summary.change_atoms) rows.push(['Returns to the shared wallet', `${formatImn(summary.change_atoms)} IMN`]);
       if (summary.invoice_id) rows.push(['Invoice', summary.invoice_id]);

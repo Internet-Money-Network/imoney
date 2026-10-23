@@ -4,10 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Internet Money (IMN)</title>
-  <meta name="description" content="Internet Money is an open-source proof-of-work BlockDAG currency built for payments. No premine, no developer fee. A test network is running.">
+  <meta name="description" content="Internet Money is an open-source proof-of-work currency you can spend, save and build on: payments, theft-resistant savings, tokens and trading built into the coin itself. No premine, no developer fee. A test network is running.">
   <link rel="canonical" href="https://internetmoneynetwork.org/">
   <meta property="og:title" content="Internet Money (IMN)">
-  <meta property="og:description" content="A proof-of-work BlockDAG currency built for payments a shop can check for itself. No premine, no developer fee.">
+  <meta property="og:description" content="One coin, three jobs: spend it, save it, build on it. Payments, theft-resistant savings, tokens and trading, built into the coin. No premine, no developer fee.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://internetmoneynetwork.org/">
   <meta property="og:image" content="https://internetmoneynetwork.org/banner.png">
@@ -205,6 +205,15 @@
     .status ul { list-style: none; margin: 0; padding: 0; font-size: 15.5px; }
     .status li { padding: 9px 0; border-bottom: 1px solid var(--rule-soft); }
 
+    /* Three jobs, as cards */
+    .jobs { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--rule); }
+    .jobs > div { padding: 24px 24px 26px 0; }
+    .jobs > div + div { padding-left: 24px; border-left: 1px solid var(--rule-soft); }
+    .jobs .kicker { font-family: var(--mono); font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); }
+    .jobs h3 { font-family: var(--serif); font-weight: 600; font-size: 27px; line-height: 1.1; margin: 8px 0 10px; }
+    .jobs p { margin: 0; font-size: 16px; color: var(--ink-soft); }
+    .jobs .icon { width: 44px; height: 44px; display: block; margin-bottom: 14px; color: var(--ink); }
+
     footer { border-top: 1px solid var(--rule); margin-top: 20px; padding: 26px 0 50px; font-family: var(--mono); font-size: 12.5px; color: var(--ink-soft); display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px 30px; }
     footer p { margin: 0; max-width: 52em; }
 
@@ -215,6 +224,9 @@
       .split { grid-template-columns: 1fr; }
       .status { grid-template-columns: 1fr; }
       .figures { grid-template-columns: repeat(2, 1fr); }
+      .jobs { grid-template-columns: 1fr; }
+      .jobs > div, .jobs > div + div { padding: 20px 0 22px; border-left: 0; border-top: 1px solid var(--rule-soft); }
+      .jobs > div:first-child { border-top: 0; }
     }
     @media (max-width: 520px) {
       body { font-size: 16px; }
@@ -242,10 +254,11 @@
           Internet Money
         </a>
         <nav>
+          <a href="/features">Features</a>
           <a href="/explorer">Explorer</a>
           <a href="/wallet">Wallet</a>
           <a href="/pool/">Pool</a>
-          <a class="optional" href="#why">What you can do</a>
+          <a class="optional" href="#why">Three jobs</a>
           <a class="optional" href="#merchants">Shops</a>
                     <a class="optional" href="#supply">Supply</a>
           <a href="#status">Status</a>
@@ -267,7 +280,7 @@
     <div class="strapline">
       <span class="live">Testnet running</span>
       <span>Ticker IMN</span>
-      <span>Proof of work</span>
+      <span>Spend it · Save it · Build on it</span>
       <span>No premine</span>
       <span>No developer fee</span>
     </div>
@@ -275,14 +288,15 @@
     <main>
       <div class="hero">
         <div>
-          <h1>Money for the internet that a shop can <em>check for itself.</em></h1>
+          <h1>Money you can spend, save and <em>build on.</em></h1>
           <p class="lede">
-            Send money, sell things and trade, with no bank or company in the middle.
-            Payments arrive in about five seconds and cost less than a cent.
+            Pay and get paid in seconds, for less than a cent. Keep savings a thief can't empty.
+            Make your own token and trade it with anyone. All of it is built into the coin itself,
+            with no bank, app or company in the middle.
           </p>
           <div class="actions">
             <a class="button" href="/wallet">Open the wallet</a>
-            <a class="textlink" href="#why">What you can do</a>
+            <a class="textlink" href="/features">See every feature</a>
             <a class="textlink" href="https://github.com/Internet-Money-Network/imoney">Read the code</a>
           </div>
         </div>
@@ -325,47 +339,30 @@
       </section>
 
       <section class="block" id="why">
-        <div class="label"><span class="num">§2</span>What you can do</div>
+        <div class="label"><span class="num">§2</span>Three jobs</div>
         <div class="body">
-          <h2>Pay, get paid, trade. Nobody in the middle.</h2>
-          <ol class="arguments">
-            <li>
-              <div>
-                <h3>Get paid, and know it</h3>
-                <p>
-                  Every order has its own number, so you see exactly which order was paid. The money goes
-                  straight to you. If you want to give some back, the refund is linked to the order.
-                </p>
-              </div>
-            </li>
-            <li>
-              <div>
-                <h3>Buy and sell without an exchange</h3>
-                <p>
-                  Put coins up for sale at your price, or take someone else's offer. The trade happens in one
-                  step: you get what you paid for, or nothing happens and you keep your money.
-                </p>
-              </div>
-            </li>
-            <li>
-              <div>
-                <h3>Make your own token</h3>
-                <p>
-                  Loyalty points, a game currency, a community coin. Give it a name and say how many. Copies are easy to spot: each token has its own pattern,
-                  and a copy's is different.
-                </p>
-              </div>
-            </li>
-            <li>
-              <div>
-                <h3>Escrow that can't run off with the money</h3>
-                <p>
-                  Pay into escrow and release it when the goods arrive. If there's a dispute, a referee decides who
-                  gets it. The referee can be a person or a program, and can only ever pay the buyer or the seller.
-                </p>
-              </div>
-            </li>
-          </ol>
+          <h2>One coin, three jobs. Nothing bolted on.</h2>
+          <div class="jobs">
+            <div>
+              <svg class="icon" viewBox="0 0 44 44" aria-hidden="true"><rect x="4" y="10" width="36" height="24" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 17h36" stroke="currentColor" stroke-width="2"/><path d="M10 27h10" stroke="currentColor" stroke-width="2"/></svg>
+              <span class="kicker">Spend it</span>
+              <h3>Paid in seconds</h3>
+              <p>Under a cent a payment. Order numbers, refunds and escrow built in.</p>
+            </div>
+            <div>
+              <svg class="icon" viewBox="0 0 44 44" aria-hidden="true"><rect x="7" y="8" width="30" height="28" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="22" cy="22" r="6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M22 16v-3M22 31v-3M16 22h-3M31 22h-3" stroke="currentColor" stroke-width="2"/></svg>
+              <span class="kicker">Save it</span>
+              <h3>Safe from thieves</h3>
+              <p>Vault withdrawals wait, and your backup key can stop them.</p>
+            </div>
+            <div>
+              <svg class="icon" viewBox="0 0 44 44" aria-hidden="true"><circle cx="16" cy="22" r="9" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="28" cy="22" r="9" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+              <span class="kicker">Build on it</span>
+              <h3>Your own token</h3>
+              <p>Make one in a minute and trade it with anyone. No exchange.</p>
+            </div>
+          </div>
+          <p style="margin-top: 22px;"><a class="textlink" href="/features">Every feature, and how we compare</a></p>
           <details class="more">
             <summary>How it works, for the technically curious</summary>
             <ul class="plain">
@@ -381,7 +378,7 @@
             </p>
           </details>
           <p class="note" style="margin-top: 20px;">
-            This is a test network. Getting paid and refunds work on it today; trading, tokens and escrow arrive with the next one.
+            This is a test network, and test coins have no value. Some features reach it with its next update.
           </p>
         </div>
       </section>

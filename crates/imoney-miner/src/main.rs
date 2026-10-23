@@ -60,10 +60,7 @@ fn main() {
     let args = Args::parse();
 
     if let Some(t) = args.threads {
-        rayon::ThreadPoolBuilder::new()
-            .num_threads(t)
-            .build_global()
-            .unwrap();
+        rayon::ThreadPoolBuilder::new().num_threads(t).build_global().unwrap();
     }
 
     println!("============================================================");
@@ -84,11 +81,7 @@ fn main() {
     println!("[*] Initializing Hallmark memory dataset (small development size)...");
     let init_start = Instant::now();
     let pow = HallmarkPow::new(PowParams::dev(), Hash::from_bytes([0x42; 32]), PowMode::Full);
-    println!(
-        "[+] Dataset ready: {} items (took {:.2?})",
-        pow.context().dataset_items(),
-        init_start.elapsed()
-    );
+    println!("[+] Dataset ready: {} items (took {:.2?})", pow.context().dataset_items(), init_start.elapsed());
 
     if args.benchmark || !args.mine_test {
         println!("\n[*] Running Hashrate Benchmark ({} iterations)...", args.bench_iters);
@@ -102,12 +95,7 @@ fn main() {
 
         let elapsed = bench_start.elapsed().as_secs_f64();
         let h_s = (args.bench_iters as f64) / elapsed;
-        println!(
-            "[+] Benchmark complete: {:.2} kH/s ({} hashes in {:.2}s)",
-            h_s / 1000.0,
-            args.bench_iters,
-            elapsed
-        );
+        println!("[+] Benchmark complete: {:.2} kH/s ({} hashes in {:.2}s)", h_s / 1000.0, args.bench_iters, elapsed);
     }
 
     if args.mine_test {
@@ -149,10 +137,11 @@ fn main() {
 
 /// The dataset sizes a node reports for its network. A node from before it reported them
 /// is a small-dataset one.
-fn pow_params_of(info: &serde_json::Value) -> PowParams {
+fn pow_params_of(info: &serde_json::Value) -> Result<PowParams, String> {
     match (info["pow_light_cache_items"].as_u64(), info["pow_dataset_items"].as_u64()) {
-        (Some(cache), Some(dataset)) => PowParams { light_cache_items: cache as u32, dataset_items: dataset as u32 },
-        _ => PowParams::dev(),
+        (Some(cache), Some(dataset)) => PowParams::known(cache, dataset)
+            .ok_or_else(|| format!("the node reports a dataset of unknown size ({} cache items, {} dataset items)", cache, dataset)),
+        _ => Ok(PowParams::dev()),
     }
 }
 
@@ -161,12 +150,9 @@ fn mine_for_node(node: &str, args: &Args) -> Result<(), Box<dyn std::error::Erro
     // The node's genesis hash seeds the proof of work for its network
     let info: serde_json::Value = ureq::get(&format!("{}/api/v1/info", node)).call()?.into_json()?;
     let genesis = Hash::from_hex(info["genesis_hash"].as_str().ok_or("node did not report a genesis hash")?)?;
-    let params = pow_params_of(&info);
+    let params = pow_params_of(&info)?;
     let pow = HallmarkPow::new(params, genesis, PowMode::Full);
-    println!(
-        "[*] Building the mining dataset ({} MB)...",
-        params.dataset_items as u64 * 128 / (1 << 20)
-    );
+    println!("[*] Building the mining dataset ({} MB)...", params.dataset_items as u64 * 128 / (1 << 20));
     if params == PowParams::mainnet() {
         println!("[*] This network's dataset is full size: building it takes minutes, and a graphics card mines it far faster (see imoney-gpu-miner).");
     }

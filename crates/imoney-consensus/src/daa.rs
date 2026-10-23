@@ -11,6 +11,10 @@ use primitive_types::{U256, U512};
 /// block times moves it by under a fifth.
 pub const DAA_HALF_LIFE_MS: u64 = 100_000;
 
+/// Selected-chain blocks whose latest timestamp counts as a block's time for the difficulty
+/// rule. See `expected_bits_after`.
+pub const EFFECTIVE_TIME_WINDOW: usize = 11;
+
 /// Number of recent blocks whose median timestamp a new block must exceed.
 pub const MEDIAN_TIME_WINDOW: usize = 41;
 
@@ -28,12 +32,7 @@ pub struct DaaParams {
 
 impl DaaParams {
     pub fn new(max_target_bits: u32) -> Self {
-        Self {
-            target_time_per_block_ms: TARGET_TIME_PER_BLOCK_MS,
-            half_life_ms: DAA_HALF_LIFE_MS,
-            max_target_bits,
-            retarget: true,
-        }
+        Self { target_time_per_block_ms: TARGET_TIME_PER_BLOCK_MS, half_life_ms: DAA_HALF_LIFE_MS, max_target_bits, retarget: true }
     }
 }
 
@@ -167,17 +166,32 @@ impl Dag {
             return params.max_target_bits;
         }
 
-        let elapsed_ms = parent.timestamp_ms as i128 - grandparent.timestamp_ms as i128;
+        // A block's time, for this rule, is the latest stamp among it and the selected-chain
+        // blocks just before it. Steps build on each other, so a block stamped back in time
+        // followed by an honest one would otherwise not cancel out: in simulation a miner with
+        // 30% of the hashrate stamping its blocks as early as allowed slowed blocks from 5 to
+        // 7.7 seconds. A backdated stamp now has to outlast the window to count.
+        let effective = |block: &DagBlock| {
+            let mut latest = block.timestamp_ms;
+            let mut cursor = block.ghostdag.selected_parent;
+            for _ in 1..EFFECTIVE_TIME_WINDOW {
+                let ancestor = self.get(&cursor);
+                latest = latest.max(ancestor.timestamp_ms);
+                if ancestor.parents.is_empty() {
+                    break;
+                }
+                cursor = ancestor.ghostdag.selected_parent;
+            }
+            latest
+        };
+        let elapsed_ms = effective(&parent) as i128 - effective(&grandparent) as i128;
         let scheduled_ms = parent.ghostdag.mergeset_size() as i128 * params.target_time_per_block_ms as i128;
         let exponent = ((elapsed_ms - scheduled_ms) * ONE / params.half_life_ms.max(1) as i128).clamp(-ONE, ONE);
 
         let max_target = target_from_bits(params.max_target_bits);
         let scaled = (U512::from(target_from_bits(parent.bits)) * U512::from(pow2_fixed(exponent))) >> 16;
-        let new_target = if scaled > U512::from(max_target) {
-            max_target
-        } else {
-            U256::try_from(scaled).unwrap_or(max_target).max(U256::one())
-        };
+        let new_target =
+            if scaled > U512::from(max_target) { max_target } else { U256::try_from(scaled).unwrap_or(max_target).max(U256::one()) };
 
         let mut bytes = [0u8; 32];
         new_target.to_big_endian(&mut bytes);

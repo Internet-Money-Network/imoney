@@ -80,14 +80,14 @@ impl Node {
 
     /// The coins an address can spend right now, in the form the payment builders take.
     pub fn spendable_coins(&self, address: &Address) -> Result<Vec<(Outpoint, TxOutput)>, String> {
-        let coins: Vec<Coin> =
-            serde_json::from_value(self.get(&format!("address/{}/utxos", address))?).map_err(|e| e.to_string())?;
+        let coins: Vec<Coin> = serde_json::from_value(self.get(&format!("address/{}/utxos", address))?).map_err(|e| e.to_string())?;
         coins
             .into_iter()
             .filter(|coin| coin.spendable)
             .map(|coin| {
                 let transaction_id = Hash::from_hex(&coin.transaction_id).map_err(|e| e.to_string())?;
-                let output = TxOutput { value_atoms: coin.value_atoms, script_public_key: ScriptPublicKey::pay_to_address(address), token: None };
+                let output =
+                    TxOutput { value_atoms: coin.value_atoms, script_public_key: ScriptPublicKey::pay_to_address(address), token: None };
                 Ok((Outpoint { transaction_id, index: coin.index }, output))
             })
             .collect()
