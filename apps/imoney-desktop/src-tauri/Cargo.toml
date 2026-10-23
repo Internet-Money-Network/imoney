@@ -1,0 +1,23 @@
+[package]
+name = "imoney-desktop"
+version = "0.1.6"
+edition = "2021"
+description = "Internet Money for the desktop: the wallet in its own window, with a node built in"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Internet-Money-Network/imoney"
+
+# Its own build, apart from the main workspace: Tauri needs system libraries (WebKitGTK on
+# Linux) that the node and miners do not, and the main CI should not depend on them.
+[workspace]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-single-instance = "2"
+ureq = { version = "2", default-features = false }
+
+[profile.release]
+strip = true
+lto = true

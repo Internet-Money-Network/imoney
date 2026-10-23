@@ -145,11 +145,77 @@ jobs:
             cargo +nightly fuzz run "$target" -- -max_total_time=45
           done
 
+  desktop:
+    name: Desktop App (${{ matrix.target }})
+    # Installers take a while to build, so only for releases or when started by hand
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: macos-latest
+            target: x86_64-apple-darwin
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            apps/imoney-desktop/src-tauri -> target
+          key: desktop-${{ matrix.target }}
+
+      - name: Linux libraries for the app window
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build the installers
+        working-directory: apps/imoney-desktop
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          npm ci
+          npm run sidecar
+          npx tauri build --target ${{ matrix.target }}
+
+      - name: Collect the installers
+        shell: bash
+        run: |
+          mkdir -p desktop
+          bundle=apps/imoney-desktop/src-tauri/target/${{ matrix.target }}/release/bundle
+          find "$bundle" -maxdepth 2 -type f \( -name '*.msi' -o -name '*-setup.exe' -o -name '*.dmg' -o -name '*.AppImage' -o -name '*.deb' \) -exec cp {} desktop/ \;
+          ls -la desktop
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.target }}
+          path: desktop/*
+
   release:
     name: Publish Release
     # Pushing a tag such as v0.1.0 publishes the files built above as a GitHub pre-release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [rust-core-and-node, sdk-and-packages]
+    needs: [rust-core-and-node, sdk-and-packages, desktop]
     runs-on: ubuntu-latest
     permissions:
       contents: write

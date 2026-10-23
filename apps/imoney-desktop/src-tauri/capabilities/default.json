@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The loading screen needs nothing from the app, and the wallet page, served by the built-in node, gets no access to it either",
+  "windows": ["main"],
+  "permissions": []
+}
