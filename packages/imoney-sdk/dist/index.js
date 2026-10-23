@@ -33,7 +33,7 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 // node_modules/qrcode-generator/qrcode.js
 var require_qrcode = __commonJS({
   "node_modules/qrcode-generator/qrcode.js"(exports, module2) {
-    var qrcode2 = function() {
+    var qrcode2 = (function() {
       var qrcode3 = function(typeNumber, errorCorrectionLevel) {
         var PAD0 = 236;
         var PAD1 = 17;
@@ -46,7 +46,7 @@ var require_qrcode = __commonJS({
         var _this = {};
         var makeImpl = function(test, maskPattern) {
           _moduleCount = _typeNumber * 4 + 17;
-          _modules = function(moduleCount) {
+          _modules = (function(moduleCount) {
             var modules = new Array(moduleCount);
             for (var row = 0; row < moduleCount; row += 1) {
               modules[row] = new Array(moduleCount);
@@ -55,7 +55,7 @@ var require_qrcode = __commonJS({
               }
             }
             return modules;
-          }(_moduleCount);
+          })(_moduleCount);
           setupPositionProbePattern(0, 0);
           setupPositionProbePattern(_moduleCount - 7, 0);
           setupPositionProbePattern(0, _moduleCount - 7);
@@ -574,7 +574,7 @@ var require_qrcode = __commonJS({
       };
       qrcode3.stringToBytes = qrcode3.stringToBytesFuncs["default"];
       qrcode3.createStringToBytes = function(unicodeData, numChars) {
-        var unicodeMap = function() {
+        var unicodeMap = (function() {
           var bin = base64DecodeInputStream(unicodeData);
           var read = function() {
             var b = bin.read();
@@ -598,7 +598,7 @@ var require_qrcode = __commonJS({
             throw count + " != " + numChars;
           }
           return unicodeMap2;
-        }();
+        })();
         var unknownChar = "?".charCodeAt(0);
         return function(s) {
           var bytes = [];
@@ -645,7 +645,7 @@ var require_qrcode = __commonJS({
         PATTERN110: 6,
         PATTERN111: 7
       };
-      var QRUtil = function() {
+      var QRUtil = (function() {
         var PATTERN_POSITION_TABLE = [
           [],
           [6, 18],
@@ -874,8 +874,8 @@ var require_qrcode = __commonJS({
           return lostPoint;
         };
         return _this;
-      }();
-      var QRMath = function() {
+      })();
+      var QRMath = (function() {
         var EXP_TABLE = new Array(256);
         var LOG_TABLE = new Array(256);
         for (var i = 0; i < 8; i += 1) {
@@ -904,12 +904,12 @@ var require_qrcode = __commonJS({
           return EXP_TABLE[n];
         };
         return _this;
-      }();
+      })();
       function qrPolynomial(num, shift) {
         if (typeof num.length == "undefined") {
           throw num.length + "/" + shift;
         }
-        var _num = function() {
+        var _num = (function() {
           var offset = 0;
           while (offset < num.length && num[offset] == 0) {
             offset += 1;
@@ -919,7 +919,7 @@ var require_qrcode = __commonJS({
             _num2[i] = num[i + offset];
           }
           return _num2;
-        }();
+        })();
         var _this = {};
         _this.getAt = function(index) {
           return _num[index];
@@ -953,7 +953,7 @@ var require_qrcode = __commonJS({
         return _this;
       }
       ;
-      var QRRSBlock = function() {
+      var QRRSBlock = (function() {
         var RS_BLOCK_TABLE = [
           // L
           // M
@@ -1199,7 +1199,7 @@ var require_qrcode = __commonJS({
           return list;
         };
         return _this;
-      }();
+      })();
       var qrBitBuffer = function() {
         var _buffer = [];
         var _length = 0;
@@ -1352,12 +1352,12 @@ var require_qrcode = __commonJS({
         if (!stringToBytes) {
           throw "sjis not supported.";
         }
-        !function(c, code) {
+        !(function(c, code) {
           var test = stringToBytes(c);
           if (test.length != 2 || (test[0] << 8 | test[1]) != code) {
             throw "sjis not supported.";
           }
-        }("\u53CB", 38726);
+        })("\u53CB", 38726);
         var _bytes = stringToBytes(data);
         var _this = {};
         _this.getMode = function() {
@@ -1670,8 +1670,8 @@ var require_qrcode = __commonJS({
         return "data:image/gif;base64," + base64;
       };
       return qrcode3;
-    }();
-    !function() {
+    })();
+    !(function() {
       qrcode2.stringToBytesFuncs["UTF-8"] = function(s) {
         function toUTF8Array(str) {
           var utf8 = [];
@@ -1704,7 +1704,7 @@ var require_qrcode = __commonJS({
         }
         return toUTF8Array(s);
       };
-    }();
+    })();
     (function(factory) {
       if (typeof define === "function" && define.amd) {
         define([], factory);
