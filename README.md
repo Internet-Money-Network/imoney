@@ -4,7 +4,7 @@
 
 <p align="center">
   <b>A proof-of-work BlockDAG Layer-1 cryptocurrency built for payments.</b><br>
-  <sub>Zero Premine &bull; Zero Dev Fee &bull; ~5-Second Block Inclusion &bull; Pure-Rust redb Storage &bull; Native Merchant SDK</sub>
+  <sub>Zero Premine &bull; 5% Maintenance Fee, First 3 Years Only &bull; ~5-Second Block Inclusion &bull; Pure-Rust redb Storage &bull; Native Merchant SDK</sub>
 </p>
 
 

@@ -6,6 +6,10 @@ Notable changes to Internet Money. Nothing has been released yet: everything bel
 ## Unreleased
 
 ### Added
+- **A maintenance fund: 5% of each block's subsidy for the first three years** (18,921,600
+  blocks), paid by the ledger to one address fixed in the rules and stopping by itself. Miners
+  claim the other 95%, and all transaction fees. Total supply and the emission schedule are
+  unchanged. A consensus change: it arrives with a test network reset.
 - **The public test network was restarted as testnet-5**, with quantum-safe addresses: type 1
   locks coins to an Ed25519 key and a SQIsign key, and spending needs both signatures. A new
   genesis (2026-10-23) keeps out nodes from before quantum-safe spends, which would skip them and
