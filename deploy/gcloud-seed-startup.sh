@@ -1,11 +1,15 @@
 #!/bin/bash
 # Startup script for a Google Cloud seed node. It runs as root on every boot and only does
-# what is still missing: swap, Docker, the node image built from the public repository, and
-# the node container. A seed node verifies and relays; it never mines.
+# what is still missing: swap, Docker, the node image, and the node container. The image is the
+# one CI publishes for the release; building it here from source (about 20 minutes on an
+# e2-small) is only the fallback. A seed node verifies and relays; it never mines.
 #
 # Instance metadata it reads:
-#   imn-ref         the release tag or commit to build (e.g. v0.1.5). Required: a seed never
-#                   builds whatever the default branch holds at the moment it boots
+#   imn-ref         the release tag to run (e.g. v0.1.9). Required: a seed never runs
+#                   whatever the default branch holds at the moment it boots
+#   imn-image       optional: the exact image to run, pinned by digest, as in the release's
+#                   IMAGE-DIGEST.txt (ghcr.io/...@sha256:...). When set, nothing else is run,
+#                   and nothing is built from source. Use it on the main network.
 #   imn-peers       peers to connect to, comma-separated host:port
 #   imn-api-public  "1" to serve the read-only API on port 18556 to the outside (the firewall
 #                   decides who can reach it); otherwise the API listens on this machine only
@@ -39,14 +43,26 @@ if ! docker image inspect imoney:latest >/dev/null 2>&1; then
     echo "imn-seed: set instance metadata imn-ref to the release tag or commit to build" >&2
     exit 1
   fi
-  rm -rf /opt/imoney
-  git init -q /opt/imoney
-  git -C /opt/imoney fetch -q --depth 1 https://github.com/Internet-Money-Network/imoney.git "$REF"
-  git -C /opt/imoney checkout -q FETCH_HEAD
-  echo "imn-seed: building $REF ($(git -C /opt/imoney rev-parse HEAD))"
-  docker build -t imoney:latest /opt/imoney
-  # Each build leaves its 2.7 GB build stage behind; a small disk fills after a few updates
-  docker image prune -f
+  # The image CI built for this release, or the one pinned by digest
+  PINNED=$(metadata imn-image)
+  IMAGE=${PINNED:-ghcr.io/internet-money-network/imoney:$REF}
+  if docker pull -q "$IMAGE"; then
+    docker tag "$IMAGE" imoney:latest
+    echo "imn-seed: pulled $IMAGE ($(docker image inspect --format '{{index .RepoDigests 0}}' "$IMAGE"))"
+  elif [ -n "$PINNED" ]; then
+    echo "imn-seed: could not pull the pinned image $PINNED; not building anything else" >&2
+    exit 1
+  else
+    echo "imn-seed: no published image for $REF; building it from source"
+    rm -rf /opt/imoney
+    git init -q /opt/imoney
+    git -C /opt/imoney fetch -q --depth 1 https://github.com/Internet-Money-Network/imoney.git "$REF"
+    git -C /opt/imoney checkout -q FETCH_HEAD
+    echo "imn-seed: building $REF ($(git -C /opt/imoney rev-parse HEAD))"
+    docker build -t imoney:latest /opt/imoney
+    # Each build leaves its 2.7 GB build stage behind; a small disk fills after a few updates
+    docker image prune -f
+  fi
 fi
 
 if ! docker ps -a --format '{{.Names}}' | grep -q '^imoney-node$'; then
