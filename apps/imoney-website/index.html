@@ -85,7 +85,7 @@
     .wordmark { display: flex; align-items: center; gap: 12px; text-decoration: none; font-size: 24px; line-height: 1; color: var(--band-ink); }
     .wordmark:hover { color: var(--band-ink); }
     .wordmark svg { width: 30px; height: 30px; display: block; }
-    .masthead nav { display: flex; gap: 22px; font-family: var(--mono); font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; }
+    .masthead nav { display: flex; flex-wrap: wrap; gap: 8px 22px; font-family: var(--mono); font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; }
     .masthead nav a { text-decoration: none; color: var(--band-soft); }
     .masthead nav a:hover { color: var(--band-ink); }
     .strapline {
@@ -214,6 +214,14 @@
     .jobs p { margin: 0; font-size: 16px; color: var(--ink-soft); }
     .jobs .icon { width: 44px; height: 44px; display: block; margin-bottom: 14px; color: var(--ink); }
 
+    /* Downloads */
+    .downloads { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 6px 0 18px; }
+    .downloads a { display: block; border: 1px solid var(--rule); padding: 16px 16px 14px; text-decoration: none; background: var(--paper-raised); }
+    .downloads a:hover { border-color: var(--accent); color: var(--ink); }
+    .downloads a.mine { border: 2px solid var(--accent); }
+    .downloads b { display: block; font-family: var(--serif); font-size: 20px; font-weight: 600; }
+    .downloads span { font-family: var(--mono); font-size: 12px; color: var(--ink-soft); }
+
     footer { border-top: 1px solid var(--rule); margin-top: 20px; padding: 26px 0 50px; font-family: var(--mono); font-size: 12.5px; color: var(--ink-soft); display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px 30px; }
     footer p { margin: 0; max-width: 52em; }
 
@@ -227,6 +235,7 @@
       .jobs { grid-template-columns: 1fr; }
       .jobs > div, .jobs > div + div { padding: 20px 0 22px; border-left: 0; border-top: 1px solid var(--rule-soft); }
       .jobs > div:first-child { border-top: 0; }
+      .downloads { grid-template-columns: 1fr 1fr; }
     }
     @media (max-width: 520px) {
       body { font-size: 16px; }
@@ -254,6 +263,7 @@
           Internet Money
         </a>
         <nav>
+          <a href="#download">Download</a>
           <a href="/features">Features</a>
           <a href="/explorer">Explorer</a>
           <a href="/wallet">Wallet</a>
@@ -378,13 +388,40 @@
             </p>
           </details>
           <p class="note" style="margin-top: 20px;">
-            This is a test network, and test coins have no value. Some features reach it with its next update.
+            This is a test network, and test coins have no value.
           </p>
         </div>
       </section>
 
+      <section class="block" id="download">
+        <div class="label"><span class="num">§3</span>Get the app</div>
+        <div class="body">
+          <h2>Your wallet, in its own window.</h2>
+          <p>Install it and open it. It checks your payments itself, with nothing to set up.</p>
+          <div class="downloads">
+            <a data-os="windows" href="https://github.com/Internet-Money-Network/imoney/releases/download/v0.1.6/Internet.Money_0.1.6_x64-setup.exe"><b>Windows</b><span>Windows 10 and 11</span></a>
+            <a data-os="mac-arm" href="https://github.com/Internet-Money-Network/imoney/releases/download/v0.1.6/Internet.Money_0.1.6_aarch64.dmg"><b>Mac</b><span>Apple M1 and newer</span></a>
+            <a data-os="mac-intel" href="https://github.com/Internet-Money-Network/imoney/releases/download/v0.1.6/Internet.Money_0.1.6_x64.dmg"><b>Mac</b><span>Intel</span></a>
+            <a data-os="linux" href="https://github.com/Internet-Money-Network/imoney/releases/download/v0.1.6/Internet.Money_0.1.6_amd64.AppImage"><b>Linux</b><span>AppImage</span></a>
+          </div>
+          <p class="note">
+            Your computer may warn that the app is from an unknown publisher. On Windows choose "More info", then "Run anyway";
+            on a Mac, allow it once in Settings, Privacy &amp; Security. Test network only.
+            <a href="https://github.com/Internet-Money-Network/imoney/releases/tag/v0.1.6">All downloads</a>
+          </p>
+          <script>
+            // Point out the download for this computer; the others stay a click away
+            (function () {
+              var ua = navigator.userAgent, os = /Windows/.test(ua) ? 'windows' : /Mac/.test(ua) ? 'mac-arm' : /Linux/.test(ua) && !/Android/.test(ua) ? 'linux' : null;
+              var link = os && document.querySelector('.downloads a[data-os="' + os + '"]');
+              if (link) link.classList.add('mine');
+            })();
+          </script>
+        </div>
+      </section>
+
       <section class="block" id="merchants">
-        <div class="label"><span class="num">§3</span>For shops</div>
+        <div class="label"><span class="num">§4</span>For shops</div>
         <div class="body">
           <h2>Add it to your shop in minutes.</h2>
           <div class="split">
@@ -420,7 +457,7 @@ client.openCheckoutModal({
       </section>
 
       <section class="block" id="supply">
-        <div class="label"><span class="num">§4</span>Supply</div>
+        <div class="label"><span class="num">§5</span>Supply</div>
         <div class="body">
           <h2>Every coin is mined, on a schedule nobody can change.</h2>
           <p>
@@ -464,7 +501,7 @@ client.openCheckoutModal({
       </section>
 
       <section class="block" id="status">
-        <div class="label"><span class="num">§5</span>Where it stands</div>
+        <div class="label"><span class="num">§6</span>Where it stands</div>
         <div class="body">
           <h2>A test network is running. Here's how far along it is.</h2>
           <p>Test coins have no value. There is no coin to buy yet, so anyone selling IMN today is not us.</p>
@@ -480,22 +517,24 @@ client.openCheckoutModal({
                 <li>Shared wallets that need two people to approve</li>
                 <li>Payments older than 12 hours can never be undone</li>
                 <li>A node small enough for a shop to run</li>
-                <li><a href="https://github.com/Internet-Money-Network/imoney/releases">Downloads</a> for Windows, Linux and macOS</li>
+                <li>Trading, tokens and escrow</li>
+                <li>Subscriptions and savings vaults</li>
+                <li>A <a href="#download">desktop app</a> for Windows, Mac and Linux</li>
+                <li>Three rounds of outside security testing</li>
               </ul>
             </div>
             <div class="doing">
               <h3><i></i>Being built</h3>
               <ul>
-                <li>Ready for the next test network: trading, tokens and escrow</li>
-                <li>Subscriptions and savings vaults</li>
                 <li>Swaps with Ethereum, in the wallet</li>
-                <li>A desktop app</li>
+                <li>Encrypted connections for miners</li>
+                <li>A mining pool built for many miners</li>
               </ul>
             </div>
             <div class="todo">
               <h3><i></i>Not started</h3>
               <ul>
-                <li>Independent security review</li>
+                <li>A full independent audit</li>
                 <li>Swaps with Bitcoin</li>
                 <li>Hardware wallets</li>
                 <li>Main network</li>
