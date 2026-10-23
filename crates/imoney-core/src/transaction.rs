@@ -268,6 +268,9 @@ impl Transaction {
         if spent_script.version == crate::hashlock::SCRIPT_VERSION_HASHLOCK {
             return self.verify_hashlock_input(network, input_index, &spent_script.script, spending_blue_score);
         }
+        if spent_script.version == crate::quantum::SCRIPT_VERSION_QUANTUM_SAFE {
+            return self.verify_quantum_safe_input(network, input_index, &spent_script.script);
+        }
         if spent_script.version == crate::multisig::SCRIPT_VERSION_MULTISIG {
             return self.verify_multisig_input(network, input_index, &spent_script.script);
         }
@@ -369,14 +372,31 @@ impl Transaction {
         service: Option<&Address>,
         invoice_id: Option<&str>,
     ) -> Result<Self, String> {
+        let sender_addr = Address::from_public_key(network, AddressType::PubKeyHash, signing_key.verifying_key().as_bytes());
+        let mut tx = Self::unsigned_payment(&sender_addr, recipient_addr, amount_atoms, fee_atoms, available_utxos, service, invoice_id)?;
+        for i in 0..tx.inputs.len() {
+            tx.sign_input(network, i, signing_key).map_err(|e| format!("Failed to sign input {}: {}", i, e))?;
+        }
+        Ok(tx)
+    }
+
+    /// A payment from `sender_addr`'s coins, change back to it, not yet signed. The builders for
+    /// each kind of key fill in the signatures.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn unsigned_payment(
+        sender_addr: &Address,
+        recipient_addr: &Address,
+        amount_atoms: u64,
+        fee_atoms: u64,
+        available_utxos: Vec<(Outpoint, TxOutput)>,
+        service: Option<&Address>,
+        invoice_id: Option<&str>,
+    ) -> Result<Self, String> {
         let payload = match invoice_id {
             Some(id) if is_valid_invoice_id(id) => [INVOICE_TAG, id.as_bytes()].concat(),
             Some(_) => return Err("Invoice ID must be 1-64 characters of A-Z a-z 0-9 - _ .".to_string()),
             None => Vec::new(),
         };
-        let verifying_key = signing_key.verifying_key();
-        let sender_addr = Address::from_public_key(network, AddressType::PubKeyHash, verifying_key.as_bytes());
-
         let total_required = amount_atoms.checked_add(fee_atoms).ok_or_else(|| "Amount plus fee overflows".to_string())?;
         let mut accumulated: u64 = 0;
         let mut selected_utxos = Vec::new();
@@ -409,19 +429,12 @@ impl Transaction {
         if change_atoms >= crate::constants::MIN_OUTPUT_ATOMS {
             outputs.push(TxOutput {
                 value_atoms: change_atoms,
-                script_public_key: ScriptPublicKey::pay_to_address(&sender_addr),
+                script_public_key: ScriptPublicKey::pay_to_address(sender_addr),
                 token: None,
             });
         }
 
-        let mut tx =
-            Transaction { version: 1, inputs, outputs, payload, service: service.map(ScriptPublicKey::pay_to_address), issue: None };
-
-        for i in 0..tx.inputs.len() {
-            tx.sign_input(network, i, signing_key).map_err(|e| format!("Failed to sign input {}: {}", i, e))?;
-        }
-
-        Ok(tx)
+        Ok(Transaction { version: 1, inputs, outputs, payload, service: service.map(ScriptPublicKey::pay_to_address), issue: None })
     }
 }
 

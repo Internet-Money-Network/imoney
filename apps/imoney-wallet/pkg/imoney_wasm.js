@@ -377,6 +377,75 @@ export function offer_take(private_key_hex, testnet, offer_json, take_amount, fe
 }
 
 /**
+ * The wallet's quantum-safe address, from its private key.
+ * @param {string} private_key_hex
+ * @param {boolean} testnet
+ * @returns {string}
+ */
+export function quantum_address(private_key_hex, testnet) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passStringToWasm0(private_key_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.quantum_address(ptr0, len0, testnet);
+        var ptr2 = ret[0];
+        var len2 = ret[1];
+        if (ret[3]) {
+            ptr2 = 0; len2 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred3_0 = ptr2;
+        deferred3_1 = len2;
+        return getStringFromWasm0(ptr2, len2);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
+ * Like `build_payment`, sending from the wallet's quantum-safe address. Each coin it spends
+ * carries an Ed25519 and a SQIsign signature.
+ * @param {string} private_key_hex
+ * @param {boolean} testnet
+ * @param {string} recipient
+ * @param {bigint} amount_atoms
+ * @param {bigint} fee_atoms
+ * @param {string} utxos_json
+ * @param {string | null} [service_address]
+ * @param {string | null} [invoice_id]
+ * @returns {string}
+ */
+export function quantum_build_payment(private_key_hex, testnet, recipient, amount_atoms, fee_atoms, utxos_json, service_address, invoice_id) {
+    let deferred7_0;
+    let deferred7_1;
+    try {
+        const ptr0 = passStringToWasm0(private_key_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(recipient, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passStringToWasm0(utxos_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len2 = WASM_VECTOR_LEN;
+        var ptr3 = isLikeNone(service_address) ? 0 : passStringToWasm0(service_address, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        var len3 = WASM_VECTOR_LEN;
+        var ptr4 = isLikeNone(invoice_id) ? 0 : passStringToWasm0(invoice_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        var len4 = WASM_VECTOR_LEN;
+        const ret = wasm.quantum_build_payment(ptr0, len0, testnet, ptr1, len1, amount_atoms, fee_atoms, ptr2, len2, ptr3, len3, ptr4, len4);
+        var ptr6 = ret[0];
+        var len6 = ret[1];
+        if (ret[3]) {
+            ptr6 = 0; len6 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred7_0 = ptr6;
+        deferred7_1 = len6;
+        return getStringFromWasm0(ptr6, len6);
+    } finally {
+        wasm.__wbindgen_free(deferred7_0, deferred7_1, 1);
+    }
+}
+
+/**
  * Turns a proposal with enough signatures into `{ tx_id, transaction, inputs_used, fee_atoms }`.
  * @param {string} proposal_json
  * @param {string} utxos_json

@@ -87,7 +87,7 @@
     .balance-val { font-weight: 600; font-size: clamp(36px, 9vw, 54px); line-height: 1.1; margin: 6px 0 4px; }
     .note .guilloche { margin: 12px auto 10px; max-width: 220px; background: none; }
 
-    .tabs { display: flex; gap: 22px; border-bottom: 2px solid var(--rule); margin-bottom: 20px; }
+    .tabs { display: flex; flex-wrap: wrap; gap: 4px 22px; border-bottom: 2px solid var(--rule); margin-bottom: 20px; }
     .tab-btn {
       background: none; border: 0; border-bottom: 3px solid transparent; margin-bottom: -2px; padding: 8px 0; cursor: pointer;
       font-family: var(--mono); font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-soft);
@@ -280,6 +280,7 @@
           <button class="tab-btn" data-tab="tokens">Tokens</button>
           <button class="tab-btn" data-tab="trade">Trade</button>
           <button class="tab-btn" data-tab="deals">Deals</button>
+          <button class="tab-btn" data-tab="safe">Safe</button>
           <button class="tab-btn" data-tab="shared">Shared</button>
           <button class="tab-btn" data-tab="settings">Settings</button>
         </div>
@@ -452,6 +453,53 @@
         </div>
 
         <!-- Tab: Deals (escrow, subscriptions, savings vault) -->
+        <div id="tab-safe" class="tab-content">
+          <p style="margin: 0 0 14px;">
+            Savings here are protected even against the quantum computers of the future. Moving them
+            takes two different signatures, made by this wallet for you.
+          </p>
+          <label>Your safe address</label>
+          <div class="address-card">
+            <span id="safe-address">Preparing…</span>
+            <button class="copy-btn" id="safe-copy">Copy</button>
+          </div>
+          <p style="margin: 14px 0 4px;">In your safe: <b id="safe-balance">…</b></p>
+
+          <details class="more" style="margin-top: 14px;" open>
+            <summary>Move money into your safe</summary>
+            <div class="form-group" style="margin-top: 12px;">
+              <label for="safe-in-amount">Amount (IMN)</label>
+              <input type="text" inputmode="decimal" id="safe-in-amount" placeholder="0.00" />
+            </div>
+            <button class="btn" id="safe-in-btn">Move into safe</button>
+          </details>
+
+          <details class="more" style="margin-top: 14px;">
+            <summary>Send from your safe</summary>
+            <div class="form-group" style="margin-top: 12px;">
+              <label for="safe-out-recipient">Recipient address</label>
+              <input type="text" id="safe-out-recipient" placeholder="imntest:q..." autocomplete="off" spellcheck="false" />
+            </div>
+            <div class="form-group">
+              <label for="safe-out-amount">Amount (IMN)</label>
+              <input type="text" inputmode="decimal" id="safe-out-amount" placeholder="0.00" />
+            </div>
+            <p class="small soft" style="margin: 0 0 14px;">Payments from the safe carry larger signatures, so the fee is a little higher.</p>
+            <button class="btn" id="safe-out-btn">Sign &amp; send</button>
+          </details>
+          <div id="safe-status" class="status-msg"></div>
+          <details class="more" style="margin-top: 18px;">
+            <summary>How it works</summary>
+            <p class="small soft">
+              The safe address needs both an Ed25519 signature, the kind used everywhere today, and a
+              SQIsign signature, a new kind built to resist quantum computers. Both keys come from this
+              wallet's recovery phrase, so restoring the wallet restores the safe. SQIsign is new and not yet
+              audited; because both signatures are needed, your savings stay protected even if one kind is
+              ever broken.
+            </p>
+          </details>
+        </div>
+
         <div id="tab-deals" class="tab-content">
           <div class="form-group">
             <label>Your code</label>
@@ -662,6 +710,8 @@
     const sdk = window.IMoney;
 
     let wallet = null; // { private_key_hex, address }
+    let safeAddress = null; // the quantum-safe address, made when the Safe tab first opens
+    let safeSpendable = [];
     let spendable = [];
     let serviceAddress = null;
     let ws = null;
@@ -725,6 +775,7 @@
 
     function openWallet(keys) {
       wallet = keys;
+      safeAddress = null;
       $('setup-card').style.display = 'none';
       $('unlock-card').style.display = 'none';
       $('wallet-main').style.display = 'block';
@@ -808,6 +859,7 @@
       localStorage.removeItem('imoney_addr');
       localStorage.removeItem('imoney_shared');
       wallet = null;
+      safeAddress = null;
       if (ws) ws.close();
       $('wallet-main').style.display = 'none';
       $('setup-card').style.display = 'block';
@@ -824,6 +876,7 @@
         if (btn.dataset.tab === 'tokens') refreshTokens();
         if (btn.dataset.tab === 'trade') refreshTokens().then(loadTradeTokens);
         if (btn.dataset.tab === 'deals') renderDeals();
+        if (btn.dataset.tab === 'safe') openSafe();
         if (btn.dataset.tab === 'shared') openShared();
       });
     });
@@ -1435,6 +1488,78 @@
     $('trade-pick').addEventListener('change', () => { $('trade-token').value = ''; loadTrade(); });
     $('trade-token').addEventListener('change', loadTrade);
     $('trade-amount').addEventListener('input', updateQuote);
+
+    // ---------------------------------------------------------------- safe
+    // The quantum-safe address. Its keys take a moment to make, so only when the tab is opened.
+    async function openSafe() {
+      if (!wallet) return;
+      try {
+        if (!safeAddress) {
+          // Give the page a moment to draw "Preparing" before the work starts
+          await new Promise((resolve) => setTimeout(resolve, 30));
+          safeAddress = wasm.quantum_address(wallet.private_key_hex, TESTNET);
+          $('safe-address').innerText = safeAddress;
+        }
+        await refreshSafe();
+      } catch (err) {
+        show($('safe-status'), err.message || String(err), false);
+      }
+    }
+
+    async function refreshSafe() {
+      if (!safeAddress) return;
+      const res = await fetch(`${nodeUrl()}/api/v1/address/${encodeURIComponent(safeAddress)}/utxos`);
+      if (!res.ok) return;
+      const utxos = await res.json();
+      safeSpendable = utxos.filter((u) => u.spendable !== false && !u.token);
+      $('safe-balance').innerText = formatImn(safeSpendable.reduce((sum, u) => sum + u.value_atoms, 0)) + ' IMN';
+    }
+
+    $('safe-copy').addEventListener('click', () => {
+      if (safeAddress) navigator.clipboard.writeText(safeAddress).catch(() => {});
+    });
+
+    $('safe-in-btn').addEventListener('click', async () => {
+      const statusEl = $('safe-status');
+      try {
+        if (!safeAddress) await openSafe();
+        const amountAtoms = toAtoms($('safe-in-amount').value);
+        if (!(amountAtoms > 0)) throw new Error('Enter an amount greater than zero.');
+        await refreshBalance();
+        const signed = await broadcast(
+          wasm.build_payment(wallet.private_key_hex, TESTNET, safeAddress, BigInt(amountAtoms), 0n, JSON.stringify(spendable), undefined, undefined)
+        );
+        show(statusEl, `Moved ${formatImn(amountAtoms)} IMN into your safe. It shows here in about 5 seconds.`, true);
+        $('safe-in-amount').value = '';
+        setTimeout(() => { refreshBalance(); refreshSafe(); }, 6000);
+        return signed;
+      } catch (err) {
+        show(statusEl, err.message || String(err), false);
+      }
+    });
+
+    $('safe-out-btn').addEventListener('click', async () => {
+      const statusEl = $('safe-status');
+      try {
+        if (!safeAddress) await openSafe();
+        const recipient = $('safe-out-recipient').value.trim();
+        if (!wasm.is_valid_address(recipient, TESTNET)) throw new Error('That is not a valid testnet address.');
+        const amountAtoms = toAtoms($('safe-out-amount').value);
+        if (!(amountAtoms > 0)) throw new Error('Enter an amount greater than zero.');
+        await refreshSafe();
+        show(statusEl, 'Signing… this takes a moment.', true);
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        const signed = await broadcast(
+          wasm.quantum_build_payment(wallet.private_key_hex, TESTNET, recipient, BigInt(amountAtoms), 0n, JSON.stringify(safeSpendable), serviceAddress || undefined, undefined)
+        );
+        show(statusEl, `Sent from your safe for a fee of ${formatImn(signed.fee_atoms)} IMN. Transaction ${signed.tx_id.slice(0, 16)}…`, true);
+        $('safe-out-recipient').value = '';
+        $('safe-out-amount').value = '';
+        setTimeout(() => { refreshBalance(); refreshSafe(); }, 6000);
+      } catch (err) {
+        show(statusEl, err.message || String(err), false);
+      }
+    });
 
     // ---------------------------------------------------------------- deals
     // Escrows, subscriptions and vaults this wallet is part of, kept in this browser as their

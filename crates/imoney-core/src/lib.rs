@@ -8,6 +8,7 @@ pub mod header;
 pub mod merkle;
 pub mod multisig;
 pub mod offer;
+pub mod quantum;
 pub mod serialize;
 pub mod subscription;
 pub mod swap_offer;
