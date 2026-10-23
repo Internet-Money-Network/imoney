@@ -1,6 +1,6 @@
 # Seed nodes
 
-The public test network (testnet-4) has four seed hostnames, all on P2P port 18555.
+The public test network (testnet-5) has four seed hostnames, all on P2P port 18555.
 
 | Hostname | Address | Machine |
 |---|---|---|

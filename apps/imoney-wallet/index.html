@@ -280,7 +280,7 @@
           <button class="tab-btn" data-tab="tokens">Tokens</button>
           <button class="tab-btn" data-tab="trade">Trade</button>
           <button class="tab-btn" data-tab="deals">Deals</button>
-          <button class="tab-btn" data-tab="safe">Safe</button>
+          <button class="tab-btn" data-tab="older">Older address</button>
           <button class="tab-btn" data-tab="shared">Shared</button>
           <button class="tab-btn" data-tab="settings">Settings</button>
         </div>
@@ -453,49 +453,36 @@
         </div>
 
         <!-- Tab: Deals (escrow, subscriptions, savings vault) -->
-        <div id="tab-safe" class="tab-content">
+        <div id="tab-older" class="tab-content">
           <p style="margin: 0 0 14px;">
-            Savings here are protected even against the quantum computers of the future. Moving them
-            takes two different signatures, made by this wallet for you.
+            Your wallet's main address is quantum-safe: the money on it is protected even against the
+            quantum computers of the future. Tokens, trading and deals still use your older address for
+            now, so a little money may sit there too.
           </p>
-          <label>Your safe address</label>
+          <label>Your older address</label>
           <div class="address-card">
-            <span id="safe-address">Preparing…</span>
-            <button class="copy-btn" id="safe-copy">Copy</button>
+            <span id="older-address">…</span>
+            <button class="copy-btn" id="older-copy">Copy</button>
           </div>
-          <p style="margin: 14px 0 4px;">In your safe: <b id="safe-balance">…</b></p>
-
-          <details class="more" style="margin-top: 14px;" open>
-            <summary>Move money into your safe</summary>
-            <div class="form-group" style="margin-top: 12px;">
-              <label for="safe-in-amount">Amount (IMN)</label>
-              <input type="text" inputmode="decimal" id="safe-in-amount" placeholder="0.00" />
-            </div>
-            <button class="btn" id="safe-in-btn">Move into safe</button>
-          </details>
+          <p style="margin: 14px 0 4px;">On your older address: <b id="older-balance">…</b></p>
+          <button class="btn" id="older-move-btn" style="margin-top: 12px;">Move it all to your main address</button>
 
           <details class="more" style="margin-top: 14px;">
-            <summary>Send from your safe</summary>
+            <summary>Add money for tokens, trading and deals</summary>
             <div class="form-group" style="margin-top: 12px;">
-              <label for="safe-out-recipient">Recipient address</label>
-              <input type="text" id="safe-out-recipient" placeholder="imntest:q..." autocomplete="off" spellcheck="false" />
+              <label for="older-in-amount">Amount (IMN) to move from your main address</label>
+              <input type="text" inputmode="decimal" id="older-in-amount" placeholder="0.00" />
             </div>
-            <div class="form-group">
-              <label for="safe-out-amount">Amount (IMN)</label>
-              <input type="text" inputmode="decimal" id="safe-out-amount" placeholder="0.00" />
-            </div>
-            <p class="small soft" style="margin: 0 0 14px;">Payments from the safe carry larger signatures, so the fee is a little higher.</p>
-            <button class="btn" id="safe-out-btn">Sign &amp; send</button>
+            <button class="btn quiet" id="older-in-btn">Move to older address</button>
           </details>
-          <div id="safe-status" class="status-msg"></div>
+          <div id="older-status" class="status-msg"></div>
           <details class="more" style="margin-top: 18px;">
             <summary>How it works</summary>
             <p class="small soft">
-              The safe address needs both an Ed25519 signature, the kind used everywhere today, and a
-              SQIsign signature, a new kind built to resist quantum computers. Both keys come from this
-              wallet's recovery phrase, so restoring the wallet restores the safe. SQIsign is new and not yet
-              audited; because both signatures are needed, your savings stay protected even if one kind is
-              ever broken.
+              Your main address needs two signatures to spend from: Ed25519, the kind used everywhere today,
+              and SQIsign, a new kind built to resist quantum computers. Both keys come from this wallet's
+              recovery phrase. SQIsign is new and not yet audited; because both signatures are needed, your money
+              stays protected even if one kind is ever broken.
             </p>
           </details>
         </div>
@@ -649,7 +636,7 @@
           <div class="divide">
             <label>Tidy up small coins</label>
             <p class="small soft" style="margin: 0 0 12px;">
-              You hold <span id="coin-count">0</span> spendable coins. Merging them into one keeps future payments small.
+              You hold <span id="coin-count">0</span> spendable coins. Merging them keeps future payments small; each merge takes up to 16.
             </p>
             <button class="btn quiet" id="consolidate-btn">Merge coins</button>
             <div id="consolidate-status" class="status-msg"></div>
@@ -710,8 +697,7 @@
     const sdk = window.IMoney;
 
     let wallet = null; // { private_key_hex, address }
-    let safeAddress = null; // the quantum-safe address, made when the Safe tab first opens
-    let safeSpendable = [];
+    let mainSpendable = []; // coins of the main, quantum-safe address
     let spendable = [];
     let serviceAddress = null;
     let ws = null;
@@ -775,7 +761,10 @@
 
     function openWallet(keys) {
       wallet = keys;
-      safeAddress = null;
+      // The main address is quantum-safe; the ordinary one stays for tokens, trading and deals
+      wallet.classic = keys.address;
+      wallet.address = wasm.quantum_address(keys.private_key_hex, TESTNET);
+      $('older-address').innerText = wallet.classic;
       $('setup-card').style.display = 'none';
       $('unlock-card').style.display = 'none';
       $('wallet-main').style.display = 'block';
@@ -859,7 +848,7 @@
       localStorage.removeItem('imoney_addr');
       localStorage.removeItem('imoney_shared');
       wallet = null;
-      safeAddress = null;
+      mainSpendable = [];
       if (ws) ws.close();
       $('wallet-main').style.display = 'none';
       $('setup-card').style.display = 'block';
@@ -876,7 +865,7 @@
         if (btn.dataset.tab === 'tokens') refreshTokens();
         if (btn.dataset.tab === 'trade') refreshTokens().then(loadTradeTokens);
         if (btn.dataset.tab === 'deals') renderDeals();
-        if (btn.dataset.tab === 'safe') openSafe();
+        if (btn.dataset.tab === 'older') refreshBalance();
         if (btn.dataset.tab === 'shared') openShared();
       });
     });
@@ -909,15 +898,21 @@
     async function refreshBalance() {
       if (!wallet) return;
       try {
-        const res = await fetch(`${nodeUrl()}/api/v1/address/${encodeURIComponent(wallet.address)}/utxos`);
-        if (!res.ok) return;
-        const utxos = await res.json();
-        spendable = utxos.filter((u) => u.spendable !== false);
-        const spendableAtoms = spendable.reduce((sum, u) => sum + u.value_atoms, 0);
-        const maturingAtoms = utxos.reduce((sum, u) => sum + u.value_atoms, 0) - spendableAtoms;
+        const [mainRes, olderRes] = await Promise.all([
+          fetch(`${nodeUrl()}/api/v1/address/${encodeURIComponent(wallet.address)}/utxos`),
+          fetch(`${nodeUrl()}/api/v1/address/${encodeURIComponent(wallet.classic)}/utxos`),
+        ]);
+        if (!mainRes.ok || !olderRes.ok) return;
+        const utxos = await mainRes.json();
+        mainSpendable = utxos.filter((u) => u.spendable !== false && !u.token);
+        const spendableAtoms = mainSpendable.reduce((sum, u) => sum + u.value_atoms, 0);
+        const maturingAtoms = utxos.filter((u) => !u.token).reduce((sum, u) => sum + u.value_atoms, 0) - spendableAtoms;
         $('wallet-balance').innerText = formatImn(spendableAtoms) + ' IMN';
         $('wallet-atoms').innerText = maturingAtoms > 0 ? `+ ${formatImn(maturingAtoms)} IMN in mining rewards still maturing` : ' ';
-        $('coin-count').innerText = spendable.length;
+        $('coin-count').innerText = mainSpendable.length;
+        const older = await olderRes.json();
+        spendable = older.filter((u) => u.spendable !== false);
+        $('older-balance').innerText = formatImn(spendable.filter((u) => !u.token).reduce((sum, u) => sum + u.value_atoms, 0)) + ' IMN';
       } catch (err) {
         console.warn('Balance refresh failed:', err);
       }
@@ -1032,14 +1027,16 @@
         if (!(amountAtoms > 0)) throw new Error('Enter an amount greater than zero.');
 
         await refreshBalance();
+        show(statusEl, 'Signing… this takes a moment.', true);
+        await new Promise((resolve) => setTimeout(resolve, 30));
         const signed = await broadcast(
-          wasm.build_payment(
+          wasm.quantum_build_payment(
             wallet.private_key_hex,
             TESTNET,
             recipient,
             BigInt(amountAtoms),
             0n, // fee set from the transaction's size
-            JSON.stringify(spendable),
+            JSON.stringify(mainSpendable),
             serviceAddress || undefined,
             invoice || undefined
           )
@@ -1058,8 +1055,10 @@
       const statusEl = $('consolidate-status');
       try {
         await refreshBalance();
+        show(statusEl, 'Signing… this can take several seconds.', true);
+        await new Promise((resolve) => setTimeout(resolve, 30));
         const signed = await broadcast(
-          wasm.build_consolidation(wallet.private_key_hex, TESTNET, 0n, JSON.stringify(spendable), serviceAddress || undefined)
+          wasm.quantum_build_consolidation(wallet.private_key_hex, TESTNET, JSON.stringify(mainSpendable))
         );
         show(statusEl, `Merging ${signed.inputs_used} coins into one for a fee of ${formatImn(signed.fee_atoms)} IMN.`, true);
         setTimeout(refreshBalance, 1500);
@@ -1094,7 +1093,7 @@
     async function refreshTokens() {
       if (!wallet) return;
       try {
-        const res = await fetch(`${nodeUrl()}/api/v1/address/${encodeURIComponent(wallet.address)}/tokens`);
+        const res = await fetch(`${nodeUrl()}/api/v1/address/${encodeURIComponent(wallet.classic)}/tokens`);
         if (!res.ok) return;
         tokens = await res.json();
       } catch (err) {
@@ -1286,7 +1285,7 @@
           fetch(`${nodeUrl()}/api/v1/offers?give=imn&want=${id}`).then((r) => r.json()),
         ]);
         // Others' orders only, best first: the cheapest to buy from, the highest to sell to
-        const others = (o) => o.maker !== wallet.address;
+        const others = (o) => o.maker !== wallet.classic;
         tradeBook = {
           asks: asks,
           bids: bids.sort((a, b) => imnEach(b, tradeToken.decimals) - imnEach(a, tradeToken.decimals)),
@@ -1350,7 +1349,7 @@
 
       const mine = $('trade-mine');
       mine.replaceChildren();
-      const own = [...tradeBook.asks, ...tradeBook.bids].filter((o) => o.maker === wallet.address);
+      const own = [...tradeBook.asks, ...tradeBook.bids].filter((o) => o.maker === wallet.classic);
       if (!own.length) {
         const none = document.createElement('p');
         none.className = 'small soft';
@@ -1489,73 +1488,47 @@
     $('trade-token').addEventListener('change', loadTrade);
     $('trade-amount').addEventListener('input', updateQuote);
 
-    // ---------------------------------------------------------------- safe
-    // The quantum-safe address. Its keys take a moment to make, so only when the tab is opened.
-    async function openSafe() {
-      if (!wallet) return;
-      try {
-        if (!safeAddress) {
-          // Give the page a moment to draw "Preparing" before the work starts
-          await new Promise((resolve) => setTimeout(resolve, 30));
-          safeAddress = wasm.quantum_address(wallet.private_key_hex, TESTNET);
-          $('safe-address').innerText = safeAddress;
-        }
-        await refreshSafe();
-      } catch (err) {
-        show($('safe-status'), err.message || String(err), false);
-      }
-    }
-
-    async function refreshSafe() {
-      if (!safeAddress) return;
-      const res = await fetch(`${nodeUrl()}/api/v1/address/${encodeURIComponent(safeAddress)}/utxos`);
-      if (!res.ok) return;
-      const utxos = await res.json();
-      safeSpendable = utxos.filter((u) => u.spendable !== false && !u.token);
-      $('safe-balance').innerText = formatImn(safeSpendable.reduce((sum, u) => sum + u.value_atoms, 0)) + ' IMN';
-    }
-
-    $('safe-copy').addEventListener('click', () => {
-      if (safeAddress) navigator.clipboard.writeText(safeAddress).catch(() => {});
+    // ---------------------------------------------------------------- older address
+    // Tokens, trading and deals still sign with the wallet's ordinary key, so they use the older
+    // address. Its coins are `spendable`; the main, quantum-safe address's are `mainSpendable`.
+    $('older-copy').addEventListener('click', () => {
+      if (wallet) navigator.clipboard.writeText(wallet.classic).catch(() => {});
     });
 
-    $('safe-in-btn').addEventListener('click', async () => {
-      const statusEl = $('safe-status');
+    $('older-move-btn').addEventListener('click', async () => {
+      const statusEl = $('older-status');
       try {
-        if (!safeAddress) await openSafe();
-        const amountAtoms = toAtoms($('safe-in-amount').value);
-        if (!(amountAtoms > 0)) throw new Error('Enter an amount greater than zero.');
         await refreshBalance();
+        const plain = spendable.filter((u) => !u.token);
+        const total = plain.reduce((sum, u) => sum + u.value_atoms, 0);
+        if (plain.length === 0) throw new Error('There is nothing on your older address to move.');
+        // Everything less the fee: try the fee from the size, as build_payment would set it
+        const fee = 1000 * (120 + 140 * plain.length);
+        if (total <= fee + 100000) throw new Error('The amount there is too small to be worth moving.');
         const signed = await broadcast(
-          wasm.build_payment(wallet.private_key_hex, TESTNET, safeAddress, BigInt(amountAtoms), 0n, JSON.stringify(spendable), undefined, undefined)
+          wasm.build_payment(wallet.private_key_hex, TESTNET, wallet.address, BigInt(total - fee), BigInt(fee), JSON.stringify(plain), undefined, undefined)
         );
-        show(statusEl, `Moved ${formatImn(amountAtoms)} IMN into your safe. It shows here in about 5 seconds.`, true);
-        $('safe-in-amount').value = '';
-        setTimeout(() => { refreshBalance(); refreshSafe(); }, 6000);
-        return signed;
+        show(statusEl, `Moving ${formatImn(total - fee)} IMN to your main address for a fee of ${formatImn(signed.fee_atoms)} IMN.`, true);
+        setTimeout(refreshBalance, 6000);
       } catch (err) {
         show(statusEl, err.message || String(err), false);
       }
     });
 
-    $('safe-out-btn').addEventListener('click', async () => {
-      const statusEl = $('safe-status');
+    $('older-in-btn').addEventListener('click', async () => {
+      const statusEl = $('older-status');
       try {
-        if (!safeAddress) await openSafe();
-        const recipient = $('safe-out-recipient').value.trim();
-        if (!wasm.is_valid_address(recipient, TESTNET)) throw new Error('That is not a valid testnet address.');
-        const amountAtoms = toAtoms($('safe-out-amount').value);
+        const amountAtoms = toAtoms($('older-in-amount').value);
         if (!(amountAtoms > 0)) throw new Error('Enter an amount greater than zero.');
-        await refreshSafe();
+        await refreshBalance();
         show(statusEl, 'Signing… this takes a moment.', true);
         await new Promise((resolve) => setTimeout(resolve, 30));
-        const signed = await broadcast(
-          wasm.quantum_build_payment(wallet.private_key_hex, TESTNET, recipient, BigInt(amountAtoms), 0n, JSON.stringify(safeSpendable), serviceAddress || undefined, undefined)
+        await broadcast(
+          wasm.quantum_build_payment(wallet.private_key_hex, TESTNET, wallet.classic, BigInt(amountAtoms), 0n, JSON.stringify(mainSpendable), undefined, undefined)
         );
-        show(statusEl, `Sent from your safe for a fee of ${formatImn(signed.fee_atoms)} IMN. Transaction ${signed.tx_id.slice(0, 16)}…`, true);
-        $('safe-out-recipient').value = '';
-        $('safe-out-amount').value = '';
-        setTimeout(() => { refreshBalance(); refreshSafe(); }, 6000);
+        show(statusEl, `Moved ${formatImn(amountAtoms)} IMN to your older address.`, true);
+        $('older-in-amount').value = '';
+        setTimeout(refreshBalance, 6000);
       } catch (err) {
         show(statusEl, err.message || String(err), false);
       }
@@ -1700,7 +1673,7 @@
     async function renderSubscription(deal, now, me, title, detail, actions) {
       const found = await findSubscription(deal);
       const first = JSON.parse(wasm.subscription_after(deal.terms_hex, 0, TESTNET));
-      const role = wallet.address === first.customer ? 'customer' : wallet.address === first.merchant ? 'shop' : 'viewer';
+      const role = wallet.classic === first.customer ? 'customer' : wallet.classic === first.merchant ? 'shop' : 'viewer';
       title.innerText = `Subscription · ${formatImn(first.amount_per_period)} IMN every ${Math.round(first.period / (BLOCKS_PER_HOUR * 24))} days`;
       if (!found || !found.coins.length) {
         detail.innerText = 'No money left in it: it has been used up or cancelled.';
@@ -1723,7 +1696,7 @@
       const info = JSON.parse(wasm.vault_describe(deal.terms_hex, TESTNET));
       const coins = await coinsAt(info.address);
       const held = coins.reduce((sum, c) => sum + c.value_atoms, 0);
-      const isBackup = wallet.address === info.backup;
+      const isBackup = wallet.classic === info.backup;
       title.innerText = `Savings vault · ${formatImn(held)} IMN`;
       detail.innerText = `Withdrawals take ${waitText(info.delay).replace('in ', '')}. ${isBackup ? 'This is the backup wallet.' : ''}`;
       if (!isBackup) {
@@ -1738,7 +1711,7 @@
         if (!isBackup) {
           actions.append(button(`Withdraw ${formatImn(c.value_atoms)} IMN`, async () => {
             try {
-              const started = JSON.parse(wasm.vault_start(wallet.private_key_hex, TESTNET, deal.terms_hex, coinJson, wallet.address, BigInt(await blueScore())));
+              const started = JSON.parse(wasm.vault_start(wallet.private_key_hex, TESTNET, deal.terms_hex, coinJson, wallet.classic, BigInt(await blueScore())));
               deal.pending = [...(deal.pending || []), { hex: started.pending_hex, address: started.pending_address, unlock_at: started.unlock_at }];
               addDeal(deal);
               await act('Withdrawal started', JSON.stringify(started.signed));
@@ -1795,7 +1768,7 @@
         const days = Math.max(1, Number($('sub-days').value) || 30);
         const periods = Math.max(1, Number($('sub-periods').value) || 1);
         const now = await blueScore();
-        const program = JSON.parse(wasm.subscription_terms(wallet.public_key_hex, needCode('sub-shop'), BigInt(amount), BigInt(days * 24 * BLOCKS_PER_HOUR), BigInt(now), `${wallet.address}:${now}`, TESTNET));
+        const program = JSON.parse(wasm.subscription_terms(wallet.public_key_hex, needCode('sub-shop'), BigInt(amount), BigInt(days * 24 * BLOCKS_PER_HOUR), BigInt(now), `${wallet.classic}:${now}`, TESTNET));
         await refreshBalance();
         // A subscription holds exactly one coin: check the address is still empty first
         const held = await (await fetch(`${nodeUrl()}/api/v1/address/${program.address}/balance`)).json();

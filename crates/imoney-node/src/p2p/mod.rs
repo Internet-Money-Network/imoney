@@ -151,6 +151,8 @@ pub struct PeerManager {
     /// Transactions accepted for checking per IP address. Each costs signature checks under the
     /// ledger lock; beyond the rate they are dropped unchecked, as relay policy allows.
     tx_limit: crate::rpc::RateLimit,
+    /// Quantum-safe inputs each peer IP may have checked per second; see the RPC's budget.
+    quantum_budget: crate::rpc::RateLimit,
     /// Blocks received before their parents, keyed by block hash.
     orphans: Mutex<HashMap<Hash, Orphan>>,
     /// False while the node still has to catch up with the peers it was told to connect to.
@@ -183,6 +185,10 @@ impl PeerManager {
             banned: Mutex::new(HashMap::new()),
             scores: Mutex::new(HashMap::new()),
             tx_limit: crate::rpc::RateLimit::new(TXS_PER_SECOND_PER_IP, TX_BURST_PER_IP),
+            quantum_budget: crate::rpc::RateLimit::strict(
+                crate::state::QUANTUM_SAFE_INPUTS_PER_SECOND,
+                crate::state::QUANTUM_SAFE_INPUT_BURST,
+            ),
             orphans: Mutex::new(HashMap::new()),
             synced: AtomicBool::new(true),
             sync_requested_at: Mutex::new(None),
@@ -790,6 +796,11 @@ impl PeerManager {
             }
             Message::Tx(_) if !self.tx_limit.allow(peer_addr.ip()) => {}
             Message::Tx(tx) => {
+                // Over its budget of quantum-safe checks, a peer's transactions are dropped unchecked
+                let quantum_inputs = self.ledger.read().await.quantum_safe_inputs(&tx);
+                if quantum_inputs > 0 && !self.quantum_budget.allow_n(peer_addr.ip(), quantum_inputs) {
+                    return;
+                }
                 // Duplicate, conflicting or underpaying transactions are simply not relayed
                 let admitted = self.ledger.write().await.broadcast_transaction(tx);
                 match admitted {

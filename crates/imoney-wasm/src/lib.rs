@@ -373,11 +373,11 @@ pub mod wallet {
             return Err("That is a subscription's address. Money goes into a subscription only when it is set up; to add more, cancel it and start a new one.".to_string());
         }
         let service = service_address.map(|a| parse_address(a, testnet, "service")).transpose()?;
-        let utxos = spendable_utxos(utxos_json, &key.address(network(testnet)))?;
-        let build = |fee: u64| {
-            Transaction::build_quantum_safe_payment(
-                &key,
-                network(testnet),
+        let from = key.address(network(testnet));
+        let utxos = spendable_utxos(utxos_json, &from)?;
+        let plan = |fee: u64| {
+            Transaction::plan_quantum_safe_payment(
+                &from,
                 &recipient,
                 amount_atoms,
                 fee,
@@ -386,20 +386,61 @@ pub mod wallet {
                 invoice_id.filter(|id| !id.is_empty()),
             )
         };
-        if fee_atoms > 0 {
-            return Ok(signed(build(fee_atoms)?, fee_atoms));
-        }
-        // No fee given: pay for the transaction's actual size, as `build_payment` does
-        let mut fee = DEFAULT_FEE_PER_BYTE * 600;
+        // The fee is settled on the unsigned plan, whose signed size is known, and the
+        // transaction signed once: signing is the slow part
+        let mut fee = fee_atoms.max(DEFAULT_FEE_PER_BYTE * 100);
         for _ in 0..8 {
-            let tx = build(fee)?;
-            let needed = DEFAULT_FEE_PER_BYTE * tx.to_bytes().len() as u64;
-            if fee >= needed {
+            let mut tx = plan(fee)?;
+            let needed = DEFAULT_FEE_PER_BYTE * tx.quantum_safe_signed_size() as u64;
+            if fee >= needed || fee_atoms > 0 {
+                tx.sign_all_quantum_safe(network(testnet), &key)?;
                 return Ok(signed(tx, fee));
             }
             fee = needed;
         }
         Err("Could not settle on a fee for this payment".to_string())
+    }
+
+    /// Merges up to `MAX_RELAYED_INPUTS` plain coins of the quantum-safe address into one, paying
+    /// for the transaction's size. Several runs merge any number of coins.
+    pub fn quantum_build_consolidation(private_key_hex: &str, testnet: bool, utxos_json: &str) -> Result<SignedTransaction, String> {
+        use imoney_core::quantum::MAX_RELAYED_INPUTS;
+        let key = quantum_key(private_key_hex)?;
+        let own = key.address(network(testnet));
+        let mut coins: Vec<(Outpoint, TxOutput)> =
+            spendable_utxos(utxos_json, &own)?.into_iter().filter(|(_, output)| output.token.is_none()).collect();
+        if coins.len() < 2 {
+            return Err("Nothing to merge: fewer than two coins".to_string());
+        }
+        // The largest first, so a merge gathers the most value
+        coins.sort_by_key(|(_, output)| std::cmp::Reverse(output.value_atoms));
+        coins.truncate(MAX_RELAYED_INPUTS);
+        let total = coins.iter().try_fold(0u64, |sum, (_, o)| sum.checked_add(o.value_atoms)).ok_or("Merged total overflows")?;
+        let plan = |fee: u64| -> Result<Transaction, String> {
+            let value = total.checked_sub(fee).filter(|v| *v > 0).ok_or("The coins are worth less than the fee to merge them")?;
+            Ok(Transaction {
+                version: 1,
+                inputs: coins
+                    .iter()
+                    .map(|(outpoint, _)| imoney_core::TxInput { previous_outpoint: outpoint.clone(), signature_script: Vec::new() })
+                    .collect(),
+                outputs: vec![TxOutput { value_atoms: value, script_public_key: ScriptPublicKey::pay_to_address(&own), token: None }],
+                payload: Vec::new(),
+                service: None,
+                issue: None,
+            })
+        };
+        let mut fee = DEFAULT_FEE_PER_BYTE * 100;
+        for _ in 0..8 {
+            let mut tx = plan(fee)?;
+            let needed = DEFAULT_FEE_PER_BYTE * tx.quantum_safe_signed_size() as u64;
+            if fee >= needed {
+                tx.sign_all_quantum_safe(network(testnet), &key)?;
+                return Ok(signed(tx, fee));
+            }
+            fee = needed;
+        }
+        Err("Could not settle on a fee for this merge".to_string())
     }
 
     /// `build_payment`, and with `funding_subscription` set, also to a subscription address. A
@@ -800,6 +841,12 @@ pub fn build_payment(
     ))
 }
 
+/// Merges up to 16 coins of the wallet's quantum-safe address into one.
+#[wasm_bindgen]
+pub fn quantum_build_consolidation(private_key_hex: &str, testnet: bool, utxos_json: &str) -> Result<String, JsError> {
+    to_json(wallet::quantum_build_consolidation(private_key_hex, testnet, utxos_json))
+}
+
 /// The wallet's quantum-safe address, from its private key.
 #[wasm_bindgen]
 pub fn quantum_address(private_key_hex: &str, testnet: bool) -> Result<String, JsError> {
@@ -1018,7 +1065,22 @@ mod tests {
         assert!(tx.verify_input(Network::Testnet, 0, &locked).is_ok());
         assert_eq!(tx.outputs[1].script_public_key, locked); // change comes back to it
                                                              // The fee covers the larger signatures
-        assert!(signed.fee_atoms >= DEFAULT_FEE_PER_BYTE * tx.to_bytes().len() as u64);
+        assert_eq!(signed.fee_atoms, DEFAULT_FEE_PER_BYTE * tx.to_bytes().len() as u64);
+    }
+
+    #[test]
+    fn quantum_safe_coins_are_merged_sixteen_at_a_time() {
+        let me = keys_from_mnemonic(PHRASE, true).unwrap();
+        let safe = Address::decode(&quantum_address(&me.private_key_hex, true).unwrap()).unwrap();
+        let merged = quantum_build_consolidation(&me.private_key_hex, true, &utxos(&[1_000_000; 20])).unwrap();
+        let tx = &merged.transaction;
+        assert_eq!(tx.inputs.len(), 16);
+        assert_eq!(tx.outputs.len(), 1);
+        assert_eq!(tx.outputs[0].value_atoms + merged.fee_atoms, 16_000_000);
+        // Exactly the size's fee, not an over-estimate
+        assert_eq!(merged.fee_atoms, DEFAULT_FEE_PER_BYTE * tx.to_bytes().len() as u64);
+        assert_eq!(tx.outputs[0].script_public_key, ScriptPublicKey::pay_to_address(&safe));
+        assert!(quantum_build_consolidation(&me.private_key_hex, true, &utxos(&[1_000_000])).is_err());
     }
 
     /// A subscription holds one coin, put there when it is set up: a plain payment to its
