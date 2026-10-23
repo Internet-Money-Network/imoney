@@ -59,6 +59,8 @@ const PENALTY_INVALID_POW: u32 = BAN_THRESHOLD;
 const PENALTY_INVALID_BLOCK: u32 = 5;
 /// A transaction with a bad signature. Small, but a peer that floods them is soon banned.
 const PENALTY_INVALID_TX: u32 = 2;
+/// A bad quantum-safe signature costs a SQIsign check, about 4 ms, to refuse: four ban the peer.
+const PENALTY_INVALID_QUANTUM_SAFE_TX: u32 = 25;
 use crate::state::BAD_SIGNATURE;
 /// With this many blocks waiting for parents, fetching them one by one is the slow way round:
 /// ask for a batch sync instead.
@@ -795,7 +797,8 @@ impl PeerManager {
                     // A bad signature is never the result of a race (relay policy, or coins this
                     // node has not seen yet, can be): an honest node would not have relayed it
                     Err(crate::state::StateError::Transaction(reason)) if reason.starts_with(BAD_SIGNATURE) => {
-                        self.misbehave(peer_addr, PENALTY_INVALID_TX)
+                        let points = if reason.contains("quantum-safe") { PENALTY_INVALID_QUANTUM_SAFE_TX } else { PENALTY_INVALID_TX };
+                        self.misbehave(peer_addr, points)
                     }
                     Err(_) => {}
                 }

@@ -1945,3 +1945,87 @@ fn malformed_contract_inputs_count_as_bad_signatures() {
     let err = ledger.broadcast_transaction(mangled).unwrap_err().to_string();
     assert!(err.contains(BAD_SIGNATURE), "{}", err);
 }
+
+/// Quantum-safe addresses: coins sent to one move only with both an Ed25519 and a SQIsign
+/// signature, through the mempool and a block like any payment.
+#[test]
+fn a_quantum_safe_address_receives_and_spends() {
+    use imoney_core::quantum::QuantumSafeKey;
+    let funder = key(170);
+    let (mut ledger, pow) = funded_ledger("quantum-safe", &funder);
+    let miner = address_of(&key(171));
+    let vault_key = QuantumSafeKey::from_seed(&[42u8; 32]);
+    let safe = vault_key.address(Network::Testnet);
+    let shop = address_of(&key(172));
+
+    let coins = ledger.get_spendable_utxos(&address_of(&funder)).unwrap();
+    let fund = Transaction::build_payment(&funder, Network::Testnet, &safe, 5_000_000, 1_000, coins, None).unwrap();
+    let coin = Outpoint { transaction_id: fund.id(), index: 0 };
+    ledger.broadcast_transaction(fund).unwrap();
+    mine_tip(&mut ledger, &pow, &miner);
+    assert_eq!(balance(&ledger, &safe), 5_000_000);
+
+    let mut pay = Transaction {
+        version: 1,
+        inputs: vec![TxInput { previous_outpoint: coin, signature_script: Vec::new() }],
+        outputs: vec![TxOutput::new(4_000_000, ScriptPublicKey::pay_to_address(&shop))],
+        payload: Vec::new(),
+        service: None,
+        issue: None,
+    };
+    pay.sign_input_quantum_safe(Network::Testnet, 0, &vault_key).unwrap();
+
+    // A forged SQIsign signature is a bad signature, reported as quantum-safe
+    let mut forged = pay.clone();
+    let last = forged.inputs[0].signature_script.len() - 3;
+    forged.inputs[0].signature_script[last] ^= 1;
+    let err = ledger.broadcast_transaction(forged).unwrap_err().to_string();
+    assert!(err.contains(BAD_SIGNATURE) && err.contains("quantum-safe"), "{}", err);
+
+    ledger.broadcast_transaction(pay).unwrap();
+    mine_tip(&mut ledger, &pow, &miner);
+    assert_eq!(balance(&ledger, &shop), 4_000_000);
+    assert_eq!(balance(&ledger, &safe), 0);
+    assert_supply_total_is_exact(&ledger);
+}
+
+/// A relayed transaction may carry only so many quantum-safe inputs: each costs a SQIsign check.
+#[test]
+fn too_many_quantum_safe_inputs_are_not_relayed() {
+    use imoney_core::quantum::QuantumSafeKey;
+    let funder = key(173);
+    let (mut ledger, pow) = funded_ledger("quantum-safe-cap", &funder);
+    let miner = address_of(&key(174));
+    let safe = QuantumSafeKey::from_seed(&[43u8; 32]).address(Network::Testnet);
+    let count = crate::state::MAX_QUANTUM_SAFE_INPUTS + 1;
+
+    // Many small coins at the quantum-safe address, from one funding transaction
+    let coins = ledger.get_spendable_utxos(&address_of(&funder)).unwrap();
+    let mut fund = Transaction::build_payment(&funder, Network::Testnet, &safe, 1_000_000, 100_000, coins, None).unwrap();
+    for _ in 1..count {
+        fund.outputs.insert(0, TxOutput::new(1_000_000, ScriptPublicKey::pay_to_address(&safe)));
+    }
+    let change = fund.outputs.len() - 1;
+    fund.outputs[change].value_atoms -= (count as u64 - 1) * 1_000_000;
+    for i in 0..fund.inputs.len() {
+        fund.sign_input(Network::Testnet, i, &funder).unwrap();
+    }
+    let fund_id = fund.id();
+    ledger.broadcast_transaction(fund).unwrap();
+    mine_tip(&mut ledger, &pow, &miner);
+
+    let inputs = (0..count)
+        .map(|i| TxInput { previous_outpoint: Outpoint { transaction_id: fund_id, index: i as u32 }, signature_script: Vec::new() })
+        .collect();
+    let sweep = Transaction {
+        version: 1,
+        inputs,
+        outputs: vec![TxOutput::new(10_000_000, ScriptPublicKey::pay_to_address(&miner))],
+        payload: Vec::new(),
+        service: None,
+        issue: None,
+    };
+    // Refused before any signature is checked
+    let err = ledger.broadcast_transaction(sweep).unwrap_err().to_string();
+    assert!(err.contains("quantum-safe inputs"), "{}", err);
+}

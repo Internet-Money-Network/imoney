@@ -239,5 +239,10 @@ The other chain's side is the `ImnSwap` contract. A buyer calls `lockForImn`, wh
 ### 8.10 One output, one contract
 Within one transaction, an output named by an offer take (as payment or rest), a vault withdrawal or a subscription collection may be named by no other of these, and does not count towards an escrow's allowed destinations (it counts as paid elsewhere). Otherwise one payment could settle two contracts: an offer "paid" with its maker's own vault withdrawal, which anyone may complete, or an escrow released with the seller's own money.
 
-### 8.11 Keys
+### 8.11 Quantum-safe addresses
+An address of type 1 (`PostQuantumHash`) locks coins to `tagged-hash("IMN 2026 quantum-safe keys", Ed25519 public key (32) ++ SQIsign public key (83))`. SQIsign is the round-3 NIST submission (2026-09-01) at level I, as implemented by the `sqisign-rs` crate 0.6.1. A spend's signature script is `Ed25519 key ++ SQIsign key ++ Ed25519 signature (64) ++ SQIsign signature (200)`, 379 bytes; both signatures are over the input's ordinary signing hash, and both must verify (Ed25519 under the strict check). The coins therefore stay safe while either scheme holds. Both keys come from one 32-byte seed: the Ed25519 key is `Blake3-derive-key("IMN 2026 quantum-safe Ed25519 key", seed)`, the SQIsign key is generated from a ChaCha20 stream seeded with `Blake3-derive-key("IMN 2026 quantum-safe SQIsign key", seed)`.
+
+SQIsign signatures are not strongly unforgeable; this changes a transaction's hash but never its ID, which excludes signature scripts. A SQIsign verification costs a few milliseconds, so it is checked last, and as relay policy (not consensus) a transaction may spend at most 16 quantum-safe inputs, and a peer relaying a bad quantum-safe signature is penalised heavily.
+
+### 8.12 Keys
 Nodes do not create, store or receive private keys. Wallets sign locally; the reference wallet uses a WebAssembly build of the same transaction code the node runs. A wallet's key is derived from a 12-word BIP-39 recovery phrase as `Blake3-derive-key("IMN 2026 wallet key 0", BIP-39 seed)`.

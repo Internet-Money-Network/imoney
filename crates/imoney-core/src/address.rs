@@ -22,7 +22,7 @@ pub enum AddressError {
 pub enum AddressType {
     /// Classical Public Key Hash (P2PKH - Ed25519)
     PubKeyHash = 0x00,
-    /// Reserved for a post-quantum key hash (no signature scheme implemented yet)
+    /// Quantum-safe: an Ed25519 key and a SQIsign key, both needed to spend (see `quantum`)
     PostQuantumHash = 0x01,
     /// Multi-signature Script Hash (P2SH)
     ScriptHash = 0x02,

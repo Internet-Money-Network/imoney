@@ -268,6 +268,9 @@ impl Transaction {
         if spent_script.version == crate::hashlock::SCRIPT_VERSION_HASHLOCK {
             return self.verify_hashlock_input(network, input_index, &spent_script.script, spending_blue_score);
         }
+        if spent_script.version == crate::quantum::SCRIPT_VERSION_QUANTUM_SAFE {
+            return self.verify_quantum_safe_input(network, input_index, &spent_script.script);
+        }
         if spent_script.version == crate::multisig::SCRIPT_VERSION_MULTISIG {
             return self.verify_multisig_input(network, input_index, &spent_script.script);
         }

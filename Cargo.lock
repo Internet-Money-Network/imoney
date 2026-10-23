@@ -707,6 +707,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
 
 [[package]]
+name = "hybrid-array"
+version = "0.4.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "27f864f10dfb56725ce5ce5472bc52252c8f93a4ab86327122cebf62c5f59a17"
+dependencies = [
+ "typenum",
+]
+
+[[package]]
 name = "hyper"
 version = "1.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -904,9 +913,11 @@ dependencies = [
  "ed25519-dalek",
  "hex",
  "rand",
+ "rand_chacha",
  "serde",
  "serde_json",
  "sha2",
+ "sqisign-rs",
  "thiserror 1.0.69",
 ]
 
@@ -1472,6 +1483,7 @@ checksum = "77fd7028345d415a4034cf8777cd4f8ab1851274233b45f84e3d955502d93874"
 dependencies = [
  "digest",
  "keccak",
+ "zeroize",
 ]
 
 [[package]]
@@ -1529,6 +1541,35 @@ checksum = "d91ed6c858b01f942cd56b37a94b3e0a1798290327d1236e4d9cf4eaca44d29d"
 dependencies = [
  "base64ct",
  "der",
+]
+
+[[package]]
+name = "sqisign-rs"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "713892c9097709dd5b60117e519303ba707734453cf9ecb4125ba43c7ca1d4da"
+dependencies = [
+ "hybrid-array",
+ "rand_core",
+ "sha3",
+ "signature",
+ "sqisign-verify",
+ "subtle",
+ "zeroize",
+]
+
+[[package]]
+name = "sqisign-verify"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "83c878f84d15b6219a3022b8671a9763e4b8ec900ad83bb69935caac5184a95b"
+dependencies = [
+ "hybrid-array",
+ "sha3",
+ "signature",
+ "subtle",
+ "typenum",
+ "zeroize",
 ]
 
 [[package]]
@@ -2080,6 +2121,20 @@ name = "zeroize"
 version = "1.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e13c156562582aa81c60cb29407084cdb54c4164760106ab78e6c5b0858cf64e"
+dependencies = [
+ "zeroize_derive",
+]
+
+[[package]]
+name = "zeroize_derive"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3c50655cbb0fe3fc43170059e702f1ce5e19b84cec58dc87b037a09935c2f328"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
 
 [[package]]
 name = "zerotrie"

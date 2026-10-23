@@ -8,6 +8,7 @@ use imoney_consensus::{work_from_bits, DaaParams, Dag, DagBlock, GhostdagData, G
 use imoney_core::constants::{
     ATOMS_PER_IMN, BLOCKS_PER_HALVING_ERA, BLOCKS_PER_YEAR, MAX_BLOCK_BYTES, MAX_BLOCK_PARENTS, MAX_TX_BYTES, TARGET_TIME_PER_BLOCK_MS,
 };
+use imoney_core::quantum::SCRIPT_VERSION_QUANTUM_SAFE;
 use imoney_core::serialize::tagged_hash;
 use imoney_core::subscription::SCRIPT_VERSION_SUBSCRIPTION;
 use imoney_core::{
@@ -45,6 +46,11 @@ pub const NETWORK_ALERT_WINDOW_MS: u64 = 30 * 60 * 1000;
 
 /// A selected-chain switch that undoes at least this many blocks is recorded as a warning sign.
 pub const REORG_ALARM_DEPTH: usize = 3;
+
+/// Most quantum-safe inputs in one relayed transaction. Each costs a SQIsign verification
+/// (about 4 ms); this keeps one transaction's checks well under a tenth of a second. Relay
+/// policy only: a block may carry more.
+pub const MAX_QUANTUM_SAFE_INPUTS: usize = 16;
 
 /// Bytes of a block template kept free for the header and coinbase.
 const TEMPLATE_RESERVED_BYTES: usize = 2_000;
@@ -650,8 +656,11 @@ impl DagLedger {
             // malformed contract input at neither.
             tx.verify_input_at(self.network, i, &utxo.output.script_public_key, spending_blue_score).map_err(|e| {
                 let script = &utxo.output.script_public_key;
-                let always_invalid = tx.verify_input_at(self.network, i, script, 0).is_err()
-                    && tx.verify_input_at(self.network, i, script, u64::MAX).is_err();
+                // A quantum-safe spend has no deadline, and checking it again would cost two more
+                // SQIsign verifications
+                let always_invalid = script.version == SCRIPT_VERSION_QUANTUM_SAFE
+                    || (tx.verify_input_at(self.network, i, script, 0).is_err()
+                        && tx.verify_input_at(self.network, i, script, u64::MAX).is_err());
                 if always_invalid {
                     StateError::Transaction(format!("{} on input {}: {}", BAD_SIGNATURE, i, e))
                 } else {
@@ -1332,12 +1341,22 @@ impl DagLedger {
         // Relay policy (fee, size, dust) first, from the coins' values alone: it costs a few
         // reads, while the spend checks below verify every signature under the ledger lock
         let mut inputs_value: u64 = 0;
+        let mut quantum_safe_inputs = 0;
         for input in &tx.inputs {
             let coin = self
                 .storage
                 .get_utxo(&input.previous_outpoint)?
                 .ok_or_else(|| StateError::Transaction(format!("UTXO not found: {:?}", input.previous_outpoint)))?;
             inputs_value = inputs_value.saturating_add(coin.output.value_atoms);
+            quantum_safe_inputs += usize::from(coin.output.script_public_key.version == SCRIPT_VERSION_QUANTUM_SAFE);
+        }
+        // Each quantum-safe input costs a SQIsign verification, a few milliseconds under the
+        // ledger lock; a relayed transaction may carry only so many
+        if quantum_safe_inputs > MAX_QUANTUM_SAFE_INPUTS {
+            return Err(StateError::Transaction(format!(
+                "At most {} quantum-safe inputs per transaction are relayed; this one has {}",
+                MAX_QUANTUM_SAFE_INPUTS, quantum_safe_inputs
+            )));
         }
         let outputs_value = tx
             .outputs
