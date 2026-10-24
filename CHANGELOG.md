@@ -6,6 +6,12 @@ Notable changes to Internet Money. Nothing has been released yet: everything bel
 ## Unreleased
 
 ### Added
+- **Nodes warn when their network has not started yet.** A node started before its network's
+  genesis time says when the network starts; until then no block can be mined. A test keeps a
+  release from shipping a test network dated in the future.
+- **CI publishes the node image** to `ghcr.io/internet-money-network/imoney` for each release,
+  with its digest in `IMAGE-DIGEST.txt`. Seed nodes pull it (pinned by digest if set) instead of
+  building from source.
 - **The public test network was restarted as testnet-6**, with the maintenance fund below. New
   genesis (2026-10-24): delete the data directory except `miner-key.hex` before upgrading. See
   `deploy/TESTNET-6-RESET.md`.
