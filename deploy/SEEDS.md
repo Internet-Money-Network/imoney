@@ -33,6 +33,20 @@ The service account needs Compute Instance Admin (v1) and Service Account User.
 SSH from a session is not used (it would add keys to project metadata). Resets go through the
 startup script instead.
 
+## The node image
+
+From v0.1.10, CI builds the node's Docker image once for each release and publishes it as
+`ghcr.io/internet-money-network/imoney:<tag>`; the release's `IMAGE-DIGEST.txt` names the exact
+image by its content hash. A seed pulls it in about a minute instead of building for 20, and only
+builds from source if no image was published for its `imn-ref`. On the main network, set
+`imn-image` to the line in `IMAGE-DIGEST.txt`: the seed then runs that exact image or nothing.
+
+The package must be public for seeds to pull without logging in: after the first release that
+publishes it, set it to public once under the organisation's Packages, `imoney`, Package settings.
+
+Resets that wipe every chain can do all three seeds at once: the old network is being retired
+anyway, so there is nothing to keep running. Upgrades that keep the chain go one seed at a time.
+
 ## Resetting a Google Cloud seed (new network or wiped chain)
 
 The startup script only builds the image and creates the container when they are missing, so a reset

@@ -174,6 +174,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let r = ledger.read().await;
         println!("[+] Persistent ledger active: {} blocks loaded | Blue Score: {}", r.block_count(), r.virtual_blue_score);
+        // A block must be stamped after genesis and at most a little ahead of the clock, so until
+        // the genesis time no block can be valid: say so, rather than leave miners puzzled by
+        // refusals
+        let genesis_ms = r.params.genesis.header.timestamp_ms;
+        let now_ms = chrono::Utc::now().timestamp_millis() as u64;
+        if genesis_ms > now_ms {
+            let starts = chrono::DateTime::from_timestamp_millis(genesis_ms as i64).map(|t| t.to_rfc3339()).unwrap_or_default();
+            let hours = (genesis_ms - now_ms) as f64 / 3_600_000.0;
+            println!("[!] This network starts at {} ({:.1} hours from now). No block can be mined before then.", starts, hours);
+        }
     }
 
     // Initialize P2P PeerManager
