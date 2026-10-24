@@ -58,6 +58,16 @@ fn genesis(timestamp_ms: u64, bits: u32, message: &[u8]) -> Block {
 mod tests {
     use super::*;
 
+    /// A genesis dated in the future cannot be mined on until that time: blocks must be stamped
+    /// after it and at most a little ahead of the clock. testnet-6 shipped dated six hours ahead
+    /// and could not be mined until then; a release must not do that again.
+    #[test]
+    fn the_testnet_genesis_is_not_dated_in_the_future() {
+        let genesis_ms = create_testnet_genesis().header.timestamp_ms;
+        let now_ms = chrono::Utc::now().timestamp_millis() as u64;
+        assert!(genesis_ms <= now_ms, "the testnet genesis is dated {} ms in the future", genesis_ms - now_ms);
+    }
+
     #[test]
     fn genesis_is_deterministic_and_creates_no_coins() {
         for create in [create_testnet_genesis, create_devnet_genesis] {
