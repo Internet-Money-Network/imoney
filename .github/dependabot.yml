@@ -5,9 +5,12 @@ updates:
     directory: /
     schedule:
       interval: monthly
-    groups:
-      rust:
-        patterns: ["*"]
+    groups:
+
+      rust:
+
+        patterns: ["*"]
+
     # Signatures and big-number arithmetic are consensus code: upgraded by hand, with tests
     ignore:
       - dependency-name: ed25519-dalek
@@ -19,7 +22,7 @@ updates:
       interval: monthly
     groups:
       sdk:
-        patterns: ["*"]
+        update-types: ["patch", "minor"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
@@ -27,3 +30,6 @@ updates:
     groups:
       actions:
         patterns: ["*"]
+    # The compiler version is pinned to match rust-toolchain.toml; it moves with that file
+    ignore:
+      - dependency-name: dtolnay/rust-toolchain
