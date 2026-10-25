@@ -18,7 +18,8 @@ Include what you can of:
 - the commit you tested.
 
 You will get an acknowledgement, and the fix will credit you unless you ask otherwise. There is
-no bug bounty: the project has no premine and no funds to pay one.
+no bug bounty yet: the project has no premine, and the maintenance fund only starts paying
+when the main network does.
 
 ## What counts
 

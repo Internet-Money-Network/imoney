@@ -35,6 +35,12 @@ Payments that a shop can accept without trusting anyone else. Three things make 
       WooCommerce with its block checkout (order paid only by a payment naming its invoice).
 - [x] **Explorer.** Live block graph, hashrate, difficulty, supply, block, transaction and
       address lookup, address history.
+- [x] **Quantum-safe addresses.** The wallet's main address locks coins to an Ed25519 key and a
+      SQIsign key; spending needs both signatures, checked in parallel.
+- [x] **Maintenance fund.** 5% of each block's subsidy for the first three years (18,921,600
+      blocks) goes to one address fixed in the rules, then stops by itself
+      ([SPECIFICATION.md](SPECIFICATION.md) section 4.2).
+- [x] **Desktop app** for Windows, Mac and Linux, with the wallet and a node.
 - [x] **Operations.** Docker and systemd files, node guide, load-test tool with reference
       results, integration guide for exchanges, wallets and pools, release builds from tags.
 
@@ -43,9 +49,13 @@ Payments that a shop can accept without trusting anyone else. Three things make 
 - [ ] **WooCommerce plugin on a production-like site.** It has been run end to end on a local
       WordPress; its five-minute background check and a real mail and MySQL setup have not.
 - [ ] **SDK published to npm.**
-- [ ] **Three or more seed nodes in different places**, at least one outside a home connection.
+- [x] **Three or more seed nodes in different places**: Google Cloud in the US, Europe and Asia,
+      and a home seed. They run the node image CI publishes for each release, pinned by digest.
+- [ ] **Seed hosting past January 2027.** The Google Cloud seeds run on trial credit that ends
+      then.
 - [ ] **A soak run of several days** on those nodes, watching memory, disk and sync.
-- [ ] **A first tagged release** with binaries.
+- [x] **Tagged releases** with binaries, desktop installers, checksums and the node image
+      (latest: v0.1.10, testnet-6).
 
 ## Before a main network
 
@@ -76,4 +86,7 @@ Payments that a shop can accept without trusting anyone else. Three things make 
 ## Not planned
 
 - Smart contracts.
-- A premine, a developer fee or an allocation of any kind.
+- A premine. Genesis creates no coins.
+- Any allocation beyond the maintenance fund: 5% of the block subsidy for the first three years,
+  paid by the rules to a published address and ending by itself. Fees and the other 95% go to
+  miners. No other address receives coins it did not mine or was not paid.
