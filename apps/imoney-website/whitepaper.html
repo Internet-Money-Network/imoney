@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Whitepaper · Internet Money (IMN)</title>
+  <meta name="description" content="The Internet Money whitepaper: quantum-safe wallets (Ed25519 + SQIsign), built-in tokens and a market, on a five-second, GPU-mined BlockDAG.">
+  <link rel="canonical" href="https://internetmoneynetwork.org/features">
+  <meta property="og:title" content="Internet Money (IMN) whitepaper">
+  <meta property="og:description" content="Quantum-safe money on a five-second BlockDAG, with tokens built in.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://internetmoneynetwork.org/whitepaper">
+  <meta property="og:image" content="https://internetmoneynetwork.org/banner.png">
+  <meta name="theme-color" content="#0f2e23" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#06140f" media="(prefers-color-scheme: dark)">
+  <link rel="icon" type="image/svg+xml" href="icon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    /* Banknote: engraver's green on note paper, a band across the head of the page,
+       wave-line borders as on printed money. The explorer and wallet share it. */
+    :root {
+      --paper: #eef0e6;
+      --paper-raised: #f6f7ef;
+      --ink: #0f2e23;
+      --ink-soft: #3d6652;
+      --rule: #0f2e23;
+      --rule-soft: #a9b89a;
+      --accent: #0b7a4b;
+      --dot: #6fe0a6;
+      --band: #0f2e23;
+      --band-ink: #eef0e6;
+      --band-soft: #b9c9a4;
+      --wave: #1f5a43;
+      --wave-bed: #dfe5d2;
+      --code-bg: #0f2e23;
+      --code-ink: #eef0e6;
+      --code-dim: #9db39a;
+      --serif: "Fraunces", "Iowan Old Style", Georgia, serif;
+      --sans: "Fraunces", "Iowan Old Style", Georgia, serif;
+      --mono: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --paper: #0b1f18;
+        --paper-raised: #12291f;
+        --ink: #e9eddc;
+        --ink-soft: #9db39a;
+        --rule: #e9eddc;
+        --rule-soft: #2c4a3b;
+        --accent: #6fe0a6;
+        --dot: #6fe0a6;
+        --band: #06140f;
+        --band-ink: #e9eddc;
+        --band-soft: #9db39a;
+        --wave: #3f7a5f;
+        --wave-bed: #0e261d;
+        --code-bg: #06140f;
+        --code-ink: #e9eddc;
+        --code-dim: #7f9a84;
+      }
+    }
+
+    * { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: var(--sans);
+      font-size: 17px;
+      line-height: 1.55;
+    }
+    a { color: inherit; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+    a:hover { color: var(--accent); }
+    code, .mono { font-family: var(--mono); font-size: 0.86em; }
+
+    .wrap { max-width: 1180px; margin: 0 auto; padding: 0 28px; }
+
+    /* Masthead */
+    .band { background: var(--band); color: var(--band-ink); }
+    .guilloche { display: block; color: var(--wave); background: var(--wave-bed); }
+    .masthead { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; padding: 16px 0; gap: 10px 16px; }
+    .wordmark { display: flex; align-items: center; gap: 12px; text-decoration: none; font-size: 24px; line-height: 1; color: var(--band-ink); }
+    .wordmark:hover { color: var(--band-ink); }
+    .wordmark svg { width: 30px; height: 30px; display: block; }
+    .masthead nav { display: flex; flex-wrap: wrap; gap: 8px 22px; font-family: var(--mono); font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; }
+    .masthead nav a { text-decoration: none; color: var(--band-soft); }
+    .masthead nav a:hover { color: var(--band-ink); }
+    .strapline {
+      border-bottom: 1px solid var(--rule);
+      font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase;
+      display: flex; flex-wrap: wrap; gap: 6px 26px; padding: 9px 0;
+    }
+    .strapline .live::before {
+      content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+      background: var(--dot); margin-right: 8px; vertical-align: 1px;
+    }
+
+    /* Hero */
+    .hero { display: grid; grid-template-columns: 7fr 5fr; gap: 56px; padding: 72px 0 84px; align-items: start; }
+    h1 {
+      font-family: var(--serif); font-weight: 600; font-size: clamp(42px, 6.4vw, 84px);
+      line-height: 1.0; letter-spacing: -0.02em; margin: 0 0 28px;
+    }
+    h1 em { font-style: italic; font-weight: 400; color: var(--accent); }
+    .lede { font-size: 20px; line-height: 1.5; max-width: 34em; margin: 0 0 30px; }
+    .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 26px; }
+    .button {
+      display: inline-block; background: var(--ink); color: var(--paper); text-decoration: none;
+      padding: 14px 22px; font-family: var(--mono); font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase;
+    }
+    .button:hover { background: var(--accent); color: var(--paper); }
+    .textlink { font-family: var(--mono); font-size: 14px; }
+    .textlink::after { content: " \2192"; }
+
+    /* Receipt */
+    .receipt-holder { padding-top: 10px; }
+    .receipt {
+      background: var(--paper-raised); color: var(--ink);
+      font-family: var(--mono); font-size: 13px; line-height: 1.7;
+      padding: 26px 24px 34px; max-width: 370px; margin-left: auto;
+      transform: rotate(1.4deg);
+      box-shadow: 0 1px 0 var(--rule-soft), 0 18px 40px -22px rgba(0, 0, 0, 0.45);
+      /* torn bottom edge */
+      --tooth: 12px;
+      -webkit-mask: conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) bottom / var(--tooth) 51% repeat-x,
+                    linear-gradient(#000 0 0) top / 100% calc(100% - var(--tooth) / 2) no-repeat;
+              mask: conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) bottom / var(--tooth) 51% repeat-x,
+                    linear-gradient(#000 0 0) top / 100% calc(100% - var(--tooth) / 2) no-repeat;
+    }
+    .receipt .center { text-align: center; }
+    .receipt .title { letter-spacing: 0.22em; font-weight: 500; }
+    .receipt hr { border: 0; border-top: 1px dashed var(--ink-soft); margin: 12px 0; }
+    .receipt .row { display: flex; justify-content: space-between; gap: 12px; }
+    .receipt .row span:last-child { text-align: right; }
+    .receipt .total { font-size: 24px; font-weight: 500; letter-spacing: -0.01em; }
+    .receipt .state b { font-weight: 500; }
+    .receipt .state .on { color: var(--accent); }
+    .receipt .small { font-size: 11px; color: var(--ink-soft); line-height: 1.5; }
+    .caption { font-family: var(--mono); font-size: 12px; color: var(--ink-soft); max-width: 370px; margin: 20px 0 0 auto; }
+
+    /* Sections */
+    section.block { display: grid; grid-template-columns: 3fr 9fr; gap: 40px; padding: 60px 0; border-top: 1px solid var(--rule); }
+    section.block > *, .split > *, .hero > * { min-width: 0; }
+    .label { font-family: var(--mono); font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; }
+    .label .num { display: block; color: var(--ink-soft); margin-bottom: 6px; }
+    h2 { font-family: var(--serif); font-weight: 600; font-size: clamp(30px, 3.6vw, 44px); line-height: 1.05; letter-spacing: -0.01em; margin: 0 0 22px; max-width: 18em; }
+    .body p { max-width: 40em; margin: 0 0 16px; }
+    .body p.note { color: var(--ink-soft); font-size: 15px; }
+    details.more { margin-top: 26px; border-top: 1px solid var(--rule-soft); padding-top: 14px; }
+    details.more summary { cursor: pointer; font-family: var(--mono); font-size: 13px; letter-spacing: 0.04em; color: var(--ink-soft); }
+    details.more summary:hover { color: var(--ink); }
+
+    /* Figures */
+    .figures { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--rule-soft); border-left: 1px solid var(--rule-soft); margin: 0; }
+    .figures div { border-right: 1px solid var(--rule-soft); border-bottom: 1px solid var(--rule-soft); padding: 20px 20px 18px; }
+    .figures dt { font-family: var(--mono); font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-soft); }
+    .figures dd { margin: 8px 0 0; font-family: var(--mono); font-size: 26px; letter-spacing: -0.02em; }
+    .figures dd small { font-size: 13px; letter-spacing: 0; color: var(--ink-soft); margin-left: 4px; }
+
+    /* Arguments */
+    .arguments { list-style: none; margin: 0; padding: 0; counter-reset: arg; }
+    .arguments li { display: grid; grid-template-columns: 64px 1fr; gap: 0 12px; padding: 22px 0; border-top: 1px solid var(--rule-soft); counter-increment: arg; }
+    .arguments li:first-child { border-top: 0; padding-top: 0; }
+    .arguments li::before { content: counter(arg, decimal-leading-zero); font-family: var(--mono); font-size: 13px; color: var(--ink-soft); padding-top: 9px; }
+    .arguments h3 { font-family: var(--serif); font-weight: 600; font-size: 25px; line-height: 1.15; margin: 0 0 8px; }
+    .arguments p { margin: 0; max-width: 38em; }
+
+    /* Code */
+    .split { display: grid; grid-template-columns: 1fr 1fr; gap: 36px; align-items: start; }
+    pre {
+      background: var(--code-bg); color: var(--code-ink); margin: 0; padding: 22px 22px 24px;
+      font-family: var(--mono); font-size: 13px; line-height: 1.65; overflow-x: auto;
+    }
+    pre .c { color: var(--code-dim); }
+    pre .s { color: #6fe0a6; }
+    .filetab { font-family: var(--mono); font-size: 12px; background: var(--code-bg); color: var(--code-dim); padding: 10px 22px 0; display: flex; justify-content: space-between; }
+    ul.plain { list-style: none; padding: 0; margin: 20px 0 0; }
+    ul.plain li { padding: 10px 0 10px 22px; border-top: 1px solid var(--rule-soft); position: relative; }
+    ul.plain li::before { content: ""; position: absolute; left: 0; top: 19px; width: 9px; height: 9px; background: var(--ink); }
+
+    /* Supply */
+    table { width: 100%; border-collapse: collapse; font-size: 15px; }
+    th, td { text-align: left; padding: 11px 14px 11px 0; border-bottom: 1px solid var(--rule-soft); white-space: nowrap; }
+    th { font-family: var(--mono); font-size: 12px; font-weight: 400; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-soft); border-bottom-color: var(--rule); }
+    td.n, th.n { text-align: right; font-family: var(--mono); padding-right: 0; }
+    td.n, th.n { padding-left: 20px; }
+    td.n { font-size: 14px; }
+    .table-scroll { overflow-x: auto; }
+    .chart { margin: 0 0 30px; }
+    .chart svg { width: 100%; height: auto; display: block; }
+    .chart .axis { stroke: var(--rule-soft); stroke-width: 1; }
+    .chart .step { fill: none; stroke: var(--accent); stroke-width: 2.5; }
+    .chart .fill { fill: var(--accent); opacity: 0.1; }
+    .chart text { font-family: var(--mono); font-size: 11px; fill: var(--ink-soft); }
+
+    /* Status */
+    .status { display: grid; grid-template-columns: repeat(3, 1fr); gap: 30px; }
+    .status h3 { font-family: var(--mono); font-size: 13px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.06em; margin: 0 0 6px; padding-bottom: 10px; border-bottom: 1px solid var(--rule); display: flex; align-items: center; gap: 10px; }
+    .status h3 i { width: 11px; height: 11px; border: 1.5px solid var(--ink); display: inline-block; }
+    .status .done h3 i { background: var(--ink); }
+    .status .doing h3 i { background: linear-gradient(90deg, var(--ink) 50%, transparent 50%); }
+    .status ul { list-style: none; margin: 0; padding: 0; font-size: 15.5px; }
+    .status li { padding: 9px 0; border-bottom: 1px solid var(--rule-soft); }
+
+    /* Three jobs, as cards */
+    .jobs { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--rule); }
+    .jobs > div { padding: 24px 24px 26px 0; }
+    .jobs > div + div { padding-left: 24px; border-left: 1px solid var(--rule-soft); }
+    .jobs .kicker { font-family: var(--mono); font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); }
+    .jobs h3 { font-family: var(--serif); font-weight: 600; font-size: 27px; line-height: 1.1; margin: 8px 0 10px; }
+    .jobs p { margin: 0; font-size: 16px; color: var(--ink-soft); }
+    .jobs .icon { width: 44px; height: 44px; display: block; margin-bottom: 14px; color: var(--ink); }
+
+    footer { border-top: 1px solid var(--rule); margin-top: 20px; padding: 26px 0 50px; font-family: var(--mono); font-size: 12.5px; color: var(--ink-soft); display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px 30px; }
+    footer p { margin: 0; max-width: 52em; }
+
+    @media (max-width: 900px) {
+      .hero { grid-template-columns: 1fr; gap: 44px; padding: 48px 0 60px; }
+      .receipt, .caption { margin-left: 0; }
+      section.block { grid-template-columns: 1fr; gap: 18px; padding: 46px 0; }
+      .split { grid-template-columns: 1fr; }
+      .status { grid-template-columns: 1fr; }
+      .figures { grid-template-columns: repeat(2, 1fr); }
+      .jobs { grid-template-columns: 1fr; }
+      .jobs > div, .jobs > div + div { padding: 20px 0 22px; border-left: 0; border-top: 1px solid var(--rule-soft); }
+      .jobs > div:first-child { border-top: 0; }
+    }
+    @media (max-width: 520px) {
+      body { font-size: 16px; }
+      .wrap { padding: 0 18px; }
+      .masthead nav a.optional { display: none; }
+      .lede { font-size: 18px; }
+      .figures dd { font-size: 21px; }
+      .arguments li { grid-template-columns: 40px 1fr; }
+    }
+
+    /* Standouts: a big claim beside a picture that shows it */
+    .standout { display: grid; grid-template-columns: 6fr 5fr; gap: 40px; align-items: center; padding: 34px 0; border-top: 1px solid var(--rule-soft); }
+    .standout:first-of-type { border-top: 0; padding-top: 0; }
+    .standout h3 { font-family: var(--serif); font-weight: 600; font-size: clamp(26px, 3vw, 36px); line-height: 1.08; margin: 0 0 10px; }
+    .standout p { margin: 0; font-size: 18px; color: var(--ink-soft); max-width: 26em; }
+    .standout p + p { margin-top: 12px; }
+    .standout figure { margin: 0; }
+    .standout svg { width: 100%; height: auto; display: block; }
+    .standout svg text { font-family: var(--mono); font-size: 12px; fill: var(--ink-soft); }
+    .standout svg .ink { fill: var(--ink); }
+    .standout svg .strong { font-size: 13px; fill: var(--ink); }
+    .standout svg .accent { fill: var(--accent); }
+    .standout svg .line { stroke: var(--ink); stroke-width: 1.5; fill: none; }
+    .standout svg .soft { stroke: var(--rule-soft); stroke-width: 1.5; fill: none; }
+    .standout svg .box { fill: var(--paper-raised); stroke: var(--rule-soft); stroke-width: 1; }
+    .standout svg .hit { fill: var(--accent); opacity: 0.16; }
+
+    /* Everything else: short labels */
+    .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0 32px; }
+    .grid3 h3 { font-family: var(--mono); font-size: 12px; font-weight: 500; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); margin: 0; padding-bottom: 10px; border-bottom: 1px solid var(--rule); }
+    .grid3 ul { list-style: none; margin: 0; padding: 0; }
+    .grid3 li { padding: 11px 0; border-bottom: 1px solid var(--rule-soft); font-size: 15.5px; line-height: 1.4; }
+    .grid3 li b { font-weight: 600; display: block; }
+    .grid3 li span { color: var(--ink-soft); font-size: 14.5px; }
+
+    /* Comparison */
+    table.compare td, table.compare th { white-space: normal; vertical-align: top; }
+    table.compare th:first-child { width: 30%; }
+    table.compare th.us, table.compare td.us { background: var(--paper-raised); padding-left: 12px; padding-right: 12px; }
+    table.compare th.us { color: var(--ink); font-weight: 500; }
+    table.compare td { font-size: 15px; }
+    .yes::before { content: "\25A0  "; color: var(--accent); }
+    .part::before { content: "\25E7  "; color: var(--ink-soft); }
+    .no::before { content: "\25A1  "; color: var(--ink-soft); }
+
+    @media (max-width: 900px) {
+      .standout { grid-template-columns: 1fr; gap: 22px; }
+      .grid3 { grid-template-columns: 1fr; gap: 26px; }
+      table.compare { min-width: 600px; }
+    }
+    /* Whitepaper */
+    .paper .body p { margin: 0 0 14px; font-size: 18px; max-width: 40em; }
+    .paper .body h2 { font-family: var(--serif); font-weight: 600; font-size: 30px; margin: 0 0 14px; }
+    .paper .body h3 { font-family: var(--mono); font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; margin: 22px 0 10px; }
+    .paper .body ul.plain, .paper .body ol { margin: 0 0 16px; font-size: 17px; max-width: 40em; }
+    .paper .body ul.plain li, .paper .body ol li { margin-bottom: 8px; }
+    .paper .table-scroll { margin: 6px 0 18px; }
+    .paper .refs li { word-break: break-word; }
+    @media print {
+      @page { margin: 16mm 14mm; }
+      .band nav, .guilloche, .strapline, .hero .actions { display: none !important; }
+      section.block { break-inside: auto; padding: 22px 0; }
+      .paper .body p, .paper .body li { font-size: 11pt; }
+      table { font-size: 9.5pt; }
+      .table-scroll { overflow: visible; }
+      table.compare { min-width: 0 !important; }
+      tr, h2, h3 { break-inside: avoid; }
+      a { color: inherit; text-decoration: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="band">
+    <div class="wrap">
+      <header class="masthead">
+        <a class="wordmark" href="/">
+          <svg viewBox="0 0 512 512" aria-hidden="true">
+            <rect width="512" height="512" fill="#eef0e6"/>
+            <rect x="30" y="30" width="452" height="452" fill="none" stroke="#3d6652" stroke-width="5"/>
+            <rect x="86" y="128" width="56" height="256" fill="#0f2e23"/>
+            <path d="M182 384 L182 232 L242 128 L298 128 L238 232 L238 384 Z" fill="#0f2e23"/>
+            <path d="M310 384 L310 232 L370 128 L426 128 L366 232 L366 384 Z" fill="#0f2e23"/>
+            <circle cx="114" cy="94" r="16" fill="#0b7a4b"/>
+          </svg>
+          Internet Money
+        </a>
+        <nav>
+          <a href="/#download">Download</a>
+          <a href="/features">Features</a>
+          <a href="/explorer">Explorer</a>
+          <a href="/wallet">Wallet</a>
+          <a href="/pool/">Pool</a>
+          <a class="optional" href="#compare">Compare</a>
+          <a href="/#status">Status</a>
+          <a href="https://github.com/Internet-Money-Network/imoney">GitHub</a>
+        </nav>
+      </header>
+    </div>
+  </div>
+  <svg class="guilloche" height="14" width="100%" aria-hidden="true">
+    <defs>
+      <pattern id="guilloche-wave" width="34" height="14" patternUnits="userSpaceOnUse">
+        <path d="M0 7 Q8.5 -3 17 7 T34 7" fill="none" stroke="currentColor" stroke-width="1"/>
+        <path d="M0 7 Q8.5 17 17 7 T34 7" fill="none" stroke="currentColor" stroke-width="1"/>
+      </pattern>
+    </defs>
+    <rect width="100%" height="14" fill="url(#guilloche-wave)"/>
+  </svg>
+  <div class="wrap">
+    <div class="strapline">
+      <span class="live">Testnet running</span>
+      <span>Quantum-safe wallets</span>
+      <span>Tokens built in</span>
+      <span>5-second BlockDAG</span>
+    </div>
+
+    <main>
+      <div class="hero" style="grid-template-columns: 1fr; padding-bottom: 56px;">
+        <div>
+          <h1>Quantum-safe money on a <em>five-second BlockDAG.</em></h1>
+          <p class="lede">The Internet Money whitepaper: how quantum-safe wallets, built-in tokens and a fast, GPU-mined BlockDAG fit together.</p>
+          <div class="actions">
+            <a class="button" href="/internet-money-whitepaper.pdf" download>Download the PDF</a>
+            <a class="textlink" href="https://github.com/Internet-Money-Network/imoney/blob/main/SPECIFICATION.md">Protocol specification</a>
+          </div>
+        </div>
+      </div>
+
+      <section class="block paper" id="abstract">
+        <div class="label"><span class="num">§1</span>Abstract</div>
+        <div class="body">
+          <p>Internet Money (IMN) is open-source proof-of-work money built to stay secure as quantum computers arrive. Every wallet is locked twice: with Ed25519, today's proven signature, and with SQIsign, a compact post-quantum signature. Spending needs both, so coins stay safe while either scheme holds.</p>
+          <p>Tokens, an order-book market, escrow, subscriptions and theft-resistant vaults are part of the consensus rules, not smart contracts. Anyone can issue a token and trade it without an exchange, and every node checks every rule.</p>
+          <p>Blocks arrive every five seconds on a GHOSTDAG BlockDAG, so blocks found at the same moment are kept rather than wasted. Mining uses Hallmark, a memory-hard algorithm suited to ordinary graphics cards. There is no premine, and a full node runs on a small server.</p>
+        </div>
+      </section>
+
+      <section class="block paper" id="why-now">
+        <div class="label"><span class="num">§2</span>Why now</div>
+        <div class="body">
+          <p>The signatures that protect almost every coin today, ECDSA, Schnorr and Ed25519, rest on elliptic curves. A large enough quantum computer running Shor's algorithm could recover a private key from its public key. Coins on a chain cannot move themselves, so the safe time to change a coin's lock is before that machine exists.</p>
+          <p>The large chains are working on it: Ethereum's 2026 roadmap targets signature agility around 2029, and Bitcoin's proposals are still under discussion. A migration on a chain that already holds billions is slow, because every holder must act. Internet Money starts on the other side of that migration: its wallets are quantum-safe from the first block.</p>
+          <p>The same reasoning applies to tokens. On most chains a token is a program someone deployed, and each program is more code to trust. Internet Money makes issuing, trading and holding tokens part of the protocol, so the rules are small, fixed and checked by every node. Proof of work still matters too: quantum computers speed up hash searching only quadratically, so mining and block hashing remain sound.</p>
+        </div>
+      </section>
+
+      <section class="block paper" id="quantum-safe-wallets">
+        <div class="label"><span class="num">§3</span>Quantum-safe wallets</div>
+        <div class="body">
+          <p>Every Internet Money wallet's main address locks coins to two keys, and a spend must carry a valid signature from each. One is Ed25519, the proven standard. The other is SQIsign at NIST level I, a post-quantum signature in NIST's standardisation programme. As far as we know, Internet Money is the first blockchain to use it.</p>
+          <p><b>Two locks, not one.</b> New cryptography earns trust over years. Pairing SQIsign with Ed25519 gives quantum protection today without betting coins on a single scheme: an attacker would have to break both.</p>
+          <p><b>Why SQIsign.</b> On a blockchain every node stores every signature for good, so size is the cost that matters most. SQIsign has the smallest key and signature of any post-quantum scheme.</p>
+          <div class="table-scroll">
+            <table class="compare">
+              <thead><tr><th>Scheme</th><th>Public key</th><th>Signature</th><th>Key + signature</th><th>Relative size</th></tr></thead>
+              <tbody>
+                <tr><td class="us">SQIsign, NIST level I (Internet Money)</td><td class="us">83 bytes</td><td class="us">200 bytes</td><td class="us">283 bytes</td><td class="us">1×</td></tr>
+                <tr><td>Falcon-512</td><td>897 bytes</td><td>666 bytes</td><td>1,563 bytes</td><td>5.5×</td></tr>
+                <tr><td>ML-DSA-44</td><td>1,312 bytes</td><td>2,420 bytes</td><td>3,732 bytes</td><td>13×</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>A complete quantum-safe spend, both keys and both signatures, is 379 bytes.</p>
+          <p><b>One recovery phrase.</b> Both keys come from a single 32-byte seed, which the wallet derives from its 12-word recovery phrase. Restoring the phrase restores the quantum-safe address, with nothing else to back up.</p>
+          <p><b>Fast to check.</b> Nodes verify a block's signatures on several cores at once and remember signatures they have already verified, so a transaction seen in the mempool costs nothing again in a block. Relay limits on quantum-safe inputs per transaction and per client keep verification cheap for every node.</p>
+          <p><b>Malleability handled.</b> SQIsign signatures are not strongly unforgeable, so a transaction ID excludes signature data. A re-encoded signature can never change which transaction a payment refers to.</p>
+        </div>
+      </section>
+
+      <section class="block paper" id="consensus">
+        <div class="label"><span class="num">§4</span>Consensus</div>
+        <div class="body">
+          <h2>A five-second BlockDAG</h2>
+          <p>Internet Money orders its blocks with GHOSTDAG, the protocol behind Kaspa. Each block names several parents, so two blocks found at the same moment both join the ledger instead of one being thrown away. GHOSTDAG then puts every block in one agreed order, and the ledger applies transactions in that order.</p>
+          <p><b>Five seconds, deliberately.</b> A block arrives every 5 seconds (0.2 blocks per second). Intercontinental latency of 200 to 400 ms is under a tenth of that interval, so a cluster parameter of k = 8 keeps over 98% of honest blocks in the blue set. The pace keeps verification light and puts a miner on home broadband on an equal footing with one in a data centre.</p>
+          <p><b>Small nodes.</b> With a 100 KB block limit, optional pruning and embedded storage, a full verifying node runs on a small VPS. A shop, wallet or exchange can check its own payments rather than trust someone else's server.</p>
+          <p><b>Final after 12 hours.</b> A chain that forks off more than 8,640 blue blocks (12 hours) below the tip is never adopted, whatever its work. Rented hashpower cannot rewrite old history.</p>
+          <p><b>Responsive difficulty.</b> Difficulty is recomputed for every block from the last step of the selected chain, with a 100-second half-life chosen by simulation. It catches up with a fifty-fold jump in hashrate in about two minutes and recovers from a fifty-fold drop in about ten. A miner that switches on only while difficulty is low earns within 2% of a steady miner per hash.</p>
+        </div>
+      </section>
+
+      <section class="block paper" id="proof-of-work">
+        <div class="label"><span class="num">§5</span>Proof of work</div>
+        <div class="body">
+          <h2>Hallmark</h2>
+          <p>Hallmark is FishHash, the memory-hard algorithm designed for Iron Fish, with a seed unique to each Internet Money network. The seed is derived from the network's genesis block, so no other FishHash chain's dataset can be reused here. Internet Money's implementation is tested byte for byte against Iron Fish's.</p>
+          <p>Each hash makes 96 random reads across a 4.6 GB dataset. Graphics cards are built for exactly that kind of memory access, which keeps mining open to anyone with a gaming PC; a card with 6 GB or more is enough. No FishHash ASIC is publicly known.</p>
+          <p>Nodes do not need the dataset to verify a block. They compute the 96 items a block's hash reads from a 75 MB light cache, so verification stays cheap. The seed never changes, so there are no epochs and the dataset is built once.</p>
+          <p>Miners connect to a node directly or through the Stratum bridge used by common mining software, and a reference OpenCL GPU miner and pool are included.</p>
+        </div>
+      </section>
+
+      <section class="block paper" id="built-in">
+        <div class="label"><span class="num">§6</span>Built into the coin</div>
+        <div class="body">
+          <p>Internet Money has no virtual machine and no smart contracts. Instead, a fixed set of contracts people actually use is written into the consensus rules, each as a small address type every node checks. Each is a few dozen lines of rules rather than an open-ended program, which keeps the code small enough to review and leaves no contract for an attacker to deploy.</p>
+          <div class="table-scroll">
+            <table class="compare">
+              <thead><tr><th>Feature</th><th>What it does</th></tr></thead>
+              <tbody>
+                <tr><td>Native tokens</td><td>Issue a token with a name, ticker and decimals; send it like IMN. Supply is conserved by consensus, a mint authority allows more to be minted, and giving it up fixes the supply for good.</td></tr>
+                <tr><td>Built-in market</td><td>An offer states its price in the clear. Anyone can take all or part of it in one transaction without a signature from the maker, and the maker is always paid. Nodes list open offers as an order book.</td></tr>
+                <tr><td>Escrow with a referee</td><td>Buyer, seller and arbiter keys, with a deadline. Each role may pay only certain parties, so escrowed coins can never go anywhere else.</td></tr>
+                <tr><td>Subscriptions</td><td>A merchant collects a fixed amount once per period, never more; the customer can cancel at any time.</td></tr>
+                <tr><td>Savings vaults</td><td>Every withdrawal waits a delay the owner chooses. During it, a backup key can pull the coins back, so a stolen everyday key cannot empty the vault.</td></tr>
+                <tr><td>Shared wallets</td><td>Multi-signature addresses that need m of up to 16 keys.</td></tr>
+                <tr><td>Swaps with other chains</td><td>Hash locks using SHA-256, which Ethereum-style chains also verify, so IMN and a token on another chain change hands both or neither. Swap offers list IMN for sale against tokens elsewhere.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>Within one transaction, an output can settle only one contract, so a single payment can never satisfy two of them at once. Tokens can be held in escrow, vaults, shared wallets and hash locks, and traded on the market like IMN.</p>
+        </div>
+      </section>
+
+      <section class="block paper" id="payments">
+        <div class="label"><span class="num">§7</span>Payments</div>
+        <div class="body">
+          <p>A payment can name the invoice it settles. The invoice number travels in the transaction and is covered by the payer's signature, so nobody can relabel the payment and a shop knows exactly which order was paid. A payment request is a plain link: <code>imn:q...?amount=12.5&amp;invoice=INV-1042</code>.</p>
+          <p>A node reports each invoice at three levels, and the receiver chooses which to wait for by the value at stake:</p>
+          <div class="table-scroll">
+            <table class="compare">
+              <thead><tr><th>Level</th><th>Meaning</th><th>Typical time</th></tr></thead>
+              <tbody>
+                <tr><td>Seen</td><td>The node has the payment</td><td>under a second</td></tr>
+                <tr><td>Included</td><td>Accepted into the ledger</td><td>about 5 seconds</td></tr>
+                <tr><td>Final</td><td>At least 60 confirmations, with no network alert</td><td>about 5 minutes</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>Fees are under a cent. When a wallet names the node that served a payment, half the fee goes to that node, which rewards running one. A JavaScript developer kit, a checkout window with locally drawn QR codes, and a WooCommerce plugin come ready to use.</p>
+        </div>
+      </section>
+
+      <section class="block paper" id="economics">
+        <div class="label"><span class="num">§8</span>Economics</div>
+        <div class="body">
+          <p>Every coin is mined. Genesis creates nothing, there is no premine and no sale, and the schedule is fixed in the consensus rules. The block reward starts at 5 IMN, halves every four years four times, then stays at 0.3125 IMN per block for good, so miners are always paid to secure the network.</p>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Years</th><th>Reward per block</th><th>Mined in period</th><th>Supply at end</th><th>Inflation at start</th></tr></thead>
+              <tbody>
+                <tr><td>0–4</td><td>5 IMN</td><td>126,144,000</td><td>126,144,000</td><td>—</td></tr>
+                <tr><td>4–8</td><td>2.5 IMN</td><td>63,072,000</td><td>189,216,000</td><td>12.5%</td></tr>
+                <tr><td>8–12</td><td>1.25 IMN</td><td>31,536,000</td><td>220,752,000</td><td>4.2%</td></tr>
+                <tr><td>12–16</td><td>0.625 IMN</td><td>15,768,000</td><td>236,520,000</td><td>1.8%</td></tr>
+                <tr><td>16 onward</td><td>0.3125 IMN</td><td>1,971,000 a year</td><td>no cap</td><td>0.83%, falling</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p><b>Maintenance fund.</b> For the first three years (18,921,600 blocks), 5% of each block's reward is paid by the ledger itself to one maintenance address fixed in the rules. It funds servers, development, security work and an independent audit. After three years it stops by itself and miners receive the whole reward. The fund comes out of the reward, so total supply is unchanged; it comes to about 4.73 million IMN, 2% of the supply at year 16. Transaction fees always go in full to miners and serving nodes.</p>
+          <p><b>Fees reward nodes.</b> When a wallet names the node that served a payment, half the fee goes to that node and half to the miner. A wallet or shop that runs its own node keeps half of every fee it pays, which rewards running nodes and keeps payments verified close to where they happen.</p>
+        </div>
+      </section>
+
+      <section class="block paper" id="security">
+        <div class="label"><span class="num">§9</span>Security</div>
+        <div class="body">
+          <p>Internet Money's security starts with its design: fewer moving parts, each one checked by every node.</p>
+          <ul class="plain">
+            <li><b>No virtual machine.</b> Every feature is a fixed rule of a few dozen lines, so there is no contract code to exploit and no re-entrancy, gas or upgrade-proxy class of bug.</li>
+            <li><b>Two signature schemes.</b> Coins on quantum-safe addresses stay safe as long as either Ed25519 or SQIsign holds.</li>
+            <li><b>Fixed consensus code.</b> The signature libraries are pinned to exact versions. Any change to consensus code arrives as a planned, announced release, never as an automatic update, so every node keeps agreeing on what is valid.</li>
+            <li><b>Defences on every input.</b> Blocks, transactions and peer messages are size-limited and decoded strictly. The mempool checks for room before verifying signatures, quantum-safe verification is rate-limited per client, and misbehaving peers are scored and banned.</li>
+            <li><b>Finality.</b> History older than 12 hours can never be rewritten, and a node raises an alert after any deep reorganisation so services can pause.</li>
+          </ul>
+          <p><b>Tested in the open.</b> Every feature has been through four rounds of penetration testing and reviews by three AI models (MiniMax, GLM and DeepSeek), and every finding was fixed and covered by a test. Fuzzing targets for the decoders, signature checks and peer protocol run on every change, alongside GitHub's CodeQL scanning, dependency audits and over 200 tests. A full independent audit by a security firm is planned and is one of the first uses of the maintenance fund.</p>
+        </div>
+      </section>
+
+      <section class="block paper" id="compare">
+        <div class="label"><span class="num">§10</span>How it compares</div>
+        <div class="body">
+          <p>Internet Money is the only one of these whose wallets are quantum-safe by default, and it pairs that with native tokens and a market on a fast, GPU-mined BlockDAG.</p>
+          <div class="table-scroll">
+            <table class="compare">
+              <thead><tr><th></th><th class="us">Internet Money</th><th>Bitcoin</th><th>Ethereum</th><th>Kaspa</th></tr></thead>
+              <tbody>
+                <tr><td>Quantum-safe wallets</td><td class="us">By default (Ed25519 + SQIsign)</td><td>Proposals under discussion</td><td>Planned, around 2029</td><td>Opt-in vault scripts in development</td></tr>
+                <tr><td>Block interval</td><td class="us">5 seconds</td><td>10 minutes</td><td>12 seconds</td><td>0.1 seconds</td></tr>
+                <tr><td>Consensus</td><td class="us">Proof of work, GHOSTDAG</td><td>Proof of work, longest chain</td><td>Proof of stake</td><td>Proof of work, GHOSTDAG</td></tr>
+                <tr><td>Mining hardware</td><td class="us">Graphics cards</td><td>ASICs</td><td>None (staked)</td><td>Mostly ASICs</td></tr>
+                <tr><td>Coins made before launch</td><td class="us">None</td><td>None</td><td>Yes (2014 sale)</td><td>None</td></tr>
+                <tr><td>Native tokens</td><td class="us">Built in</td><td>Add-on protocols</td><td>Smart contracts</td><td>Built in since June 2026</td></tr>
+                <tr><td>Market, escrow, vaults</td><td class="us">Built in, no contracts</td><td>No</td><td>Smart contracts</td><td>Through covenant scripts</td></tr>
+                <tr><td>Fee share for serving nodes</td><td class="us">Half the fee</td><td>No</td><td>No</td><td>No</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="note">Summary of each network's base layer as of October 2026.</p>
+        </div>
+      </section>
+
+      <section class="block paper" id="roadmap">
+        <div class="label"><span class="num">§11</span>Roadmap</div>
+        <div class="body">
+          <p>The protocol is feature-complete: everything in this paper is implemented in the reference node, wallet and desktop app. What comes next widens access to it.</p>
+          <h3>Ready today</h3>
+          <ul class="plain">
+            <li>Reference node, CPU and OpenCL GPU miners, Stratum bridge and mining pool</li>
+            <li>Browser wallet and desktop app for Windows, Mac and Linux, quantum-safe by default</li>
+            <li>Block explorer, JavaScript developer kit, checkout window and WooCommerce plugin</li>
+            <li>Seed nodes on three continents, with release builds and a published node image</li>
+          </ul>
+          <h3>Next</h3>
+          <ol>
+            <li>A fair, announced main-network launch, with a genesis difficulty set for real hashrate.</li>
+            <li>Swaps with Ethereum from inside the wallet, and encrypted connections for miners.</li>
+            <li>Multi-signature shared wallets in the browser wallet and desktop app.</li>
+            <li>A full independent security audit, funded by the maintenance fund.</li>
+            <li>Hardware-wallet support and swaps with Bitcoin.</li>
+            <li>A bridge to Base, so IMN can trade on existing exchanges there.</li>
+          </ol>
+        </div>
+      </section>
+
+      <section class="block paper" id="references">
+        <div class="label"><span class="num">§12</span>References</div>
+        <div class="body">
+          <ul class="plain refs">
+            <li><a href="https://github.com/Internet-Money-Network/imoney/blob/main/SPECIFICATION.md">Internet Money protocol specification</a></li>
+            <li><a href="https://github.com/Internet-Money-Network/imoney">Internet Money source code</a> and <a href="https://internetmoneynetwork.org">website</a></li>
+            <li><a href="https://sqisign.org/spec/sqisign-20250205.pdf">SQIsign: algorithm specifications, version 2.0</a></li>
+            <li><a href="https://sqisign.org/">SQIsign project site</a></li>
+            <li><a href="https://github.com/anchorageoss/sqisign-rs">sqisign-rs, the Rust implementation used by Internet Money</a></li>
+            <li><a href="https://eprint.iacr.org/2018/104.pdf">PHANTOM GHOSTDAG: a scalable generalization of Nakamoto consensus</a></li>
+            <li><a href="https://www.projecteleven.com/blog/are-emerging-pq-signature-schemes-better-for-blockchains">Are emerging post-quantum signature schemes better for blockchains? (Project Eleven)</a></li>
+            <li><a href="https://forklog.com/en/news/ethereum-foundation-to-implement-quantum-security-by-2029">Ethereum Foundation to implement quantum security by 2029 (ForkLog)</a></li>
+            <li><a href="https://kaspaexplained.com/toccata-status">Kaspa Toccata activation record</a></li>
+            <li><a href="https://kaspa.news/articles/post-quantum-vault-spends-on-kaspa-testnet-using-existing-script">Post-quantum vault spends on Kaspa testnet</a></li>
+          </ul>
+          <p class="note">Internet Money is open-source software under the MIT or Apache-2.0 licence. Nothing in this paper is financial advice.</p>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <p>Internet Money (IMN) is open-source software under the MIT or Apache-2.0 license, provided without warranty. Nothing on this page is financial advice.</p>
+      <p><a href="https://github.com/Internet-Money-Network">github.com/Internet-Money-Network</a></p>
+    </footer>
+  </div>
+</body>
+</html>
