@@ -1989,7 +1989,8 @@ var IMoney = (() => {
       if (typeof document === "undefined") {
         throw new Error("openCheckoutModal can only be run in a browser environment");
       }
-      const { merchantAddress, timeoutSeconds = 600, level = "included", memo, onSeen, onSuccess, onExpire, onCancel } = options;
+      const { merchantAddress, level = "included", memo, onSeen, onSuccess, onExpire, onCancel } = options;
+      const timeoutSeconds = Math.floor(Number(options.timeoutSeconds ?? 600)) || 600;
       const invoice = this.createInvoice({
         address: merchantAddress,
         amountImn: options.amountImn,

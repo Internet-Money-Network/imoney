@@ -8,6 +8,10 @@ on:
     branches: [ "main" ]
   workflow_dispatch:
 
+# Read-only by default; the image and release jobs ask for what they publish
+permissions:
+  contents: read
+
 jobs:
   rust-core-and-node:
     name: Build & Test Node Daemons & Miner
