@@ -242,6 +242,7 @@
     .standout:first-of-type { border-top: 0; padding-top: 0; }
     .standout h3 { font-family: var(--serif); font-weight: 600; font-size: clamp(26px, 3vw, 36px); line-height: 1.08; margin: 0 0 10px; }
     .standout p { margin: 0; font-size: 18px; color: var(--ink-soft); max-width: 26em; }
+    .standout p + p { margin-top: 12px; }
     .standout figure { margin: 0; }
     .standout svg { width: 100%; height: auto; display: block; }
     .standout svg text { font-family: var(--mono); font-size: 12px; fill: var(--ink-soft); }
@@ -362,7 +363,47 @@
       <section class="block" id="only">
         <div class="label"><span class="num">§2</span>Only here</div>
         <div class="body">
-          <h2>Three things the big networks don't do.</h2>
+          <h2>Things the big networks don't do.</h2>
+
+          <div class="standout" id="two-locks">
+            <div>
+              <h3>Safe from tomorrow's computers, too.</h3>
+              <p>Every wallet is locked twice. One lock is today's proven standard (Ed25519). The other is SQIsign, a signature designed to resist quantum computers, from NIST's post-quantum programme. Spending needs both keys.</p>
+              <p><b>Why two locks?</b> New cryptography takes years to earn trust. Pairing it with the proven standard means you get quantum protection now, without betting your coins on something new.</p>
+            </div>
+            <figure>
+              <svg viewBox="0 0 360 150" role="img" aria-label="A wallet has two locks, today's standard and a quantum-resistant one. A payment goes out only when both keys sign it.">
+                <rect class="box" x="0" y="20" width="150" height="40"/>
+                <text class="strong" x="75" y="45" text-anchor="middle">Today's lock</text>
+                <rect class="hit" x="0" y="80" width="150" height="40"/>
+                <rect x="0" y="80" width="150" height="40" fill="none" stroke="var(--accent)" stroke-width="1.5"/>
+                <text class="accent" x="75" y="105" text-anchor="middle">Quantum-safe lock</text>
+                <path class="line" d="M150 40h30v30M150 100h30v-30M180 70h52"/>
+                <path class="line" d="M224 64l8 6-8 6"/>
+                <text class="strong" x="242" y="66">Payment</text>
+                <text x="242" y="84">needs both</text>
+              </svg>
+            </figure>
+          </div>
+
+          <div class="standout">
+            <div>
+              <h3>Your own token, in three steps.</h3>
+              <p><b>1. Make it.</b> Give it a name and decide how many exist.<br><b>2. Send it</b> like money, to any wallet.<br><b>3. Sell it</b> on the built-in market at your price. Nobody holds your coins while you wait; the trade happens in one step, or not at all.</p>
+            </div>
+            <figure>
+              <svg viewBox="0 0 360 110" role="img" aria-label="Make a token, send it to any wallet, or sell it on the built-in market.">
+                <rect class="box" x="0" y="30" width="100" height="44"/><text class="strong" x="50" y="57" text-anchor="middle">Make</text>
+                <path class="line" d="M100 52h30"/><path class="line" d="M122 46l8 6-8 6"/>
+                <rect class="box" x="130" y="30" width="100" height="44"/><text class="strong" x="180" y="57" text-anchor="middle">Send</text>
+                <path class="line" d="M230 52h30"/><path class="line" d="M252 46l8 6-8 6"/>
+                <rect class="hit" x="260" y="30" width="100" height="44"/>
+                <rect x="260" y="30" width="100" height="44" fill="none" stroke="var(--accent)" stroke-width="1.5"/>
+                <text class="accent" x="310" y="57" text-anchor="middle">Sell</text>
+                <text x="0" y="100">No exchange, no app, no contract to deploy</text>
+              </svg>
+            </figure>
+          </div>
 
           <div class="standout">
             <div>
@@ -446,6 +487,7 @@
             <div>
               <h3>Save it</h3>
               <ul>
+                <li><b>Quantum-safe wallets</b><span>Two locks; spending needs both</span></li>
                 <li><b>Savings vaults</b><span>A backup key stops theft</span></li>
                 <li><b>Shared wallets</b><span>Two of three must approve</span></li>
                 <li><b>No coins made in advance</b><span>Every coin is mined</span></li>
@@ -503,6 +545,11 @@
           <p style="font-size: 19px; max-width: 34em;">
             This is a test network: its coins have no value and there's nothing to buy yet. It's young, and a full
             independent audit hasn't happened. We'd rather you knew.
+          </p>
+          <p style="max-width: 38em;">
+            What has happened: every feature has been through four rounds of penetration testing, with reviews by
+            three AI models (MiniMax, GLM and DeepSeek). Every finding was fixed and covered by a test. A full audit
+            by a security firm comes before the main network.
           </p>
           <div class="actions" style="margin-top: 26px;">
             <a class="button" href="/wallet">Open the wallet</a>

@@ -213,6 +213,13 @@
     .jobs h3 { font-family: var(--serif); font-weight: 600; font-size: 27px; line-height: 1.1; margin: 8px 0 10px; }
     .jobs p { margin: 0; font-size: 16px; color: var(--ink-soft); }
     .jobs .icon { width: 44px; height: 44px; display: block; margin-bottom: 14px; color: var(--ink); }
+    /* Quantum-safe wallets, under the three jobs */
+    .lasting { display: grid; grid-template-columns: 44px 1fr; gap: 18px; margin-top: 26px; padding: 22px 24px; border: 1px solid var(--rule-soft); }
+    .lasting .icon { width: 44px; height: 44px; color: var(--accent); }
+    .lasting .kicker { font-family: var(--mono); font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); }
+    .lasting h3 { font-family: var(--serif); font-weight: 600; font-size: 24px; line-height: 1.15; margin: 6px 0 8px; }
+    .lasting p { margin: 0; font-size: 16px; color: var(--ink-soft); }
+    .lasting p + p { margin-top: 8px; font-size: 15px; }
 
     /* Downloads */
     .downloads { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 6px 0 18px; }
@@ -291,6 +298,7 @@
       <span class="live">Testnet running</span>
       <span>Ticker IMN</span>
       <span>Spend it · Save it · Build on it</span>
+      <span>Quantum-safe wallets</span>
       <span>No premine</span>
       <span>5% maintenance fee, first 3 years</span>
     </div>
@@ -372,6 +380,15 @@
               <p>Make one in a minute and trade it with anyone. No exchange.</p>
             </div>
           </div>
+          <div class="lasting">
+            <svg class="icon" viewBox="0 0 44 44" aria-hidden="true"><rect x="4" y="20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 20v-5a4 4 0 0 1 8 0v5" fill="none" stroke="currentColor" stroke-width="2"/><rect x="24" y="20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"/><path d="M28 20v-5a4 4 0 0 1 8 0v5" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+            <div>
+              <span class="kicker">Built to last</span>
+              <h3>Safe from tomorrow's computers, too.</h3>
+              <p>Every wallet is locked twice: once with today's proven standard, and once with a newer lock designed to resist future quantum computers. Spending needs both keys.</p>
+              <p>You get quantum protection now, without giving up the security that already works. <a href="/features#two-locks">Why two locks?</a></p>
+            </div>
+          </div>
           <p style="margin-top: 22px;"><a class="textlink" href="/features">Every feature, and how we compare</a></p>
           <details class="more">
             <summary>How it works, for the technically curious</summary>
@@ -379,6 +396,7 @@
               <li>A block every five seconds. When two miners find one at the same moment, both are kept and put in order (GHOSTDAG), so a short block time wastes no work.</li>
               <li>A full node is small enough for a shop to run on a cheap server and check its own payments, instead of trusting someone else's.</li>
               <li>Mining uses graphics cards. The algorithm, Hallmark, is FishHash with our own seed: each hash reads randomly across gigabytes of memory.</li>
+              <li>Wallet addresses carry two public keys, Ed25519 and SQIsign (a post-quantum signature scheme in NIST's standardisation programme). Spending needs a valid signature from each; nodes check them in parallel.</li>
               <li>Escrow, trading and tokens are fixed rules every node checks, not contracts anyone can deploy, which keeps them small enough to review.</li>
               <li>Trades with other chains use hash locks with SHA-256, which Ethereum-style chains can check too.</li>
             </ul>
@@ -520,10 +538,11 @@ client.openCheckoutModal({
                 <li>Shared wallets that need two people to approve</li>
                 <li>Payments older than 12 hours can never be undone</li>
                 <li>A node small enough for a shop to run</li>
+                <li>Wallets protected against future quantum computers</li>
                 <li>Trading, tokens and escrow</li>
                 <li>Subscriptions and savings vaults</li>
                 <li>A <a href="#download">desktop app</a> for Windows, Mac and Linux</li>
-                <li>Three rounds of outside security testing</li>
+                <li>Four rounds of security testing, every finding fixed</li>
               </ul>
             </div>
             <div class="doing">
@@ -544,6 +563,9 @@ client.openCheckoutModal({
               </ul>
             </div>
           </div>
+          <h3 style="font-family: var(--serif); font-size: 24px; margin: 36px 0 8px;">Security testing, in the open</h3>
+          <p>Every feature has been through four rounds of penetration testing, with reviews by three AI models (MiniMax, GLM and DeepSeek). Every finding was fixed and covered by a test; the fixes are described in the <a href="https://github.com/Internet-Money-Network/imoney/blob/main/CHANGELOG.md">changelog</a>. A full independent audit by a security firm comes before the main network.</p>
+          <p class="note">Found a problem? <a href="https://github.com/Internet-Money-Network/imoney/blob/main/SECURITY.md">Report it privately</a>.</p>
         </div>
       </section>
     </main>
