@@ -10,6 +10,7 @@
 
 use clap::Parser;
 use ed25519_dalek::SigningKey;
+use imoney_core::constants::MIN_RELAY_FEE_PER_BYTE;
 use imoney_core::{Address, AddressType, Hash, Network, Outpoint, ScriptPublicKey, Transaction, TxInput, TxOutput};
 use serde::Deserialize;
 use std::collections::VecDeque;
@@ -19,13 +20,14 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 const NETWORK: Network = Network::Testnet;
-/// Value given to each test wallet, in atoms.
-const WALLET_FUNDS: u64 = 3_000_000;
-/// Wallets funded by one fan-out transaction.
-const FAN_OUT: usize = 150;
-/// Fee of a one-input, one-output payment (240 bytes at a little over the 10 atoms/byte minimum).
-const PAYMENT_FEE: u64 = 3_000;
-const FAN_OUT_FEE: u64 = 100_000;
+/// Fee of a one-input, one-output payment: 240 bytes, with room, at the relay minimum.
+const PAYMENT_FEE: u64 = 250 * MIN_RELAY_FEE_PER_BYTE;
+/// Value given to each test wallet, in atoms: enough for 60 payments.
+const WALLET_FUNDS: u64 = 60 * PAYMENT_FEE;
+/// Wallets funded by one fan-out transaction, small enough that one block reward pays for it.
+const FAN_OUT: usize = 25;
+/// Fee of a fan-out: about 50 bytes an output plus the input, with room, at the relay minimum.
+const FAN_OUT_FEE: u64 = (FAN_OUT as u64 * 50 + 500) * MIN_RELAY_FEE_PER_BYTE;
 
 #[derive(Parser, Debug)]
 #[command(about = "Floods an Internet Money test node with payments and watchers and reports how it copes")]
