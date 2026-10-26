@@ -16,6 +16,13 @@
   <a href="https://internetmoneynetwork.org/pool/"><img src="https://img.shields.io/badge/pool-testnet-green.svg" alt="Pool"></a>
 </p>
 
+<p align="center">
+  <a href="https://internetmoneynetwork.org">Website</a> &bull;
+  <a href="https://internetmoneynetwork.org/whitepaper">Whitepaper</a> &bull;
+  <a href="https://discord.gg/xvaPVSeV">Discord</a> &bull;
+  <a href="https://www.linkedin.com/company/internet-money-network/">LinkedIn</a>
+</p>
+
 ---
 
 ## Overview

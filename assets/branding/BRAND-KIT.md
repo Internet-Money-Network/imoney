@@ -21,6 +21,17 @@ text sized for each platform's limits. Copy and paste.
 Write "Internet Money", two words, both capitalised. Not "InternetMoney", "iMoney" or "IM".
 The ticker is always `IMN`, in capitals, without a dollar sign in running text.
 
+### Official accounts
+
+| Where | Link |
+| :--- | :--- |
+| Website | https://internetmoneynetwork.org |
+| GitHub | https://github.com/Internet-Money-Network |
+| Discord | https://discord.gg/xvaPVSeV |
+| LinkedIn | https://www.linkedin.com/company/internet-money-network/ |
+
+Anything not listed here is not the project.
+
 ### Handles
 
 Use the same handle everywhere. Try these in order and take the first that is free on every
