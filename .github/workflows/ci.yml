@@ -234,6 +234,9 @@ jobs:
       - name: Build and publish
         id: push
         uses: docker/build-push-action@v6
+        env:
+          # Otherwise it uploads a build record artifact that the release job cannot download
+          DOCKER_BUILD_RECORD_UPLOAD: false
         with:
           context: .
           push: true

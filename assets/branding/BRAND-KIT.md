@@ -143,7 +143,8 @@ Counts include spaces. Each fits its platform's limit.
 | Block time | 5 seconds |
 | Block reward | 5 IMN, halving every 4 years, never below 0.3125 IMN |
 | Consensus | Proof of work, GHOSTDAG (k = 8) |
-| Premine / dev fee | None / none |
+| Premine | None |
+| Maintenance fund | 5% of block rewards, first three years only, then nothing |
 | Hardware | GPU, 6 GB or more |
 | Ports | 18555 node to node, 18557 Stratum |
 | Explorer | https://internetmoneynetwork.org/explorer/ |
@@ -157,7 +158,7 @@ Counts include spaces. Each fits its platform's limit.
 
 **Medium (about 100 words)**
 
-> Internet Money (IMN) is an open-source proof-of-work currency built for one job: paying and being paid. Blocks arrive every five seconds on a BlockDAG, so blocks found at the same moment are kept instead of thrown away. Mining uses the memory-hard Hallmark algorithm on ordinary graphics cards. There is no premine and no developer fee.
+> Internet Money (IMN) is an open-source proof-of-work currency built for one job: paying and being paid. Blocks arrive every five seconds on a BlockDAG, so blocks found at the same moment are kept instead of thrown away. Mining uses the memory-hard Hallmark algorithm on ordinary graphics cards. There is no premine; for the first three years, 5% of block rewards fund maintenance.
 >
 > Every payment can carry an invoice number signed by the payer, so a shop knows exactly which order was paid and how settled the payment is. A full node is small enough to run on a modest server, so merchants verify payments themselves.
 >
@@ -175,7 +176,7 @@ Add this wherever there is room, and always when talking about coins or mining:
 | :--- | :--- |
 | "About five seconds to be in a block" | "Instant" or "5-second settlement" |
 | "Final after about five minutes by default" | "Irreversible in seconds" |
-| "No premine, no developer fee" | Anything about price, returns or investment |
+| "No premine; 5% of block rewards fund maintenance for the first three years" | Anything about price, returns or investment |
 | "Designed for graphics cards" | "ASIC-proof" |
 | "Open source, publicly reviewed" | "Audited", until a named firm has done one |
 | "A network fee under a cent" | "Free" or "zero fees" |
