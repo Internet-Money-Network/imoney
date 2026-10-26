@@ -177,6 +177,7 @@ Add this wherever there is room, and always when talking about coins or mining:
 | "About five seconds to be in a block" | "Instant" or "5-second settlement" |
 | "Final after about five minutes by default" | "Irreversible in seconds" |
 | "Quantum-safe by default", "designed to resist quantum computers" | "Quantum-proof", "unbreakable", or "the only" anything, without a fresh check |
+| "SQIsign: 283 bytes of key and signature, against about 1,560 for Falcon and 3,730 for ML-DSA"; "the first blockchain we know of to use SQIsign" | "The first blockchain to use SQIsign" as a flat fact; "Falcon is too big" |
 | "Tokens, a market and escrow built in" | "The only chain with native tokens" (Kaspa added them in 2026) |
 | "No premine; 5% of block rewards fund maintenance for the first three years" | Anything about price, returns or investment |
 | "Designed for graphics cards" | "ASIC-proof" |

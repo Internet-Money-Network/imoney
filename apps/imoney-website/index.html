@@ -394,7 +394,7 @@
           <details class="more">
             <summary>How it works, for the technically curious</summary>
             <ul class="plain">
-              <li>Wallet addresses carry two public keys, Ed25519 and SQIsign (a post-quantum signature scheme in NIST's standardisation programme). Spending needs a valid signature from each; nodes check them in parallel.</li>
+              <li>Wallet addresses carry two public keys, Ed25519 and SQIsign (a post-quantum signature scheme in NIST's standardisation programme). Spending needs a valid signature from each; nodes check them in parallel. SQIsign was chosen over the more common ML-DSA and Falcon for size: its key and signature together are 283 bytes, against about 1,560 for Falcon-512 and 3,730 for ML-DSA-44.</li>
               <li>A block every five seconds. When two miners find one at the same moment, both are kept and put in order (GHOSTDAG), so a short block time wastes no work.</li>
               <li>A full node is small enough for a shop to run on a cheap server and check its own payments, instead of trusting someone else's.</li>
               <li>Mining uses graphics cards. The algorithm, Hallmark, is FishHash with our own seed: each hash reads randomly across gigabytes of memory.</li>
