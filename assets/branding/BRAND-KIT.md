@@ -88,9 +88,9 @@ Pick by length.
 
 | Length | Text |
 | :--- | :--- |
-| 5 words | Proof-of-work money for payments. |
-| 10 words | Open-source proof-of-work money, built for paying and being paid. |
-| 20 words | An open-source proof-of-work currency built for payments: five-second blocks, GPU mining, no premine, and a node a shop can run itself. |
+| 5 words | Quantum-safe proof-of-work money. |
+| 10 words | Quantum-safe proof-of-work money, with tokens built in. Open source. |
+| 20 words | Open-source proof-of-work money with quantum-safe wallets and built-in tokens, on a five-second BlockDAG. GPU-mined, no premine, small nodes. |
 
 ## Bios
 
@@ -98,27 +98,27 @@ Counts include spaces. Each fits its platform's limit.
 
 **X (Twitter)** — limit 160
 
-> Open-source proof-of-work money built for payments. 5-second blocks, GPU-mined, no premine. Test network live. internetmoneynetwork.org
+> Quantum-safe proof-of-work money on a 5-second BlockDAG. Your own tokens built in. GPU-mined, no premine. Test network live. internetmoneynetwork.org
 
 **GitHub organisation** — short description
 
-> Internet Money is an open-source proof-of-work currency built for payments.
+> Internet Money is open-source, quantum-safe proof-of-work money with tokens built in.
 
 **Telegram** — channel or group description, limit 255
 
-> Internet Money (IMN): open-source proof-of-work money built for payments. 5-second blocks, GPU mining, no premine. A test network is running; there is no main network yet and test coins have no value. internetmoneynetwork.org
+> Internet Money (IMN): quantum-safe proof-of-work money on a 5-second BlockDAG, with tokens and a market built in. GPU mining, no premine. A test network is running; test coins have no value. internetmoneynetwork.org
 
 **Discord** — server description, limit 120
 
-> Open-source proof-of-work money built for payments. Test network live. No premine. internetmoneynetwork.org
+> Quantum-safe PoW money on a 5-second BlockDAG, with built-in tokens. Test network live. internetmoneynetwork.org
 
 **Reddit** — community description, limit 500
 
-> Internet Money (IMN) is an open-source proof-of-work currency built for payments. Blocks every five seconds on a BlockDAG, GPU mining with the Hallmark algorithm, no premine, and a full node small enough for a shop to run its own and verify payments without trusting anyone. A test network is running. There is no main network yet and test coins have no value. Code, downloads and docs: internetmoneynetwork.org
+> Internet Money (IMN) is an open-source proof-of-work currency. Every wallet is quantum-safe by default, locked with both today's standard signature and a post-quantum one. Tokens, a market and escrow are built into the coin, with no smart contracts. Blocks every five seconds on a BlockDAG, GPU mining with the Hallmark algorithm, no premine, and a node small enough for a cheap server. A test network is running. There is no main network yet and test coins have no value. Code, downloads and docs: internetmoneynetwork.org
 
 **YouTube** — channel description, opening lines
 
-> Internet Money (IMN) is an open-source proof-of-work currency built for payments. This channel covers how it works, how to mine it, and how to accept it in a shop or an app.
+> Internet Money (IMN) is open-source, quantum-safe proof-of-work money with tokens built in. This channel covers how it works, how to mine it, and how to build on it.
 >
 > Website: https://internetmoneynetwork.org
 > Code: https://github.com/Internet-Money-Network/imoney
@@ -127,11 +127,11 @@ Counts include spaces. Each fits its platform's limit.
 
 **LinkedIn** — tagline, limit 120
 
-> Open-source proof-of-work money built for payments.
+> Quantum-safe proof-of-work money on a fast BlockDAG, with tokens built in.
 
 **Bitcointalk and forum signatures**
 
-> Internet Money (IMN) · PoW · GPU · no premine · internetmoneynetwork.org
+> Internet Money (IMN) · quantum-safe · PoW · GPU · no premine · internetmoneynetwork.org
 
 **Mining pool and calculator listings** — the fields they ask for
 
@@ -154,13 +154,13 @@ Counts include spaces. Each fits its platform's limit.
 
 **Short (about 50 words)**
 
-> Internet Money (IMN) is an open-source proof-of-work currency built for payments. Blocks arrive every five seconds, mining uses ordinary graphics cards, and nothing was mined in advance. A full node is small enough for a shop to run its own, so a merchant can confirm payments without trusting a third party.
+> Internet Money (IMN) is open-source proof-of-work money. Every wallet is quantum-safe by default, and anyone can make a token and trade it on the built-in market. Blocks arrive every five seconds, mining uses ordinary graphics cards, nothing was mined in advance, and a full node runs on a small server.
 
 **Medium (about 100 words)**
 
-> Internet Money (IMN) is an open-source proof-of-work currency built for one job: paying and being paid. Blocks arrive every five seconds on a BlockDAG, so blocks found at the same moment are kept instead of thrown away. Mining uses the memory-hard Hallmark algorithm on ordinary graphics cards. There is no premine; for the first three years, 5% of block rewards fund maintenance.
+> Internet Money (IMN) is open-source proof-of-work money built to last. Every wallet is locked twice, with today's proven signature (Ed25519) and a post-quantum one (SQIsign); spending needs both, so coins stay safe as quantum computers arrive. Tokens, a market and escrow are built into the coin as rules every node checks, with no smart contracts to go wrong.
 >
-> Every payment can carry an invoice number signed by the payer, so a shop knows exactly which order was paid and how settled the payment is. A full node is small enough to run on a modest server, so merchants verify payments themselves.
+> Blocks arrive every five seconds on a BlockDAG, so blocks found at the same moment are kept instead of thrown away. Mining uses the memory-hard Hallmark algorithm on ordinary graphics cards. There is no premine; for the first three years, 5% of block rewards fund maintenance. Payments carry order numbers and refunds, ready for shops when they want them.
 >
 > A test network is running. There is no main network yet.
 
@@ -176,6 +176,8 @@ Add this wherever there is room, and always when talking about coins or mining:
 | :--- | :--- |
 | "About five seconds to be in a block" | "Instant" or "5-second settlement" |
 | "Final after about five minutes by default" | "Irreversible in seconds" |
+| "Quantum-safe by default", "designed to resist quantum computers" | "Quantum-proof", "unbreakable", or "the only" anything, without a fresh check |
+| "Tokens, a market and escrow built in" | "The only chain with native tokens" (Kaspa added them in 2026) |
 | "No premine; 5% of block rewards fund maintenance for the first three years" | Anything about price, returns or investment |
 | "Designed for graphics cards" | "ASIC-proof" |
 | "Open source, publicly reviewed" | "Audited", until a named firm has done one |
