@@ -58,6 +58,11 @@ struct Args {
     /// Print the address the node must mine to, and exit
     #[arg(long, default_value_t = false)]
     print_address: bool,
+
+    /// Run against a node that does not mine to the funding address itself, waiting for coins
+    /// to arrive there some other way (a separate miner, for a soak run on a shared network)
+    #[arg(long, default_value_t = false)]
+    funded_elsewhere: bool,
 }
 
 fn key_for(label: &str) -> SigningKey {
@@ -167,7 +172,7 @@ fn main() {
         eprintln!("Cannot reach the node at {}: {}", node, e);
         std::process::exit(1);
     });
-    if info["mining_address"].as_str() != Some(funding_address.to_string().as_str()) {
+    if !args.funded_elsewhere && info["mining_address"].as_str() != Some(funding_address.to_string().as_str()) {
         eprintln!(
             "The node is not mining to this tool's funding address.\nStart a throwaway node with:\n  imoney-node --data-dir <empty dir> --auto-mine --mining-address {}",
             funding_address

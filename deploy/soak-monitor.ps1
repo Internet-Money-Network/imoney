@@ -23,8 +23,9 @@ $nodes = @(
     @{ Name = "eu"; Kind = "gcloud"; Instance = "imn-seed-eu"; Zone = "europe-west1-b" },
     @{ Name = "asia"; Kind = "gcloud"; Instance = "imn-seed-asia"; Zone = "asia-southeast1-b" }
 )
-# No quotes in the remote command: it passes through PowerShell, gcloud and plink
-$remote = "curl -s -m 10 http://127.0.0.1:18556/api/v1/stats; echo; curl -s -m 10 http://127.0.0.1:18556/api/v1/info; echo; sudo -n docker stats --no-stream imoney-node 2>/dev/null || docker stats --no-stream imoney-node; df -BG /"
+# No quotes in the remote command: it passes through PowerShell, gcloud and plink. A seed whose
+# API is not public listens only inside its container, so q falls back to that container's network.
+$remote = "q() { curl -s -m 10 http://127.0.0.1:18556`$1 || sudo -n nsenter -t `$(sudo -n docker inspect -f {{.State.Pid}} imoney-node) -n curl -s -m 10 http://127.0.0.1:18556`$1; }; q /api/v1/stats; echo; q /api/v1/info; echo; sudo -n docker stats --no-stream imoney-node 2>/dev/null || docker stats --no-stream imoney-node; df -BG /"
 
 if (-not (Test-Path $Out)) { "time,node,blocks,tip,peers,mempool,memory,disk_gb,in_memory" | Set-Content -Encoding ascii $Out }
 
