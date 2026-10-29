@@ -81,6 +81,10 @@
     .card { margin-top: 26px; }
     h2 { font-weight: 600; font-size: 22px; line-height: 1.15; margin: 0 0 8px; }
 
+    /* Token address strip: what tokens, trading and deals are paid from */
+    .token-funds { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 14px; padding: 10px 12px; margin: 0 0 18px; background: var(--paper-raised); border: 1px solid var(--rule-soft); font-size: 14px; }
+    .token-funds .btn { width: auto; margin: 0; padding: 8px 14px; font-size: 11px; }
+    .fund-fix { display: block; margin-top: 10px; }
     /* The balance, set like the face of a note */
     .note { border: 2px solid var(--rule); padding: 4px; margin-top: 26px; }
     .note-inner { border: 1px solid var(--rule); text-align: center; padding: 20px 16px 16px; }
@@ -280,7 +284,7 @@
           <button class="tab-btn" data-tab="tokens">Tokens</button>
           <button class="tab-btn" data-tab="trade">Trade</button>
           <button class="tab-btn" data-tab="deals">Deals</button>
-          <button class="tab-btn" data-tab="older">Older address</button>
+          <button class="tab-btn" data-tab="older">Token address</button>
           <button class="tab-btn" data-tab="shared">Shared</button>
           <button class="tab-btn" data-tab="settings">Settings</button>
         </div>
@@ -339,6 +343,7 @@
 
         <!-- Tab: Tokens -->
         <div id="tab-tokens" class="tab-content">
+          <div class="token-funds"><span>Paid from your token address: <b class="token-funds-balance">…</b></span><button class="btn quiet token-funds-add">Add 1 IMN</button></div>
           <div id="token-list"><p class="small soft">You don't have any tokens yet.</p></div>
 
           <h3 class="section-label" style="margin-top: 22px;">Send a token</h3>
@@ -400,6 +405,7 @@
 
         <!-- Tab: Trade -->
         <div id="tab-trade" class="tab-content">
+          <div class="token-funds"><span>Paid from your token address: <b class="token-funds-balance">…</b></span><button class="btn quiet token-funds-add">Add 1 IMN</button></div>
           <div class="form-group">
             <label for="trade-pick">Token</label>
             <select id="trade-pick"></select>
@@ -455,25 +461,26 @@
         <!-- Tab: Deals (escrow, subscriptions, savings vault) -->
         <div id="tab-older" class="tab-content">
           <p style="margin: 0 0 14px;">
-            Your wallet's main address is quantum-safe: the money on it is protected even against the
-            quantum computers of the future. Tokens, trading and deals still use your older address for
-            now, so a little money may sit there too.
+            Your wallet has two addresses. Your main address is quantum-safe: the money on it is protected
+            even against the quantum computers of the future. Tokens, trading and deals use this second,
+            ordinary address, because the network keeps tokens on ordinary addresses. Keep a little IMN here
+            for their fees: 1 IMN covers hundreds of them.
           </p>
-          <label>Your older address</label>
+          <label>Your token address</label>
           <div class="address-card">
             <span id="older-address">…</span>
             <button class="copy-btn" id="older-copy">Copy</button>
           </div>
-          <p style="margin: 14px 0 4px;">On your older address: <b id="older-balance">…</b></p>
+          <p style="margin: 14px 0 4px;">On your token address: <b id="older-balance">…</b></p>
           <button class="btn" id="older-move-btn" style="margin-top: 12px;">Move it all to your main address</button>
 
           <details class="more" style="margin-top: 14px;">
-            <summary>Add money for tokens, trading and deals</summary>
+            <summary>Add more IMN for tokens, trading and deals</summary>
             <div class="form-group" style="margin-top: 12px;">
               <label for="older-in-amount">Amount (IMN) to move from your main address</label>
               <input type="text" inputmode="decimal" id="older-in-amount" placeholder="0.00" />
             </div>
-            <button class="btn quiet" id="older-in-btn">Move to older address</button>
+            <button class="btn quiet" id="older-in-btn">Move to token address</button>
           </details>
           <div id="older-status" class="status-msg"></div>
           <details class="more" style="margin-top: 18px;">
@@ -488,6 +495,7 @@
         </div>
 
         <div id="tab-deals" class="tab-content">
+          <div class="token-funds"><span>Paid from your token address: <b class="token-funds-balance">…</b></span><button class="btn quiet token-funds-add">Add 1 IMN</button></div>
           <div class="form-group">
             <label>Your code</label>
             <div style="display: flex; gap: 8px;">
@@ -706,6 +714,39 @@
       el.style.display = 'block';
       el.style.color = ok ? 'var(--accent)' : 'var(--negative)';
       el.innerText = text;
+      // Tokens, trading and deals pay from the token address; when it runs short, say so and offer
+      // to top it up, instead of a bare "Not enough IMN"
+      if (!ok && /^Not enough IMN/.test(text) && el.closest('#tab-tokens, #tab-trade, #tab-deals')) {
+        el.innerText = 'Tokens, trading and deals are paid from your token address, which needs a little more IMN. ';
+        const fix = document.createElement('button');
+        fix.className = 'btn quiet fund-fix';
+        fix.innerText = 'Add 1 IMN from your main address';
+        fix.addEventListener('click', () => topUpTokenAddress(el));
+        el.appendChild(fix);
+      }
+    }
+
+    // Moves IMN from the main, quantum-safe address to the token address
+    const TOP_UP_ATOMS = 100000000;
+    async function moveToTokenAddress(amountAtoms) {
+      await refreshBalance(true);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      await broadcast(
+        wasm.quantum_build_payment(wallet.private_key_hex, TESTNET, wallet.classic, BigInt(amountAtoms), 0n, JSON.stringify(mainSpendable), undefined, undefined)
+      );
+      setTimeout(() => refreshBalance(true), 6000);
+    }
+    async function topUpTokenAddress(statusEl) {
+      try {
+        show(statusEl, 'Adding 1 IMN to your token address… signing takes a moment.', true);
+        await moveToTokenAddress(TOP_UP_ATOMS);
+        show(statusEl, 'Added 1 IMN to your token address. Try again in about 5 seconds.', true);
+      } catch (err) {
+        const text = err.message || String(err);
+        show(statusEl, /^Insufficient funds/.test(text)
+          ? 'Your main address does not have 1 IMN to spare yet. Receive or mine some IMN first, then try again.'
+          : text, false);
+      }
     }
 
     function formatImn(atoms) {
@@ -949,7 +990,9 @@
         $('coin-count').innerText = mainSpendable.length;
         const older = await allCoins(wallet.classic);
         spendable = older.filter((u) => u.spendable !== false);
-        $('older-balance').innerText = formatImn(spendable.filter((u) => !u.token).reduce((sum, u) => sum + u.value_atoms, 0)) + ' IMN';
+        const tokenAddressImn = formatImn(spendable.filter((u) => !u.token).reduce((sum, u) => sum + u.value_atoms, 0)) + ' IMN';
+        $('older-balance').innerText = tokenAddressImn;
+        document.querySelectorAll('.token-funds-balance').forEach((b) => { b.innerText = tokenAddressImn; });
         coinsCountedAt = Date.now();
       } catch (err) {
         console.warn('Coin count failed:', err);
@@ -1542,7 +1585,7 @@
         await refreshBalance(true);
         const plain = spendable.filter((u) => !u.token);
         const total = plain.reduce((sum, u) => sum + u.value_atoms, 0);
-        if (plain.length === 0) throw new Error('There is nothing on your older address to move.');
+        if (plain.length === 0) throw new Error('There is nothing on your token address to move.');
         // Everything less the fee: try the fee from the size, as build_payment would set it
         const fee = 1000 * (120 + 140 * plain.length);
         if (total <= fee + 100000) throw new Error('The amount there is too small to be worth moving.');
@@ -1556,18 +1599,21 @@
       }
     });
 
+    document.querySelectorAll('.token-funds-add').forEach((button) => {
+      button.addEventListener('click', () => {
+        const status = button.closest('.tab-content').querySelector('.status-msg');
+        topUpTokenAddress(status);
+      });
+    });
+
     $('older-in-btn').addEventListener('click', async () => {
       const statusEl = $('older-status');
       try {
         const amountAtoms = toAtoms($('older-in-amount').value);
         if (!(amountAtoms > 0)) throw new Error('Enter an amount greater than zero.');
-        await refreshBalance(true);
         show(statusEl, 'Signing… this takes a moment.', true);
-        await new Promise((resolve) => setTimeout(resolve, 30));
-        await broadcast(
-          wasm.quantum_build_payment(wallet.private_key_hex, TESTNET, wallet.classic, BigInt(amountAtoms), 0n, JSON.stringify(mainSpendable), undefined, undefined)
-        );
-        show(statusEl, `Moved ${formatImn(amountAtoms)} IMN to your older address.`, true);
+        await moveToTokenAddress(amountAtoms);
+        show(statusEl, `Moved ${formatImn(amountAtoms)} IMN to your token address. It is ready in about 5 seconds.`, true);
         $('older-in-amount').value = '';
         setTimeout(refreshBalance, 6000);
       } catch (err) {
