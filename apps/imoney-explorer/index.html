@@ -843,6 +843,15 @@
     $('search-input').addEventListener('keydown', (event) => {
       if (event.key === 'Enter') search();
     });
+    // A link such as /explorer/?q=<address, transaction or block> opens that search, so other pages
+    // (the pool, the wallet) can point at one item
+    {
+      const linked = new URLSearchParams(location.search).get('q');
+      if (linked) {
+        $('search-input').value = linked;
+        search();
+      }
+    }
     $('modal-close').addEventListener('click', closeModal);
     $('sheet').addEventListener('click', (event) => {
       if (event.target === $('sheet')) closeModal();
