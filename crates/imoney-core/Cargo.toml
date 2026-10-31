@@ -18,4 +18,4 @@ bech32 = "0.12.0"
 ed25519-dalek.workspace = true
 # Pinned exactly: the crate is young and its releases have changed formats
 sqisign-rs = "=0.6.1"
-rand_chacha = "0.3"
+rand_chacha = "0.9"
