@@ -4,10 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Features · Internet Money (IMN)</title>
-  <meta name="description" content="One coin for three jobs: spend it, save it, build on it. Tokens, trading, escrow, subscriptions and theft-resistant savings are built into Internet Money itself.">
+  <meta name="description" content="Quantum-safe wallets, your own tokens and a built-in market, theft-resistant savings, escrow and payments, all built into Internet Money itself.">
   <link rel="canonical" href="https://internetmoneynetwork.org/features">
-  <meta property="og:title" content="Internet Money (IMN): spend it, save it, build on it">
-  <meta property="og:description" content="Tokens, trading, escrow, subscriptions and theft-resistant savings, built into the coin itself.">
+  <meta property="og:title" content="Internet Money (IMN): every feature">
+  <meta property="og:description" content="Quantum-safe wallets, built-in tokens and a market, theft-resistant savings: built into the coin itself.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://internetmoneynetwork.org/features">
   <meta property="og:image" content="https://internetmoneynetwork.org/banner.png">
@@ -242,6 +242,7 @@
     .standout:first-of-type { border-top: 0; padding-top: 0; }
     .standout h3 { font-family: var(--serif); font-weight: 600; font-size: clamp(26px, 3vw, 36px); line-height: 1.08; margin: 0 0 10px; }
     .standout p { margin: 0; font-size: 18px; color: var(--ink-soft); max-width: 26em; }
+    .standout p + p { margin-top: 12px; }
     .standout figure { margin: 0; }
     .standout svg { width: 100%; height: auto; display: block; }
     .standout svg text { font-family: var(--mono); font-size: 12px; fill: var(--ink-soft); }
@@ -296,6 +297,7 @@
         <nav>
           <a href="/#download">Download</a>
           <a href="/features">Features</a>
+          <a href="/whitepaper">Whitepaper</a>
           <a href="/explorer">Explorer</a>
           <a href="/wallet">Wallet</a>
           <a href="/pool/">Pool</a>
@@ -318,14 +320,16 @@
   <div class="wrap">
     <div class="strapline">
       <span class="live">Testnet running</span>
-      <span>Spend it · Save it · Build on it</span>
+      <span>Quantum-safe wallets</span>
+      <span>Tokens built in</span>
+      <span>5-second BlockDAG</span>
     </div>
 
     <main>
       <div class="hero" style="grid-template-columns: 1fr; padding-bottom: 56px;">
         <div>
-          <h1>One coin. <em>Three jobs.</em></h1>
-          <p class="lede">Paying, saving safely and making tokens, all built into the coin. No apps in between.</p>
+          <h1>Built in, <em>built to last.</em></h1>
+          <p class="lede">Quantum-safe wallets, your own tokens, a market, theft-resistant savings and payments, all built into the coin. No apps or contracts in between.</p>
           <div class="actions">
             <a class="button" href="/wallet">Try it on the test network</a>
             <a class="textlink" href="#compare">How we compare</a>
@@ -338,10 +342,10 @@
         <div class="body">
           <div class="jobs">
             <div>
-              <svg class="icon" viewBox="0 0 44 44" aria-hidden="true"><rect x="4" y="10" width="36" height="24" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 17h36" stroke="currentColor" stroke-width="2"/><path d="M10 27h10" stroke="currentColor" stroke-width="2"/></svg>
-              <span class="kicker">Spend it</span>
-              <h3>Paid in seconds</h3>
-              <p>Under a cent a payment. Nobody takes a cut.</p>
+              <svg class="icon" viewBox="0 0 44 44" aria-hidden="true"><circle cx="16" cy="22" r="9" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="28" cy="22" r="9" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+              <span class="kicker">Build on it</span>
+              <h3>Your own token</h3>
+              <p>Make one in a minute. Trade it with anyone.</p>
             </div>
             <div>
               <svg class="icon" viewBox="0 0 44 44" aria-hidden="true"><rect x="7" y="8" width="30" height="28" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="22" cy="22" r="6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M22 16v-3M22 31v-3M16 22h-3M31 22h-3" stroke="currentColor" stroke-width="2"/></svg>
@@ -350,10 +354,10 @@
               <p>Withdrawals wait. Your backup key can stop them.</p>
             </div>
             <div>
-              <svg class="icon" viewBox="0 0 44 44" aria-hidden="true"><circle cx="16" cy="22" r="9" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="28" cy="22" r="9" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-              <span class="kicker">Build on it</span>
-              <h3>Your own token</h3>
-              <p>Make one in a minute. Trade it with anyone.</p>
+              <svg class="icon" viewBox="0 0 44 44" aria-hidden="true"><rect x="4" y="10" width="36" height="24" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 17h36" stroke="currentColor" stroke-width="2"/><path d="M10 27h10" stroke="currentColor" stroke-width="2"/></svg>
+              <span class="kicker">Spend it</span>
+              <h3>Paid in seconds</h3>
+              <p>Under a cent a payment. Nobody takes a cut.</p>
             </div>
           </div>
         </div>
@@ -362,7 +366,48 @@
       <section class="block" id="only">
         <div class="label"><span class="num">§2</span>Only here</div>
         <div class="body">
-          <h2>Three things the big networks don't do.</h2>
+          <h2>Things the big networks don't do.</h2>
+
+          <div class="standout" id="two-locks">
+            <div>
+              <h3>Safe from tomorrow's computers, too.</h3>
+              <p>Every wallet is locked twice. One lock is today's proven standard (Ed25519). The other is SQIsign, a signature designed to resist quantum computers, from NIST's post-quantum programme. Spending needs both keys.</p>
+              <p><b>Why SQIsign?</b> The common post-quantum signatures, ML-DSA and Falcon, are large, and every byte is stored by every node for good. A SQIsign key and signature together take 283 bytes, against about 1,560 for Falcon and 3,730 for ML-DSA. We know of no other blockchain that uses it.</p>
+              <p><b>Why two locks?</b> New cryptography takes years to earn trust. Pairing it with the proven standard means you get quantum protection now, without betting your coins on something new.</p>
+            </div>
+            <figure>
+              <svg viewBox="0 0 360 150" role="img" aria-label="A wallet has two locks, today's standard and a quantum-resistant one. A payment goes out only when both keys sign it.">
+                <rect class="box" x="0" y="20" width="150" height="40"/>
+                <text class="strong" x="75" y="45" text-anchor="middle">Today's lock</text>
+                <rect class="hit" x="0" y="80" width="150" height="40"/>
+                <rect x="0" y="80" width="150" height="40" fill="none" stroke="var(--accent)" stroke-width="1.5"/>
+                <text class="accent" x="75" y="105" text-anchor="middle">Quantum-safe lock</text>
+                <path class="line" d="M150 40h30v30M150 100h30v-30M180 70h52"/>
+                <path class="line" d="M224 64l8 6-8 6"/>
+                <text class="strong" x="242" y="66">Payment</text>
+                <text x="242" y="84">needs both</text>
+              </svg>
+            </figure>
+          </div>
+
+          <div class="standout">
+            <div>
+              <h3>Your own token, in three steps.</h3>
+              <p><b>1. Make it.</b> Give it a name and decide how many exist.<br><b>2. Send it</b> like money, to any wallet.<br><b>3. Sell it</b> on the built-in market at your price. Nobody holds your coins while you wait; the trade happens in one step, or not at all.</p>
+            </div>
+            <figure>
+              <svg viewBox="0 0 360 110" role="img" aria-label="Make a token, send it to any wallet, or sell it on the built-in market.">
+                <rect class="box" x="0" y="30" width="100" height="44"/><text class="strong" x="50" y="57" text-anchor="middle">Make</text>
+                <path class="line" d="M100 52h30"/><path class="line" d="M122 46l8 6-8 6"/>
+                <rect class="box" x="130" y="30" width="100" height="44"/><text class="strong" x="180" y="57" text-anchor="middle">Send</text>
+                <path class="line" d="M230 52h30"/><path class="line" d="M252 46l8 6-8 6"/>
+                <rect class="hit" x="260" y="30" width="100" height="44"/>
+                <rect x="260" y="30" width="100" height="44" fill="none" stroke="var(--accent)" stroke-width="1.5"/>
+                <text class="accent" x="310" y="57" text-anchor="middle">Sell</text>
+                <text x="0" y="100">No exchange, no app, no contract to deploy</text>
+              </svg>
+            </figure>
+          </div>
 
           <div class="standout">
             <div>
@@ -432,20 +477,9 @@
         <div class="body">
           <div class="grid3">
             <div>
-              <h3>Spend it</h3>
-              <ul>
-                <li><b>New block every 5 seconds</b><span>Paid almost at once</span></li>
-                <li><b>Under a cent a payment</b><span>Whatever the amount</span></li>
-                <li><b>Order numbers</b><span>See which order was paid</span></li>
-                <li><b>Refunds, not chargebacks</b><span>Giving back is your choice</span></li>
-                <li><b>Escrow with a referee</b><span>Released when goods arrive</span></li>
-                <li><b>Subscriptions</b><span>Cancel any time; never overcharged</span></li>
-                <li><b>Shop plugins</b><span>WooCommerce, or a few lines of code</span></li>
-              </ul>
-            </div>
-            <div>
               <h3>Save it</h3>
               <ul>
+                <li><b>Quantum-safe wallets</b><span>Two locks; spending needs both</span></li>
                 <li><b>Savings vaults</b><span>A backup key stops theft</span></li>
                 <li><b>Shared wallets</b><span>Two of three must approve</span></li>
                 <li><b>No coins made in advance</b><span>Every coin is mined</span></li>
@@ -464,6 +498,18 @@
                 <li><b>No smart contracts</b><span>Far less code to go wrong</span></li>
                 <li><b>No bridges</b><span>Nothing locked up with a middleman</span></li>
                 <li><b>Developer tools</b><span>SDK, examples, plain web API</span></li>
+              </ul>
+            </div>
+            <div>
+              <h3>Spend it</h3>
+              <ul>
+                <li><b>New block every 5 seconds</b><span>Paid almost at once</span></li>
+                <li><b>Under a cent a payment</b><span>Whatever the amount</span></li>
+                <li><b>Order numbers</b><span>See which order was paid</span></li>
+                <li><b>Refunds, not chargebacks</b><span>Giving back is your choice</span></li>
+                <li><b>Escrow with a referee</b><span>Released when goods arrive</span></li>
+                <li><b>Subscriptions</b><span>Cancel any time; never overcharged</span></li>
+                <li><b>Shop plugins</b><span>WooCommerce, or a few lines of code</span></li>
               </ul>
             </div>
           </div>
@@ -504,6 +550,11 @@
             This is a test network: its coins have no value and there's nothing to buy yet. It's young, and a full
             independent audit hasn't happened. We'd rather you knew.
           </p>
+          <p style="max-width: 38em;">
+            What has happened: every feature has been through four rounds of penetration testing, with reviews by
+            three AI models (MiniMax, GLM and DeepSeek). Every finding was fixed and covered by a test. A full audit
+            by a security firm is planned for when the maintenance fund or community support can pay for one.
+          </p>
           <div class="actions" style="margin-top: 26px;">
             <a class="button" href="/wallet">Open the wallet</a>
             <a class="textlink" href="https://github.com/Internet-Money-Network/imoney/blob/main/SPECIFICATION.md">Technical details</a>
@@ -514,7 +565,7 @@
 
     <footer>
       <p>Internet Money (IMN) is open-source software under the MIT or Apache-2.0 license, provided without warranty. Nothing on this page is financial advice.</p>
-      <p><a href="https://github.com/Internet-Money-Network">github.com/Internet-Money-Network</a></p>
+      <p><a href="https://github.com/Internet-Money-Network">GitHub</a> · <a href="https://discord.gg/xvaPVSeV">Discord</a> · <a href="https://www.linkedin.com/company/internet-money-network/">LinkedIn</a></p>
     </footer>
   </div>
 </body>

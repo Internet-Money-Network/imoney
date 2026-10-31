@@ -6,6 +6,13 @@ Notable changes to Internet Money. Nothing has been released yet: everything bel
 ## Unreleased
 
 ### Added
+- **Wallet: correct balances for busy addresses.** The wallet read only the first 5,000 coins
+  of an address and showed "0 IMN" while loading; it now reads them all, page by page, shows the
+  total at once and says what is ready to spend. The wallet's second address is now the "token
+  address", with its balance and an "Add 1 IMN" button where tokens, trading and deals need it.
+- **Explorer search and links; a fuller pool page.** A visible search box, `/explorer/?q=` links,
+  and pool earnings, payout progress and recent payouts.
+- **Security:** zstd 0.14.3 (RUSTSEC-2026-0391, -0398, -0403).
 - **Nodes warn when their network has not started yet.** A node started before its network's
   genesis time says when the network starts; until then no block can be mined. A test keeps a
   release from shipping a test network dated in the future.

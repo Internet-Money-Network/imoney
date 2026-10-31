@@ -81,6 +81,10 @@
     .card { margin-top: 26px; }
     h2 { font-weight: 600; font-size: 22px; line-height: 1.15; margin: 0 0 8px; }
 
+    /* Token address strip: what tokens, trading and deals are paid from */
+    .token-funds { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 14px; padding: 10px 12px; margin: 0 0 18px; background: var(--paper-raised); border: 1px solid var(--rule-soft); font-size: 14px; }
+    .token-funds .btn { width: auto; margin: 0; padding: 8px 14px; font-size: 11px; }
+    .fund-fix { display: block; margin-top: 10px; }
     /* The balance, set like the face of a note */
     .note { border: 2px solid var(--rule); padding: 4px; margin-top: 26px; }
     .note-inner { border: 1px solid var(--rule); text-align: center; padding: 20px 16px 16px; }
@@ -265,8 +269,8 @@
     <div id="wallet-main" style="display: none;">
       <div class="note">
         <div class="note-inner">
-          <div class="label" style="margin: 0;">Spendable balance</div>
-          <div class="balance-val" id="wallet-balance">0 IMN</div>
+          <div class="label" style="margin: 0;">Balance</div>
+          <div class="balance-val" id="wallet-balance">Checking…</div>
           <svg class="guilloche" height="14" width="100%" aria-hidden="true"><rect width="100%" height="14" fill="url(#guilloche-wave)"/></svg>
           <div class="small soft" id="wallet-atoms">&nbsp;</div>
         </div>
@@ -280,7 +284,7 @@
           <button class="tab-btn" data-tab="tokens">Tokens</button>
           <button class="tab-btn" data-tab="trade">Trade</button>
           <button class="tab-btn" data-tab="deals">Deals</button>
-          <button class="tab-btn" data-tab="older">Older address</button>
+          <button class="tab-btn" data-tab="older">Token address</button>
           <button class="tab-btn" data-tab="shared">Shared</button>
           <button class="tab-btn" data-tab="settings">Settings</button>
         </div>
@@ -339,6 +343,7 @@
 
         <!-- Tab: Tokens -->
         <div id="tab-tokens" class="tab-content">
+          <div class="token-funds"><span>Paid from your token address: <b class="token-funds-balance">…</b></span><button class="btn quiet token-funds-add">Add 1 IMN</button></div>
           <div id="token-list"><p class="small soft">You don't have any tokens yet.</p></div>
 
           <h3 class="section-label" style="margin-top: 22px;">Send a token</h3>
@@ -400,6 +405,7 @@
 
         <!-- Tab: Trade -->
         <div id="tab-trade" class="tab-content">
+          <div class="token-funds"><span>Paid from your token address: <b class="token-funds-balance">…</b></span><button class="btn quiet token-funds-add">Add 1 IMN</button></div>
           <div class="form-group">
             <label for="trade-pick">Token</label>
             <select id="trade-pick"></select>
@@ -455,25 +461,26 @@
         <!-- Tab: Deals (escrow, subscriptions, savings vault) -->
         <div id="tab-older" class="tab-content">
           <p style="margin: 0 0 14px;">
-            Your wallet's main address is quantum-safe: the money on it is protected even against the
-            quantum computers of the future. Tokens, trading and deals still use your older address for
-            now, so a little money may sit there too.
+            Your wallet has two addresses. Your main address is quantum-safe: the money on it is protected
+            even against the quantum computers of the future. Tokens, trading and deals use this second,
+            ordinary address, because the network keeps tokens on ordinary addresses. Keep a little IMN here
+            for their fees: 1 IMN covers hundreds of them.
           </p>
-          <label>Your older address</label>
+          <label>Your token address</label>
           <div class="address-card">
             <span id="older-address">…</span>
             <button class="copy-btn" id="older-copy">Copy</button>
           </div>
-          <p style="margin: 14px 0 4px;">On your older address: <b id="older-balance">…</b></p>
+          <p style="margin: 14px 0 4px;">On your token address: <b id="older-balance">…</b></p>
           <button class="btn" id="older-move-btn" style="margin-top: 12px;">Move it all to your main address</button>
 
           <details class="more" style="margin-top: 14px;">
-            <summary>Add money for tokens, trading and deals</summary>
+            <summary>Add more IMN for tokens, trading and deals</summary>
             <div class="form-group" style="margin-top: 12px;">
               <label for="older-in-amount">Amount (IMN) to move from your main address</label>
               <input type="text" inputmode="decimal" id="older-in-amount" placeholder="0.00" />
             </div>
-            <button class="btn quiet" id="older-in-btn">Move to older address</button>
+            <button class="btn quiet" id="older-in-btn">Move to token address</button>
           </details>
           <div id="older-status" class="status-msg"></div>
           <details class="more" style="margin-top: 18px;">
@@ -488,6 +495,7 @@
         </div>
 
         <div id="tab-deals" class="tab-content">
+          <div class="token-funds"><span>Paid from your token address: <b class="token-funds-balance">…</b></span><button class="btn quiet token-funds-add">Add 1 IMN</button></div>
           <div class="form-group">
             <label>Your code</label>
             <div style="display: flex; gap: 8px;">
@@ -706,6 +714,39 @@
       el.style.display = 'block';
       el.style.color = ok ? 'var(--accent)' : 'var(--negative)';
       el.innerText = text;
+      // Tokens, trading and deals pay from the token address; when it runs short, say so and offer
+      // to top it up, instead of a bare "Not enough IMN"
+      if (!ok && /^Not enough IMN/.test(text) && el.closest('#tab-tokens, #tab-trade, #tab-deals')) {
+        el.innerText = 'Tokens, trading and deals are paid from your token address, which needs a little more IMN. ';
+        const fix = document.createElement('button');
+        fix.className = 'btn quiet fund-fix';
+        fix.innerText = 'Add 1 IMN from your main address';
+        fix.addEventListener('click', () => topUpTokenAddress(el));
+        el.appendChild(fix);
+      }
+    }
+
+    // Moves IMN from the main, quantum-safe address to the token address
+    const TOP_UP_ATOMS = 100000000;
+    async function moveToTokenAddress(amountAtoms) {
+      await refreshBalance(true);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      await broadcast(
+        wasm.quantum_build_payment(wallet.private_key_hex, TESTNET, wallet.classic, BigInt(amountAtoms), 0n, JSON.stringify(mainSpendable), undefined, undefined)
+      );
+      setTimeout(() => refreshBalance(true), 6000);
+    }
+    async function topUpTokenAddress(statusEl) {
+      try {
+        show(statusEl, 'Adding 1 IMN to your token address… signing takes a moment.', true);
+        await moveToTokenAddress(TOP_UP_ATOMS);
+        show(statusEl, 'Added 1 IMN to your token address. Try again in about 5 seconds.', true);
+      } catch (err) {
+        const text = err.message || String(err);
+        show(statusEl, /^Insufficient funds/.test(text)
+          ? 'Your main address does not have 1 IMN to spare yet. Receive or mine some IMN first, then try again.'
+          : text, false);
+      }
     }
 
     function formatImn(atoms) {
@@ -772,7 +813,9 @@
       showRememberState();
       renderRequest();
       connectWs();
-      refreshBalance();
+      coinsCountedAt = 0;
+      $('wallet-balance').innerText = 'Checking…';
+      refreshBalance(true);
     }
 
     // Opens a newly created or restored wallet, first remembering it if the user asked to
@@ -895,26 +938,67 @@
     });
 
     // ---------------------------------------------------------------- balance and node status
-    async function refreshBalance() {
+    // The node lists at most 5,000 coins a request, so a busy address (a miner's, a shop's) is read
+    // page by page, each starting after the last coin of the one before
+    async function allCoins(address, onPage) {
+      const coins = [];
+      let after = '';
+      for (;;) {
+        const res = await fetch(`${nodeUrl()}/api/v1/address/${encodeURIComponent(address)}/utxos${after}`);
+        if (!res.ok) throw new Error(`coin list: HTTP ${res.status}`);
+        const page = await res.json();
+        coins.push(...page);
+        if (onPage) onPage(coins.length);
+        if (page.length < 5000) return coins;
+        const last = page[page.length - 1];
+        after = `?after=${last.transaction_id}:${last.index}`;
+      }
+    }
+
+    // The total comes from one quick lookup and refreshes every few seconds. Which coins can be spent
+    // needs the whole coin list, which takes longer for a busy address, so it is counted at most once
+    // a minute (or at once when asked), and the screen says so while it runs.
+    let coinsCountedAt = 0;
+    let countingCoins = false;
+
+    async function refreshBalance(recount) {
       if (!wallet) return;
+      const address = wallet.address;
       try {
-        const [mainRes, olderRes] = await Promise.all([
-          fetch(`${nodeUrl()}/api/v1/address/${encodeURIComponent(wallet.address)}/utxos`),
-          fetch(`${nodeUrl()}/api/v1/address/${encodeURIComponent(wallet.classic)}/utxos`),
-        ]);
-        if (!mainRes.ok || !olderRes.ok) return;
-        const utxos = await mainRes.json();
+        const res = await fetch(`${nodeUrl()}/api/v1/address/${encodeURIComponent(address)}/balance`);
+        if (res.ok && wallet && wallet.address === address) {
+          $('wallet-balance').innerText = formatImn((await res.json()).balance_atoms) + ' IMN';
+        }
+      } catch (err) {
+        console.warn('Balance refresh failed:', err);
+      }
+      if (countingCoins || (recount !== true && Date.now() - coinsCountedAt < 60000)) return;
+      countingCoins = true;
+      const firstCount = coinsCountedAt === 0;
+      if (firstCount) $('wallet-atoms').innerText = 'Checking which coins are ready to spend…';
+      try {
+        const utxos = await allCoins(address, (n) => {
+          if (firstCount && n >= 5000) $('wallet-atoms').innerText = `Checking which coins are ready to spend… ${n.toLocaleString()} counted so far`;
+        });
+        if (!wallet || wallet.address !== address) return;
         mainSpendable = utxos.filter((u) => u.spendable !== false && !u.token);
         const spendableAtoms = mainSpendable.reduce((sum, u) => sum + u.value_atoms, 0);
         const maturingAtoms = utxos.filter((u) => !u.token).reduce((sum, u) => sum + u.value_atoms, 0) - spendableAtoms;
-        $('wallet-balance').innerText = formatImn(spendableAtoms) + ' IMN';
-        $('wallet-atoms').innerText = maturingAtoms > 0 ? `+ ${formatImn(maturingAtoms)} IMN in mining rewards still maturing` : ' ';
+        $('wallet-atoms').innerText = maturingAtoms > 0
+          ? `Ready to spend: ${formatImn(spendableAtoms)} IMN. Mining rewards still maturing: ${formatImn(maturingAtoms)} IMN`
+          : ' ';
         $('coin-count').innerText = mainSpendable.length;
-        const older = await olderRes.json();
+        const older = await allCoins(wallet.classic);
         spendable = older.filter((u) => u.spendable !== false);
-        $('older-balance').innerText = formatImn(spendable.filter((u) => !u.token).reduce((sum, u) => sum + u.value_atoms, 0)) + ' IMN';
+        const tokenAddressImn = formatImn(spendable.filter((u) => !u.token).reduce((sum, u) => sum + u.value_atoms, 0)) + ' IMN';
+        $('older-balance').innerText = tokenAddressImn;
+        document.querySelectorAll('.token-funds-balance').forEach((b) => { b.innerText = tokenAddressImn; });
+        coinsCountedAt = Date.now();
       } catch (err) {
-        console.warn('Balance refresh failed:', err);
+        console.warn('Coin count failed:', err);
+        if (firstCount) $('wallet-atoms').innerText = 'Could not reach the network to count your coins; trying again shortly.';
+      } finally {
+        countingCoins = false;
       }
     }
 
@@ -1026,7 +1110,7 @@
         const amountAtoms = toAtoms($('send-amount').value);
         if (!(amountAtoms > 0)) throw new Error('Enter an amount greater than zero.');
 
-        await refreshBalance();
+        await refreshBalance(true);
         show(statusEl, 'Signing… this takes a moment.', true);
         await new Promise((resolve) => setTimeout(resolve, 30));
         const signed = await broadcast(
@@ -1054,7 +1138,7 @@
     $('consolidate-btn').addEventListener('click', async () => {
       const statusEl = $('consolidate-status');
       try {
-        await refreshBalance();
+        await refreshBalance(true);
         show(statusEl, 'Signing… this can take several seconds.', true);
         await new Promise((resolve) => setTimeout(resolve, 30));
         const signed = await broadcast(
@@ -1163,7 +1247,7 @@
         if (!wasm.is_valid_address(recipient, TESTNET)) throw new Error("That address doesn't look right. Check it and try again.");
         const units = toUnits($('token-send-amount').value, token.decimals ?? 0);
         if (units <= 0n) throw new Error('Enter an amount.');
-        await refreshBalance();
+        await refreshBalance(true);
         const invoice = $('token-send-invoice').value.trim();
         await broadcast(
           wasm.token_transfer(wallet.private_key_hex, TESTNET, recipient, token.token_id, units, 0n, JSON.stringify(spendable), invoice || undefined)
@@ -1171,7 +1255,7 @@
         show(statusEl, `Sent ${formatUnits(units, token.decimals ?? 0)} ${token.ticker || ''}. It arrives in about 5 seconds.`, true);
         $('token-send-amount').value = '';
         $('token-send-invoice').value = '';
-        setTimeout(() => { refreshBalance(); refreshTokens(); }, 6000);
+        setTimeout(() => { refreshBalance(true); refreshTokens(); }, 6000);
       } catch (err) {
         show(statusEl, err.message || String(err), false);
       }
@@ -1190,12 +1274,12 @@
         const supplyText = $('token-issue-supply').value.trim();
         const supply = supplyText ? toUnits(supplyText, decimals) : 0n;
         if (supply === 0n && !mintable) throw new Error('Say how many to create.');
-        await refreshBalance();
+        await refreshBalance(true);
         await broadcast(
           wasm.token_issue(wallet.private_key_hex, TESTNET, name, ticker, decimals, $('token-issue-url').value, supply, mintable, 0n, JSON.stringify(spendable))
         );
         show(statusEl, `${ticker} is being created. It shows up above in a few seconds.`, true);
-        setTimeout(() => { refreshBalance(); refreshTokens(); }, 6000);
+        setTimeout(() => { refreshBalance(true); refreshTokens(); }, 6000);
       } catch (err) {
         show(statusEl, err.message || String(err), false);
       }
@@ -1207,10 +1291,10 @@
         const text = prompt(`How many more ${token.ticker || 'tokens'} do you want to create?`);
         if (!text) return;
         const units = toUnits(text, token.decimals ?? 0);
-        await refreshBalance();
+        await refreshBalance(true);
         await broadcast(wasm.token_mint(wallet.private_key_hex, TESTNET, token.token_id, units, false, 0n, JSON.stringify(spendable)));
         show(statusEl, `Creating ${formatUnits(units, token.decimals ?? 0)} more ${token.ticker || ''}.`, true);
-        setTimeout(() => { refreshBalance(); refreshTokens(); }, 6000);
+        setTimeout(() => { refreshBalance(true); refreshTokens(); }, 6000);
       } catch (err) {
         show(statusEl, err.message || String(err), false);
       }
@@ -1432,11 +1516,11 @@
         const q = quote();
         if (q.error !== undefined) throw new Error(q.error || 'Enter an amount.');
         const best = tradeSide === 'buy' ? tradeBook.bestAsk : tradeBook.bestBid;
-        await refreshBalance();
+        await refreshBalance(true);
         await broadcast(wasm.offer_take(wallet.private_key_hex, TESTNET, JSON.stringify(best), q.take, 0n, JSON.stringify(spendable)));
         show(statusEl, 'Done. Your balance updates in about 5 seconds.', true);
         $('trade-amount').value = '';
-        setTimeout(() => { refreshBalance(); refreshTokens(); loadTrade(); }, 6000);
+        setTimeout(() => { refreshBalance(true); refreshTokens(); loadTrade(); }, 6000);
       } catch (err) {
         show(statusEl, err.message || String(err), false);
       }
@@ -1451,7 +1535,7 @@
         const atomsEach = toUnits($('trade-order-price').value, 8); // IMN per whole token, in atoms
         if (units <= 0n || atomsEach <= 0n) throw new Error('Enter how many and the price.');
         const scale = 10n ** BigInt(d);
-        await refreshBalance();
+        await refreshBalance(true);
         if (tradeSide === 'sell') {
           await broadcast(wasm.offer_create(wallet.private_key_hex, TESTNET, tradeToken.token_id, units, 'imn', atomsEach, scale, 0n, JSON.stringify(spendable)));
         } else {
@@ -1459,7 +1543,7 @@
           await broadcast(wasm.offer_create(wallet.private_key_hex, TESTNET, 'imn', atoms, tradeToken.token_id, scale, atomsEach, 0n, JSON.stringify(spendable)));
         }
         show(statusEl, 'Your order is placed. It shows under "Your orders" in a few seconds.', true);
-        setTimeout(() => { refreshBalance(); refreshTokens(); loadTrade(); }, 6000);
+        setTimeout(() => { refreshBalance(true); refreshTokens(); loadTrade(); }, 6000);
       } catch (err) {
         show(statusEl, err.message || String(err), false);
       }
@@ -1468,10 +1552,10 @@
     async function cancelOrder(order) {
       const statusEl = $('trade-order-status');
       try {
-        await refreshBalance();
+        await refreshBalance(true);
         await broadcast(wasm.offer_cancel(wallet.private_key_hex, TESTNET, JSON.stringify(order), 0n, JSON.stringify(spendable)));
         show(statusEl, 'Order cancelled. What it held comes back in a few seconds.', true);
-        setTimeout(() => { refreshBalance(); refreshTokens(); loadTrade(); }, 6000);
+        setTimeout(() => { refreshBalance(true); refreshTokens(); loadTrade(); }, 6000);
       } catch (err) {
         show(statusEl, err.message || String(err), false);
       }
@@ -1498,10 +1582,10 @@
     $('older-move-btn').addEventListener('click', async () => {
       const statusEl = $('older-status');
       try {
-        await refreshBalance();
+        await refreshBalance(true);
         const plain = spendable.filter((u) => !u.token);
         const total = plain.reduce((sum, u) => sum + u.value_atoms, 0);
-        if (plain.length === 0) throw new Error('There is nothing on your older address to move.');
+        if (plain.length === 0) throw new Error('There is nothing on your token address to move.');
         // Everything less the fee: try the fee from the size, as build_payment would set it
         const fee = 1000 * (120 + 140 * plain.length);
         if (total <= fee + 100000) throw new Error('The amount there is too small to be worth moving.');
@@ -1515,18 +1599,21 @@
       }
     });
 
+    document.querySelectorAll('.token-funds-add').forEach((button) => {
+      button.addEventListener('click', () => {
+        const status = button.closest('.tab-content').querySelector('.status-msg');
+        topUpTokenAddress(status);
+      });
+    });
+
     $('older-in-btn').addEventListener('click', async () => {
       const statusEl = $('older-status');
       try {
         const amountAtoms = toAtoms($('older-in-amount').value);
         if (!(amountAtoms > 0)) throw new Error('Enter an amount greater than zero.');
-        await refreshBalance();
         show(statusEl, 'Signing… this takes a moment.', true);
-        await new Promise((resolve) => setTimeout(resolve, 30));
-        await broadcast(
-          wasm.quantum_build_payment(wallet.private_key_hex, TESTNET, wallet.classic, BigInt(amountAtoms), 0n, JSON.stringify(mainSpendable), undefined, undefined)
-        );
-        show(statusEl, `Moved ${formatImn(amountAtoms)} IMN to your older address.`, true);
+        await moveToTokenAddress(amountAtoms);
+        show(statusEl, `Moved ${formatImn(amountAtoms)} IMN to your token address. It is ready in about 5 seconds.`, true);
         $('older-in-amount').value = '';
         setTimeout(refreshBalance, 6000);
       } catch (err) {
@@ -1571,7 +1658,7 @@
       try {
         await broadcast(signedJson);
         show($('deals-status'), `${label}. It takes about 5 seconds.`, true);
-        setTimeout(() => { refreshBalance(); renderDeals(); }, 6000);
+        setTimeout(() => { refreshBalance(true); renderDeals(); }, 6000);
       } catch (err) {
         show($('deals-status'), err.message || String(err), false);
       }
@@ -1751,7 +1838,7 @@
         const days = Math.max(1, Number($('escrow-days').value) || 7);
         const now = await blueScore();
         const program = JSON.parse(wasm.escrow_terms(wallet.public_key_hex, needCode('escrow-seller'), needCode('escrow-referee'), BigInt(now + days * 24 * BLOCKS_PER_HOUR), $('escrow-after').value === 'seller', TESTNET));
-        await refreshBalance();
+        await refreshBalance(true);
         await broadcast(wasm.build_payment(wallet.private_key_hex, TESTNET, program.address, BigInt(amount), 0n, JSON.stringify(spendable), undefined, undefined));
         addDeal({ kind: 'escrow', terms_hex: program.terms_hex });
         show($('deals-status'), 'Escrow started. Press Share on it and send the code to the seller and the referee.', true);
@@ -1769,7 +1856,7 @@
         const periods = Math.max(1, Number($('sub-periods').value) || 1);
         const now = await blueScore();
         const program = JSON.parse(wasm.subscription_terms(wallet.public_key_hex, needCode('sub-shop'), BigInt(amount), BigInt(days * 24 * BLOCKS_PER_HOUR), BigInt(now), `${wallet.classic}:${now}`, TESTNET));
-        await refreshBalance();
+        await refreshBalance(true);
         // A subscription holds exactly one coin: check the address is still empty first
         const held = await (await fetch(`${nodeUrl()}/api/v1/address/${program.address}/balance`)).json();
         await broadcast(wasm.subscription_fund(wallet.private_key_hex, TESTNET, program.terms_hex, BigInt(amount * periods), BigInt(held.balance_atoms || 0), JSON.stringify(spendable)));
@@ -1788,7 +1875,7 @@
         addDeal({ kind: 'vault', terms_hex: program.terms_hex, pending: [] });
         const amount = $('vault-amount').value.trim() ? toAtoms($('vault-amount').value) : 0;
         if (amount > 0) {
-          await refreshBalance();
+          await refreshBalance(true);
           await broadcast(wasm.build_payment(wallet.private_key_hex, TESTNET, program.address, BigInt(amount), 0n, JSON.stringify(spendable), undefined, undefined));
         }
         show($('deals-status'), 'Vault created. Press Share on it and add the code to your backup wallet too.', true);

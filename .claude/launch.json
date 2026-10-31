@@ -1,0 +1,33 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "website",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8765",
+        "--directory",
+        "dist-site/public"
+      ],
+      "port": 8765
+    },
+    {
+      "name": "website-live-data",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "wrangler",
+        "pages",
+        "dev",
+        "public",
+        "--port",
+        "8788",
+        "--compatibility-date",
+        "2024-09-01"
+      ],
+      "port": 8788,
+      "cwd": "dist-site"
+    }
+  ]
+}

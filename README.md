@@ -3,8 +3,8 @@
 </p>
 
 <p align="center">
-  <b>A proof-of-work BlockDAG Layer-1 cryptocurrency built for payments.</b><br>
-  <sub>Zero Premine &bull; 5% Maintenance Fee, First 3 Years Only &bull; ~5-Second Block Inclusion &bull; Pure-Rust redb Storage &bull; Native Merchant SDK</sub>
+  <b>Quantum-safe proof-of-work money on a 5-second BlockDAG, with tokens built in.</b><br>
+  <sub>Quantum-Safe Wallets (Ed25519 + SQIsign) &bull; Native Tokens &amp; Market &bull; ~5-Second Blocks &bull; GPU Mining, Zero Premine &bull; 5% Maintenance Fee, First 3 Years Only</sub>
 </p>
 
 
@@ -12,16 +12,25 @@
   <a href="https://github.com/Internet-Money-Network/imoney/actions/workflows/ci.yml"><img src="https://github.com/Internet-Money-Network/imoney/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
   <a href="https://github.com/Internet-Money-Network/imoney/releases"><img src="https://img.shields.io/github/v/release/Internet-Money-Network/imoney?include_prereleases&label=release" alt="Release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg" alt="License"></a>
-  <a href="https://internetmoneynetwork.org/explorer/"><img src="https://img.shields.io/badge/explorer-testnet--2-green.svg" alt="Explorer"></a>
+  <a href="https://internetmoneynetwork.org/explorer/"><img src="https://img.shields.io/badge/explorer-testnet--6-green.svg" alt="Explorer"></a>
   <a href="https://internetmoneynetwork.org/pool/"><img src="https://img.shields.io/badge/pool-testnet-green.svg" alt="Pool"></a>
+</p>
+
+<p align="center">
+  <a href="https://internetmoneynetwork.org">Website</a> &bull;
+  <a href="https://internetmoneynetwork.org/whitepaper">Whitepaper</a> &bull;
+  <a href="https://discord.gg/xvaPVSeV">Discord</a> &bull;
+  <a href="https://www.linkedin.com/company/internet-money-network/">LinkedIn</a>
 </p>
 
 ---
 
 ## Overview
 
-**Internet Money (`IMN`)** is an open-source, permissionless Layer-1 proof-of-work cryptocurrency designed for real-world merchant checkout and decentralized digital cash.
+**Internet Money (`IMN`)** is an open-source, permissionless Layer-1 proof-of-work cryptocurrency. Every wallet is quantum-safe by default, tokens and a market are part of the consensus rules, and a full node runs on a small server.
 
+- **Quantum-Safe Wallets:** The wallet's main address locks coins to two keys, Ed25519 and SQIsign (a post-quantum signature scheme in NIST's standardisation programme). Spending needs a valid signature from each, verified in parallel, so coins stay protected if either scheme falls. SQIsign was chosen over ML-DSA and Falcon for size: its public key and signature together are 283 bytes, against about 1,560 for Falcon-512 and 3,730 for ML-DSA-44, which matters when every node stores every signature. We know of no other blockchain that uses it.
+- **Native Tokens, Market and Escrow:** Issuing a token, trading it on the built-in order book, escrow with a referee, subscriptions and time-locked vaults are consensus rules every node checks, not smart contracts.
 - **~5-Second Block Inclusion (0.2 BPS):** Combines the GHOSTDAG ($k=8$) parallel block consensus model with 5,000 ms block times. Honest concurrent blocks merge into a single directed acyclic graph instead of being thrown away, and history older than 12 hours is final.
 - **Hallmark PoW (FishHash):** The memory-hard FishHash algorithm from Iron Fish, with a seed specific to this network. Each hash makes random reads across a 4.6 GB dataset, which favours commodity GPU memory over custom chips. Nodes verify blocks from a 75 MB cache.
 - **Sub-1% Long-Term Inflation Floor:** Strict 4-year halving cycle starting at 5.0 IMN/block, tapering down to a permanent 0.3125 IMN (about 0.83% annual inflation at year 16, declining) security subsidy floor to ensure permanent miner incentive without exorbitant user fees.

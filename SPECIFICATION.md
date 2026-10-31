@@ -7,7 +7,7 @@
 
 ## 1. Abstract
 
-Internet Money (`IMN`) is an open-source decentralized cryptocurrency based on a directed acyclic graph of blocks (BlockDAG) ordered by the GHOSTDAG consensus protocol. It is engineered to provide sub-second transaction visibility with ~5-second block inclusion, with ASIC resistance as a design goal and decentralized mining distribution via the memory-hard **Hallmark** Proof-of-Work algorithm.
+Internet Money (`IMN`) is an open-source proof-of-work cryptocurrency based on a directed acyclic graph of blocks (BlockDAG) ordered by the GHOSTDAG consensus protocol, with a block every 5 seconds. Its main addresses are quantum-safe: coins are locked to an Ed25519 key and a SQIsign key, and a spend needs both signatures (§8.11). Tokens, offers, escrow, subscriptions, vaults and hash locks are consensus rules rather than contracts (§6.4, §8). Mining uses the memory-hard **Hallmark** algorithm, suited to commodity graphics cards. The [whitepaper](https://internetmoneynetwork.org/whitepaper) explains the design; this document specifies it.
 
 ---
 

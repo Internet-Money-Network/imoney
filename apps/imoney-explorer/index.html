@@ -85,20 +85,26 @@
     .network.down i { background: #ff8a7a; }
     .guilloche { display: block; color: var(--wave); background: var(--wave-bed); }
 
-    /* Search */
-    .search { display: flex; gap: 0; border-bottom: 1px solid var(--rule-soft); }
+    /* Search: the first thing on the page, framed so it reads as a field */
+    .search-wrap { padding: 22px 0 24px; border-bottom: 1px solid var(--rule-soft); }
+    .search-wrap label { display: block; font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 10px; }
+    .search { display: flex; align-items: stretch; border: 1.5px solid var(--rule); background: var(--paper-raised); }
+    .search:focus-within { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent); }
+    .search svg { flex: none; width: 20px; height: 20px; margin: auto 0 auto 14px; color: var(--ink-soft); }
     .search input {
-      flex: 1; min-width: 0; background: none; border: 0; padding: 16px 0; color: var(--ink);
-      font-family: var(--mono); font-size: 14px;
+      flex: 1; min-width: 0; background: none; border: 0; padding: 15px 12px; color: var(--ink);
+      font-family: var(--mono); font-size: 15px;
     }
     .search input::placeholder { color: var(--ink-soft); }
     .search input:focus { outline: none; }
-    .search:focus-within { border-bottom-color: var(--rule); }
     .search button {
-      background: none; border: 0; color: var(--ink); cursor: pointer; padding: 0 0 0 20px;
+      flex: none; background: var(--rule); border: 0; color: var(--paper-raised); cursor: pointer; padding: 0 22px;
       font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase;
     }
-    .search button:hover { color: var(--accent); }
+    .search button:hover, .search button:focus-visible { background: var(--accent); }
+    .search-wrap .hint { font-size: 13px; color: var(--ink-soft); margin-top: 8px; }
+    .search-wrap kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--rule-soft); padding: 0 5px; }
+    @media (max-width: 560px) { .search button { padding: 0 14px; } .search-wrap .hint kbd { display: none; } }
 
     /* Headline figures: four across, divided by rules */
     .figures { display: grid; grid-template-columns: repeat(4, 1fr); border-bottom: 1px solid var(--rule-soft); }
@@ -224,9 +230,14 @@
   </svg>
 
   <div class="page">
-    <div class="search">
-      <input type="text" id="search-input" autocomplete="off" spellcheck="false" placeholder="Block, transaction, token ID or address" aria-label="Search by block hash, transaction ID, token ID or address" />
-      <button id="search-btn">Search</button>
+    <div class="search-wrap">
+      <label for="search-input">Look up an address, transaction or block</label>
+      <div class="search" role="search">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M15.5 15.5L21 21" stroke="currentColor" stroke-width="2"/></svg>
+        <input type="search" id="search-input" autocomplete="off" spellcheck="false" placeholder="Address, transaction ID or block hash" />
+        <button id="search-btn">Search</button>
+      </div>
+      <div class="hint">Token IDs work too. Press <kbd>/</kbd> to jump here.</div>
     </div>
 
     <div class="figures">
@@ -822,9 +833,25 @@
       openModal('Not found', '<p>No block, transaction, token or address matches ' + code(q) + '.</p><p class="soft">A node that prunes old data no longer has transactions older than 36 hours.</p>');
     }
     $('search-btn').addEventListener('click', search);
+    // "/" anywhere on the page jumps to the search box, as on most explorers
+    document.addEventListener('keydown', (event) => {
+      if (event.key === '/' && !['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
+        event.preventDefault();
+        $('search-input').focus();
+      }
+    });
     $('search-input').addEventListener('keydown', (event) => {
       if (event.key === 'Enter') search();
     });
+    // A link such as /explorer/?q=<address, transaction or block> opens that search, so other pages
+    // (the pool, the wallet) can point at one item
+    {
+      const linked = new URLSearchParams(location.search).get('q');
+      if (linked) {
+        $('search-input').value = linked;
+        search();
+      }
+    }
     $('modal-close').addEventListener('click', closeModal);
     $('sheet').addEventListener('click', (event) => {
       if (event.target === $('sheet')) closeModal();

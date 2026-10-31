@@ -4,10 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Internet Money (IMN)</title>
-  <meta name="description" content="Internet Money is an open-source proof-of-work currency you can spend, save and build on: payments, theft-resistant savings, tokens and trading built into the coin itself. No premine; 5% of block rewards fund maintenance for the first three years. A test network is running.">
+  <meta name="description" content="Internet Money is open-source proof-of-work money with quantum-safe wallets, built-in tokens and a market, theft-resistant savings and payments, on a 5-second BlockDAG. No premine; 5% of block rewards fund maintenance for the first three years. A test network is running.">
   <link rel="canonical" href="https://internetmoneynetwork.org/">
   <meta property="og:title" content="Internet Money (IMN)">
-  <meta property="og:description" content="One coin, three jobs: spend it, save it, build on it. Payments, theft-resistant savings, tokens and trading, built into the coin. No premine; 5% of block rewards fund maintenance for the first three years.">
+  <meta property="og:description" content="Quantum-safe wallets, your own tokens and a built-in market, on a 5-second BlockDAG mined with graphics cards. No premine; 5% of block rewards fund maintenance for the first three years.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://internetmoneynetwork.org/">
   <meta property="og:image" content="https://internetmoneynetwork.org/banner.png">
@@ -213,6 +213,13 @@
     .jobs h3 { font-family: var(--serif); font-weight: 600; font-size: 27px; line-height: 1.1; margin: 8px 0 10px; }
     .jobs p { margin: 0; font-size: 16px; color: var(--ink-soft); }
     .jobs .icon { width: 44px; height: 44px; display: block; margin-bottom: 14px; color: var(--ink); }
+    /* Quantum-safe wallets, under the three jobs */
+    .lasting { display: grid; grid-template-columns: 44px 1fr; gap: 18px; margin-top: 26px; padding: 22px 24px; border: 1px solid var(--rule-soft); }
+    .lasting .icon { width: 44px; height: 44px; color: var(--accent); }
+    .lasting .kicker { font-family: var(--mono); font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); }
+    .lasting h3 { font-family: var(--serif); font-weight: 600; font-size: 24px; line-height: 1.15; margin: 6px 0 8px; }
+    .lasting p { margin: 0; font-size: 16px; color: var(--ink-soft); }
+    .lasting p + p { margin-top: 8px; font-size: 15px; }
 
     /* Downloads */
     .downloads { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 6px 0 18px; }
@@ -265,12 +272,13 @@
         <nav>
           <a href="#download">Download</a>
           <a href="/features">Features</a>
+          <a href="/whitepaper">Whitepaper</a>
           <a href="/explorer">Explorer</a>
           <a href="/wallet">Wallet</a>
           <a href="/pool/">Pool</a>
-          <a class="optional" href="#why">Three jobs</a>
+          <a class="optional" href="#why">Features</a>
+          <a class="optional" href="#supply">Supply</a>
           <a class="optional" href="#merchants">Shops</a>
-                    <a class="optional" href="#supply">Supply</a>
           <a href="#status">Status</a>
           <a href="https://github.com/Internet-Money-Network/imoney">GitHub</a>
         </nav>
@@ -289,8 +297,10 @@
   <div class="wrap">
     <div class="strapline">
       <span class="live">Testnet running</span>
+      <span>Quantum-safe wallets</span>
+      <span>Tokens built in</span>
+      <span>5-second BlockDAG</span>
       <span>Ticker IMN</span>
-      <span>Spend it · Save it · Build on it</span>
       <span>No premine</span>
       <span>5% maintenance fee, first 3 years</span>
     </div>
@@ -298,11 +308,11 @@
     <main>
       <div class="hero">
         <div>
-          <h1>Money you can spend, save and <em>build on.</em></h1>
+          <h1>Money built for the <em>quantum age.</em></h1>
           <p class="lede">
-            Pay and get paid in seconds, for less than a cent. Keep savings a thief can't empty.
-            Make your own token and trade it with anyone. All of it is built into the coin itself,
-            with no bank, app or company in the middle.
+            Every wallet is quantum-safe from day one. Make your own token and trade it without an exchange.
+            Keep savings a thief can't empty. All of it is built into the coin itself, on a BlockDAG that
+            adds a block every five seconds, mined fairly on ordinary graphics cards.
           </p>
           <div class="actions">
             <a class="button" href="/wallet">Open the wallet</a>
@@ -338,26 +348,35 @@
         <div class="label"><span class="num">§1</span>At a glance</div>
         <div class="body">
           <dl class="figures">
-            <div><dt>A payment arrives in</dt><dd>~5<small>seconds</small></dd></div>
-            <div><dt>Network fee</dt><dd>&lt;1¢<small>per payment</small></dd></div>
-            <div><dt>Middlemen</dt><dd>0<small>no bank, no processor</small></dd></div>
+            <div><dt>Locks on every wallet</dt><dd>2<small>today's standard + quantum-safe</small></dd></div>
+            <div><dt>A new block every</dt><dd>~5<small>seconds</small></dd></div>
+            <div><dt>Smart contracts needed for tokens</dt><dd>0<small>tokens are built in</small></dd></div>
             <div><dt>Coins made in advance</dt><dd>0<small>every coin is mined</small></dd></div>
-            <div><dt>Chargebacks</dt><dd>0<small>refunds are your choice</small></dd></div>
+            <div><dt>Network fee</dt><dd>&lt;1¢<small>per transaction</small></dd></div>
             <div><dt>Code</dt><dd>100%<small>open source</small></dd></div>
           </dl>
         </div>
       </section>
 
       <section class="block" id="why">
-        <div class="label"><span class="num">§2</span>Three jobs</div>
+        <div class="label"><span class="num">§2</span>Features</div>
         <div class="body">
-          <h2>One coin, three jobs. Nothing bolted on.</h2>
-          <div class="jobs">
+          <h2>Safe for decades. Useful today.</h2>
+          <div class="lasting">
+            <svg class="icon" viewBox="0 0 44 44" aria-hidden="true"><rect x="4" y="20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 20v-5a4 4 0 0 1 8 0v5" fill="none" stroke="currentColor" stroke-width="2"/><rect x="24" y="20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"/><path d="M28 20v-5a4 4 0 0 1 8 0v5" fill="none" stroke="currentColor" stroke-width="2"/></svg>
             <div>
-              <svg class="icon" viewBox="0 0 44 44" aria-hidden="true"><rect x="4" y="10" width="36" height="24" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 17h36" stroke="currentColor" stroke-width="2"/><path d="M10 27h10" stroke="currentColor" stroke-width="2"/></svg>
-              <span class="kicker">Spend it</span>
-              <h3>Paid in seconds</h3>
-              <p>Under a cent a payment. Order numbers, refunds and escrow built in.</p>
+              <span class="kicker">Built to last</span>
+              <h3>Safe from tomorrow's computers, too.</h3>
+              <p>Every wallet is locked twice: once with today's proven standard, and once with a newer lock designed to resist future quantum computers. Spending needs both keys.</p>
+              <p>You get quantum protection now, without giving up the security that already works. <a href="/features#two-locks">Why two locks?</a></p>
+            </div>
+          </div>
+          <div class="jobs" style="margin-top: 30px;">
+            <div>
+              <svg class="icon" viewBox="0 0 44 44" aria-hidden="true"><circle cx="16" cy="22" r="9" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="28" cy="22" r="9" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+              <span class="kicker">Build on it</span>
+              <h3>Your own token</h3>
+              <p>Make one in a minute and trade it with anyone. No exchange.</p>
             </div>
             <div>
               <svg class="icon" viewBox="0 0 44 44" aria-hidden="true"><rect x="7" y="8" width="30" height="28" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="22" cy="22" r="6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M22 16v-3M22 31v-3M16 22h-3M31 22h-3" stroke="currentColor" stroke-width="2"/></svg>
@@ -366,16 +385,17 @@
               <p>Vault withdrawals wait, and your backup key can stop them.</p>
             </div>
             <div>
-              <svg class="icon" viewBox="0 0 44 44" aria-hidden="true"><circle cx="16" cy="22" r="9" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="28" cy="22" r="9" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-              <span class="kicker">Build on it</span>
-              <h3>Your own token</h3>
-              <p>Make one in a minute and trade it with anyone. No exchange.</p>
+              <svg class="icon" viewBox="0 0 44 44" aria-hidden="true"><rect x="4" y="10" width="36" height="24" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 17h36" stroke="currentColor" stroke-width="2"/><path d="M10 27h10" stroke="currentColor" stroke-width="2"/></svg>
+              <span class="kicker">Spend it</span>
+              <h3>Ready for shops</h3>
+              <p>Under a cent a payment, in a block within seconds. Order numbers, refunds and escrow built in.</p>
             </div>
           </div>
           <p style="margin-top: 22px;"><a class="textlink" href="/features">Every feature, and how we compare</a></p>
           <details class="more">
             <summary>How it works, for the technically curious</summary>
             <ul class="plain">
+              <li>Wallet addresses carry two public keys, Ed25519 and SQIsign (a post-quantum signature scheme in NIST's standardisation programme). Spending needs a valid signature from each; nodes check them in parallel. SQIsign was chosen over the more common ML-DSA and Falcon for size: its key and signature together are 283 bytes, against about 1,560 for Falcon-512 and 3,730 for ML-DSA-44.</li>
               <li>A block every five seconds. When two miners find one at the same moment, both are kept and put in order (GHOSTDAG), so a short block time wastes no work.</li>
               <li>A full node is small enough for a shop to run on a cheap server and check its own payments, instead of trusting someone else's.</li>
               <li>Mining uses graphics cards. The algorithm, Hallmark, is FishHash with our own seed: each hash reads randomly across gigabytes of memory.</li>
@@ -399,16 +419,16 @@
           <h2>Your wallet, in its own window.</h2>
           <p>Install it and open it. It checks your payments itself, with nothing to set up.</p>
           <div class="downloads">
-            <a data-os="windows" href="https://github.com/Internet-Money-Network/imoney/releases/download/v0.1.10/Internet.Money_0.1.10_x64-setup.exe"><b>Windows</b><span>Windows 10 and 11</span></a>
-            <a data-os="mac-arm" href="https://github.com/Internet-Money-Network/imoney/releases/download/v0.1.10/Internet.Money_0.1.10_aarch64.dmg"><b>Mac</b><span>Apple M1 and newer</span></a>
-            <a data-os="mac-intel" href="https://github.com/Internet-Money-Network/imoney/releases/download/v0.1.10/Internet.Money_0.1.10_x64.dmg"><b>Mac</b><span>Intel</span></a>
-            <a data-os="linux" href="https://github.com/Internet-Money-Network/imoney/releases/download/v0.1.10/Internet.Money_0.1.10_amd64.AppImage"><b>Linux</b><span>AppImage</span></a>
+            <a data-os="windows" href="https://github.com/Internet-Money-Network/imoney/releases/download/v0.1.11/Internet.Money_0.1.11_x64-setup.exe"><b>Windows</b><span>Windows 10 and 11</span></a>
+            <a data-os="mac-arm" href="https://github.com/Internet-Money-Network/imoney/releases/download/v0.1.11/Internet.Money_0.1.11_aarch64.dmg"><b>Mac</b><span>Apple M1 and newer</span></a>
+            <a data-os="mac-intel" href="https://github.com/Internet-Money-Network/imoney/releases/download/v0.1.11/Internet.Money_0.1.11_x64.dmg"><b>Mac</b><span>Intel</span></a>
+            <a data-os="linux" href="https://github.com/Internet-Money-Network/imoney/releases/download/v0.1.11/Internet.Money_0.1.11_amd64.AppImage"><b>Linux</b><span>AppImage</span></a>
           </div>
           <p class="note">
             Your computer may warn that the app is from an unknown publisher. On Windows choose "More info", then "Run anyway";
             on a Mac, allow it once in Settings, Privacy &amp; Security. Test network only.
-            <a href="https://github.com/Internet-Money-Network/imoney/releases/tag/v0.1.10">All downloads</a>
-            and <a href="https://github.com/Internet-Money-Network/imoney/releases/download/v0.1.10/SHA256SUMS.txt">checksums</a> to confirm a download is genuine.
+            <a href="https://github.com/Internet-Money-Network/imoney/releases/tag/v0.1.11">All downloads</a>
+            and <a href="https://github.com/Internet-Money-Network/imoney/releases/download/v0.1.11/SHA256SUMS.txt">checksums</a> to confirm a download is genuine.
           </p>
           <script>
             // Point out the download for this computer; the others stay a click away
@@ -421,44 +441,9 @@
         </div>
       </section>
 
-      <section class="block" id="merchants">
-        <div class="label"><span class="num">§4</span>For shops</div>
-        <div class="body">
-          <h2>Add it to your shop in minutes.</h2>
-          <div class="split">
-            <div>
-              <p>
-                On WordPress, install the WooCommerce plugin and enter your address. Customers scan a code to pay,
-                and the order is marked paid by itself.
-              </p>
-              <ul class="plain">
-                <li>No sign-up and no account with anyone</li>
-                <li>The money goes straight to your address</li>
-                <li>The Refund button works as you'd expect</li>
-                <li>For other sites, a few lines of JavaScript</li>
-              </ul>
-              <p class="note" style="margin-top: 20px;">
-                Test network only for now. Don't use it for real orders yet.
-              </p>
-            </div>
-            <div>
-              <div class="filetab"><span>checkout.js</span><span>@imoney/sdk</span></div>
-<pre><span class="c">// Show a checkout for one order</span>
-client.openCheckoutModal({
-  merchantAddress: <span class="s">'imntest:q...'</span>,
-  amountImn: <span class="s">'12.5'</span>,
-  invoiceId: <span class="s">'INV-1042'</span>,
-  onSuccess: (payment) =&gt; {
-    markOrderPaid(payment.invoiceId);
-  }
-});</pre>
-            </div>
-          </div>
-        </div>
-      </section>
 
       <section class="block" id="supply">
-        <div class="label"><span class="num">§5</span>Supply</div>
+        <div class="label"><span class="num">§4</span>Supply</div>
         <div class="body">
           <h2>Every coin is mined, on a schedule nobody can change.</h2>
           <p>
@@ -502,6 +487,41 @@ client.openCheckoutModal({
           </div>
         </div>
       </section>
+      <section class="block" id="merchants">
+        <div class="label"><span class="num">§5</span>For shops</div>
+        <div class="body">
+          <h2>Add it to your shop in minutes.</h2>
+          <div class="split">
+            <div>
+              <p>
+                On WordPress, install the WooCommerce plugin and enter your address. Customers scan a code to pay,
+                and the order is marked paid by itself.
+              </p>
+              <ul class="plain">
+                <li>No sign-up and no account with anyone</li>
+                <li>The money goes straight to your address</li>
+                <li>The Refund button works as you'd expect</li>
+                <li>For other sites, a few lines of JavaScript</li>
+              </ul>
+              <p class="note" style="margin-top: 20px;">
+                Test network only for now. Don't use it for real orders yet.
+              </p>
+            </div>
+            <div>
+              <div class="filetab"><span>checkout.js</span><span>@imoney/sdk</span></div>
+<pre><span class="c">// Show a checkout for one order</span>
+client.openCheckoutModal({
+  merchantAddress: <span class="s">'imntest:q...'</span>,
+  amountImn: <span class="s">'12.5'</span>,
+  invoiceId: <span class="s">'INV-1042'</span>,
+  onSuccess: (payment) =&gt; {
+    markOrderPaid(payment.invoiceId);
+  }
+});</pre>
+            </div>
+          </div>
+        </div>
+      </section>
 
       <section class="block" id="status">
         <div class="label"><span class="num">§6</span>Where it stands</div>
@@ -520,10 +540,11 @@ client.openCheckoutModal({
                 <li>Shared wallets that need two people to approve</li>
                 <li>Payments older than 12 hours can never be undone</li>
                 <li>A node small enough for a shop to run</li>
+                <li>Wallets protected against future quantum computers</li>
                 <li>Trading, tokens and escrow</li>
                 <li>Subscriptions and savings vaults</li>
                 <li>A <a href="#download">desktop app</a> for Windows, Mac and Linux</li>
-                <li>Three rounds of outside security testing</li>
+                <li>Four rounds of security testing, every finding fixed</li>
               </ul>
             </div>
             <div class="doing">
@@ -544,13 +565,16 @@ client.openCheckoutModal({
               </ul>
             </div>
           </div>
+          <h3 style="font-family: var(--serif); font-size: 24px; margin: 36px 0 8px;">Security testing, in the open</h3>
+          <p>Every feature has been through four rounds of penetration testing, with reviews by three AI models (MiniMax, GLM and DeepSeek). Every finding was fixed and covered by a test; the fixes are described in the <a href="https://github.com/Internet-Money-Network/imoney/blob/main/CHANGELOG.md">changelog</a>. A full audit by a security firm costs more than the project has today; it is planned for when the maintenance fund or community support can pay for one.</p>
+          <p class="note">Found a problem? <a href="https://github.com/Internet-Money-Network/imoney/blob/main/SECURITY.md">Report it privately</a>.</p>
         </div>
       </section>
     </main>
 
     <footer>
       <p>Internet Money (IMN) is open-source software under the MIT or Apache-2.0 license, provided without warranty. Nothing on this page is financial advice.</p>
-      <p><a href="https://github.com/Internet-Money-Network">github.com/Internet-Money-Network</a></p>
+      <p><a href="https://github.com/Internet-Money-Network">GitHub</a> · <a href="https://discord.gg/xvaPVSeV">Discord</a> · <a href="https://www.linkedin.com/company/internet-money-network/">LinkedIn</a></p>
     </footer>
   </div>
 </body>
